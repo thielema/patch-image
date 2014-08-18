@@ -21,14 +21,6 @@ project x (a, b) =
    let (r, _, _, y) = Line.distanceAux a b x
    in  toMaybe (0<=r && r<=1) y
 
-triA, triB :: [Point2 Double]
-triA = [Point2 (10, 10), Point2 (245, 100), Point2 (100, 245)]
-triB = map (\(Point2 (x,y)) -> Point2 (255-x,y)) triA
-
-boxA, boxB :: [Point2 Double]
-boxA = [Point2 (10, 10), Point2 (200, 10), Point2 (200, 200), Point2 (10, 200)]
-boxB = [Point2 (55, 55), Point2 (245, 55), Point2 (245, 245), Point2 (55, 245)]
-
 poly2 ::
    (Floating a, RealFrac a) =>
    [Point2 a] -> [Point2 a] -> Pic.Image Pic.PixelRGB8
@@ -80,6 +72,14 @@ gradient =
       (\x y -> Pic.PixelRGB8 (fromIntegral x) (fromIntegral y) 128)
       256 256
 
+
+triA, triB :: [Point2 Double]
+triA = [Point2 (10, 10), Point2 (245, 100), Point2 (100, 245)]
+triB = map (\(Point2 (x,y)) -> Point2 (255-x,y)) triA
+
+boxA, boxB :: [Point2 Double]
+boxA = [Point2 (10, 10), Point2 (200, 10), Point2 (200, 200), Point2 (10, 200)]
+boxB = [Point2 (55, 55), Point2 (245, 55), Point2 (245, 245), Point2 (55, 245)]
 
 main :: IO ()
 main = do
