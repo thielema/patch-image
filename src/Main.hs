@@ -43,27 +43,21 @@ poly2 points0 points1 =
           let x = fromIntegral xi
               y = fromIntegral yi
               p = Point2 (x,y)
-              minDist0 =
+              minDist other this =
                  minimum $ map (distance p) $
-                 (intPoints ++) $
-                 filter (Polygon.contains poly1) $
-                 (points0++) $
-                 mapMaybe (project p) $ Polygon.edges points0
-              minDist1 =
-                 minimum $ map (distance p) $
-                 (intPoints ++) $
-                 filter (Polygon.contains poly0) $
-                 (points1++) $
-                 mapMaybe (project p) $ Polygon.edges points1
-              minDistSum = minDist0 + minDist1
+                 (intPoints ++) $ filter (Polygon.contains other) $
+                 (this++) $ mapMaybe (project p) $ Polygon.edges this
+              minDist0 = minDist poly1 points0
+              minDist1 = minDist poly0 points1
+              scale = 255 / (minDist0 + minDist1)
           in  case (Polygon.contains poly0 p, Polygon.contains poly1 p) of
                  (False, False) -> Pic.PixelRGB8 255 255 255
                  (False, True) -> Pic.PixelRGB8 0 0 255
                  (True, False) -> Pic.PixelRGB8 255 0 0
                  (True, True) ->
                     Pic.PixelRGB8
-                       (round (minDist0/minDistSum*255)) 0
-                       (round (minDist1/minDistSum*255))
+                       (round (minDist0*scale)) 0
+                       (round (minDist1*scale))
    in  Pic.generateImage render 256 256
 
 
