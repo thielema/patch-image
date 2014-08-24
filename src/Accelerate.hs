@@ -12,6 +12,7 @@ import qualified Data.Vector.Storable as SV
 
 import Text.Printf (printf)
 
+import Data.Foldable (forM_)
 import Data.Tuple.HT (mapSnd)
 import Data.Word (Word8)
 
@@ -141,11 +142,25 @@ rotate rot arr =
                         A.fromIntegral ydst + top)
              in  indexFrac arr (xsrc, ysrc, chan)
 
+rotateManifest :: Float -> Array DIM3 Word8 -> Array DIM3 Word8
+rotateManifest =
+   let rot =
+          CUDA.run1 $ \arg ->
+             let (cs, arr) = A.unlift arg
+                   :: (Acc (A.Scalar Float, A.Scalar Float),
+                       Acc (Array DIM3 Word8))
+                 (c,s) = A.unlift cs
+                   :: (Acc (A.Scalar Float), Acc (A.Scalar Float))
+             in imageByteFromFloat . rotate (A.the c, A.the s) .
+                imageFloatFromByte $ arr
+   in  \angle arr ->
+          rot ((A.fromList Z [cos angle], A.fromList Z [sin angle]), arr)
+
 
 main :: IO ()
 main = do
-   writeImage 90 "/tmp/test.jpeg" .
-      CUDA.run1
-         (imageByteFromFloat . floatArray .
-          rotate (cos 1, sin 1) . imageFloatFromByte)
-      =<< readImage "data/mpa0.jpeg"
+   pic <- readImage "data/mpa0.jpeg"
+   forM_ [-10..10::Int] $ \angle ->
+      writeImage 90
+         (printf "/tmp/rotated%+03d.jpeg" angle)
+         (rotateManifest (fromIntegral angle * pi/1800) pic)
