@@ -77,6 +77,16 @@ boundingBoxOfRotated rot (w,h) =
           []
    in  ((minimum xs, maximum xs), (minimum ys, maximum ys))
 
+indexLimit ::
+   (A.Elt a) => Acc (Array DIM3 a) -> (Exp Int, Exp Int, Exp Int) -> Exp a
+indexLimit arr (x,y,c) =
+   let (Z :. height :. width :. _chans) =
+          A.unlift $ A.shape arr :: ExpDIM3
+       xc = max 0 $ min (width -1) x
+       yc = max 0 $ min (height-1) y
+   in  arr A.! A.lift (Z :. yc :. xc :. c)
+
+
 type ExpDIM3 = Z :. Exp Int :. Exp Int :. Exp Int
 
 rotate ::
@@ -95,9 +105,7 @@ rotate rot arr =
                     rotatePoint (mapSnd negate rot)
                        (A.fromIntegral xdst + left,
                         A.fromIntegral ydst + top)
-                 xc = max 0 $ min (width -1) $ fastRound xsrc
-                 yc = max 0 $ min (height-1) $ fastRound ysrc
-             in  arr A.! A.lift (Z :. yc :. xc :. chan)
+             in  indexLimit arr (fastRound xsrc, fastRound ysrc, chan)
 
 
 main :: IO ()
