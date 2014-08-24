@@ -77,6 +77,20 @@ boundingBoxOfRotated rot (w,h) =
           []
    in  ((minimum xs, maximum xs), (minimum ys, maximum ys))
 
+linearIp :: (Num a) => (a,a) -> a -> a
+linearIp (x0,x1) t = (1-t) * x0 + t * x1
+
+cubicIp :: (Fractional a) => (a,a,a,a) -> a -> a
+cubicIp (xm1, x0, x1, x2) t =
+   let lipm12 = linearIp (xm1,x2) t
+       lip01  = linearIp (x0, x1) t
+   in  lip01 + (t*(t-1)/2) * (lipm12 + (x0+x1) - 3 * lip01)
+
+splitFraction :: (A.Elt a, A.IsFloating a) => Exp a -> (Exp Int, Exp a)
+splitFraction x =
+   let i = A.floor x
+   in  (i, x - A.fromIntegral i)
+
 indexLimit ::
    (A.Elt a) => Acc (Array DIM3 a) -> (Exp Int, Exp Int, Exp Int) -> Exp a
 indexLimit arr (x,y,c) =
@@ -85,6 +99,26 @@ indexLimit arr (x,y,c) =
        xc = max 0 $ min (width -1) x
        yc = max 0 $ min (height-1) y
    in  arr A.! A.lift (Z :. yc :. xc :. c)
+
+indexFrac ::
+   (A.Elt a, A.IsFloating a) =>
+   Acc (Array DIM3 a) -> (Exp a, Exp a, Exp Int) -> Exp a
+indexFrac arr (x,y,c) =
+   let (xi,xf) = splitFraction x
+       (yi,yf) = splitFraction y
+       interpolRow yc =
+          cubicIp
+             (indexLimit arr (xi-1,yc,c),
+              indexLimit arr (xi,  yc,c),
+              indexLimit arr (xi+1,yc,c),
+              indexLimit arr (xi+2,yc,c))
+             xf
+   in  cubicIp
+          (interpolRow (yi-1),
+           interpolRow  yi,
+           interpolRow (yi+1),
+           interpolRow (yi+2))
+          yf
 
 
 type ExpDIM3 = Z :. Exp Int :. Exp Int :. Exp Int
@@ -105,7 +139,7 @@ rotate rot arr =
                     rotatePoint (mapSnd negate rot)
                        (A.fromIntegral xdst + left,
                         A.fromIntegral ydst + top)
-             in  indexLimit arr (fastRound xsrc, fastRound ysrc, chan)
+             in  indexFrac arr (xsrc, ysrc, chan)
 
 
 main :: IO ()
