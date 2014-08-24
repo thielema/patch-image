@@ -4,7 +4,14 @@ module Main where
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate as A
-import Data.Array.Accelerate (Acc, Array, Exp, DIM3, (:.)((:.)), Z(Z), )
+import Data.Array.Accelerate
+          (Acc, Array, Exp, DIM1, DIM3, (:.)((:.)), Z(Z), Any(Any), )
+
+import qualified Graphics.Gnuplot.Advanced as GP
+import qualified Graphics.Gnuplot.LineSpecification as LineSpec
+
+import qualified Graphics.Gnuplot.Plot.TwoDimensional as Plot2D
+import qualified Graphics.Gnuplot.Graph.TwoDimensional as Graph2D
 
 import qualified Codec.Picture as Pic
 
@@ -12,7 +19,10 @@ import qualified Data.Vector.Storable as SV
 
 import Text.Printf (printf)
 
-import Data.Foldable (forM_)
+import Control.Monad.HT (void)
+import Data.List.HT (mapAdjacent)
+import Data.Traversable (forM)
+import Data.Foldable (foldMap)
 import Data.Tuple.HT (mapSnd)
 import Data.Word (Word8)
 
@@ -142,7 +152,12 @@ rotate rot arr =
                         A.fromIntegral ydst + top)
              in  indexFrac arr (xsrc, ysrc, chan)
 
-rotateManifest :: Float -> Array DIM3 Word8 -> Array DIM3 Word8
+rowHistogram :: Acc (Array DIM3 Float) -> Acc (Array DIM1 Float)
+rowHistogram arr =
+   A.fold (+) 0 $ A.slice arr (A.lift (Any :. (0::Int)))
+
+rotateManifest ::
+   Float -> Array DIM3 Word8 -> (Array DIM3 Word8, Array DIM1 Float)
 rotateManifest =
    let rot =
           CUDA.run1 $ \arg ->
@@ -151,8 +166,11 @@ rotateManifest =
                        Acc (Array DIM3 Word8))
                  (c,s) = A.unlift cs
                    :: (Acc (A.Scalar Float), Acc (A.Scalar Float))
-             in imageByteFromFloat . rotate (A.the c, A.the s) .
-                imageFloatFromByte $ arr
+                 rotated =
+                    rotate (A.the c, A.the s) $ imageFloatFromByte arr
+             in  A.lift
+                    (imageByteFromFloat rotated,
+                     rowHistogram rotated)
    in  \angle arr ->
           rot ((A.fromList Z [cos angle], A.fromList Z [sin angle]), arr)
 
@@ -160,8 +178,26 @@ rotateManifest =
 main :: IO ()
 main = do
    pic <- readImage "data/mpa0.jpeg"
-   forM_ [-10..10::Int] $ \angle -> do
-      let degree = fromIntegral angle / 10
-      writeImage 90
-         (printf "/tmp/rotated%+07.2f.jpeg" degree)
-         (rotateManifest (degree * pi/180) pic)
+   histograms <-
+      forM [-100,-95..100::Int] $ \angle -> do
+         let degree = fromIntegral angle / 100
+         let (rotated, histogram) = rotateManifest (degree * pi/180) pic
+         let stem = printf "rotated%+07.2f" degree
+         writeImage 90 ("/tmp/" ++ stem ++ ".jpeg") rotated
+         let diffHistogram = map abs $ mapAdjacent (-) $ A.toList histogram
+         printf "%s: maxdiff %8.3f, sqrdiff %8.0f\n"
+            stem (maximum diffHistogram) (sum $ map (^(2::Int)) diffHistogram)
+         return (stem, histogram)
+   void $ GP.plotDefault $
+      foldMap
+         (\(label, histogram) ->
+            fmap (Graph2D.lineSpec (LineSpec.title label LineSpec.deflt)) $
+            Plot2D.list Graph2D.listLines $ A.toList histogram)
+         histograms
+   void $ GP.plotDefault $
+      foldMap
+         (\(label, histogram) ->
+            fmap (Graph2D.lineSpec (LineSpec.title label LineSpec.deflt)) $
+            Plot2D.list Graph2D.listLines $
+            map abs $ mapAdjacent (-) $ A.toList histogram)
+         histograms
