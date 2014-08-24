@@ -17,12 +17,16 @@ import qualified Codec.Picture as Pic
 
 import qualified Data.Vector.Storable as SV
 
+import qualified System.Environment as Env
+
 import Text.Printf (printf)
 
+import qualified Data.List.Key as Key
 import Control.Monad.HT (void)
+import Control.Monad (when)
 import Data.List.HT (mapAdjacent)
 import Data.Traversable (forM)
-import Data.Foldable (foldMap)
+import Data.Foldable (forM_, foldMap)
 import Data.Tuple.HT (mapSnd)
 import Data.Word (Word8)
 
@@ -156,16 +160,23 @@ rowHistogram :: Acc (Array DIM3 Float) -> Acc (Array DIM1 Float)
 rowHistogram arr =
    A.fold (+) 0 $ A.slice arr (A.lift (Any :. (0::Int)))
 
+
+unliftRotationParameters ::
+   Acc ((A.Scalar Float, A.Scalar Float), Array DIM3 Word8) ->
+   ((Acc (A.Scalar Float), Acc (A.Scalar Float)), Acc (Array DIM3 Word8))
+unliftRotationParameters arg =
+   let (cs, arr) =
+          A.unlift arg
+             :: (Acc (A.Scalar Float, A.Scalar Float),
+                 Acc (Array DIM3 Word8))
+   in  (A.unlift cs, arr)
+
 rotateManifest ::
    Float -> Array DIM3 Word8 -> (Array DIM3 Word8, Array DIM1 Float)
 rotateManifest =
    let rot =
           CUDA.run1 $ \arg ->
-             let (cs, arr) = A.unlift arg
-                   :: (Acc (A.Scalar Float, A.Scalar Float),
-                       Acc (Array DIM3 Word8))
-                 (c,s) = A.unlift cs
-                   :: (Acc (A.Scalar Float), Acc (A.Scalar Float))
+             let ((c,s), arr) = unliftRotationParameters arg
                  rotated =
                     rotate (A.the c, A.the s) $ imageFloatFromByte arr
              in  A.lift
@@ -175,9 +186,8 @@ rotateManifest =
           rot ((A.fromList Z [cos angle], A.fromList Z [sin angle]), arr)
 
 
-main :: IO ()
-main = do
-   pic <- readImage "data/mpa0.jpeg"
+analyseRotations :: Array DIM3 Word8 -> IO ()
+analyseRotations pic = do
    histograms <-
       forM [-100,-95..100::Int] $ \angle -> do
          let degree = fromIntegral angle / 100
@@ -201,3 +211,38 @@ main = do
             Plot2D.list Graph2D.listLines $
             map abs $ mapAdjacent (-) $ A.toList histogram)
          histograms
+
+
+
+differentiate ::
+   (A.Elt a, A.IsNum a) =>
+   Acc (Array DIM1 a) -> Acc (Array DIM1 a)
+differentiate arr =
+   let size = A.unindex1 $ A.shape arr
+   in  A.generate (A.index1 (size-1)) $ \i ->
+          arr A.! (A.index1 $ A.unindex1 i + 1) - arr A.! i
+
+scoreRotation :: Float -> Array DIM3 Word8 -> Float
+scoreRotation =
+   let rot =
+          CUDA.run1 $ \arg ->
+             let ((c,s), arr) = unliftRotationParameters arg
+             in  A.sum $ A.map (^(2::Int)) $ differentiate $ rowHistogram $
+                 rotate (A.the c, A.the s) $ imageFloatFromByte arr
+   in  \angle arr ->
+          A.indexArray
+             (rot ((A.fromList Z [cos angle], A.fromList Z [sin angle]), arr)) Z
+
+findOptimalRotation :: Array DIM3 Word8 -> Float
+findOptimalRotation pic =
+   Key.maximum (flip scoreRotation pic . (* (pi/180))) $
+   map (\a -> fromIntegral a / 100) [-100,-95..100::Int]
+
+
+main :: IO ()
+main = do
+   paths <- Env.getArgs
+   forM_ paths $ \path -> do
+      pic <- readImage path
+      when False $ analyseRotations pic
+      printf "%s %f\n" path (findOptimalRotation pic)
