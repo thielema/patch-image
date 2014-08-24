@@ -160,7 +160,8 @@ rotateManifest =
 main :: IO ()
 main = do
    pic <- readImage "data/mpa0.jpeg"
-   forM_ [-10..10::Int] $ \angle ->
+   forM_ [-10..10::Int] $ \angle -> do
+      let degree = fromIntegral angle / 10
       writeImage 90
-         (printf "/tmp/rotated%+03d.jpeg" angle)
-         (rotateManifest (fromIntegral angle * pi/1800) pic)
+         (printf "/tmp/rotated%+07.2f.jpeg" degree)
+         (rotateManifest (degree * pi/180) pic)
