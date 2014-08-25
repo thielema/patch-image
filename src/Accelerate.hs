@@ -9,7 +9,7 @@ import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Math.Complex (Complex, )
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3, (:.)((:.)), Z(Z), Any(Any),
-           (<*), (&&*), (?), )
+           (<*), (==*), (&&*), (||*), (?), )
 
 import qualified Data.Packed.Matrix as Matrix
 import qualified Data.Packed.Vector as Vector
@@ -171,9 +171,6 @@ rotate rot arr =
 brightnessPlane :: Acc (Array DIM3 Float) -> Acc (Array DIM2 Float)
 brightnessPlane = flip A.slice (A.lift (Any :. (0::Int)))
 
-brightnessPlaneRun :: Array DIM3 Float -> Array DIM2 Float
-brightnessPlaneRun = CUDA.run1 brightnessPlane
-
 rowHistogram :: Acc (Array DIM3 Float) -> Acc (Array DIM1 Float)
 rowHistogram = A.fold (+) 0 . brightnessPlane
 
@@ -313,6 +310,29 @@ padToComplex =
       let (sh,z) = A.unlift shz
       in  A.map (A.lift . (Complex.:+ 0)) $ pad (A.the sh) z
 
+removeDCOffset ::
+   (A.Elt a, A.IsFloating a) => Acc (Array DIM2 a) -> Acc (Array DIM2 a)
+removeDCOffset arr =
+   let sh = A.shape arr
+       (Z :. height :. width) = A.unlift sh :: ExpDIM2
+       s =
+          A.the (A.fold1All (+) arr)
+             / (A.fromIntegral width * A.fromIntegral height)
+   in  A.map (subtract s) arr
+
+{-
+We cannot remove DC offset in the spectrum,
+because we already padded the images with zeros.
+-}
+clearDCCoefficient ::
+   (A.Elt a, A.IsFloating a) =>
+   Acc (Array DIM2 (Complex a)) -> Acc (Array DIM2 (Complex a))
+clearDCCoefficient arr =
+   A.generate (A.shape arr) $ \p ->
+      let (Z:.y:.x) = A.unlift p :: ExpDIM2
+      in  x==*0 ||* y==*0 ? (0, arr A.! p)
+
+
 convolvePadded ::
    (A.Elt a, A.IsFloating a) =>
    DIM2 -> Array DIM2 a -> Array DIM2 a -> Acc (Array DIM2 a)
@@ -394,7 +414,8 @@ main = do
 
    putStrLn "\nfind relative placements"
    let pairs = do
-          (a:as) <- tails $ zip [0..] $ map (mapSnd brightnessPlaneRun) rotated
+          let prepare = CUDA.run1 $ removeDCOffset . brightnessPlane
+          (a:as) <- tails $ zip [0..] $ map (mapSnd prepare) rotated
           b <- as
           return (a,b)
    displacements <-
