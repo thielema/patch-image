@@ -11,6 +11,12 @@ import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3, (:.)((:.)), Z(Z), Any(Any),
            (<*), (&&*), (?), )
 
+import qualified Data.Packed.Matrix as Matrix
+import qualified Data.Packed.Vector as Vector
+import qualified Data.Packed.ST as PackST
+import Data.Packed.Vector (Vector)
+import Numeric.Container ((<\>), (<>))
+
 import qualified Graphics.Gnuplot.Advanced as GP
 import qualified Graphics.Gnuplot.LineSpecification as LineSpec
 
@@ -28,10 +34,10 @@ import Text.Printf (printf)
 import qualified Data.List.Key as Key
 import qualified Data.Bits as Bit
 import Control.Monad.HT (void)
-import Control.Monad (when)
+import Control.Monad (zipWithM_, when)
 import Data.List.HT (mapAdjacent, tails)
 import Data.Traversable (forM)
-import Data.Foldable (forM_, foldMap)
+import Data.Foldable (foldMap)
 import Data.Tuple.HT (mapSnd)
 import Data.Word (Word8)
 
@@ -362,9 +368,38 @@ main = do
          printf "%s %f\n" path angle
          return (path, rotateManifest (angle*pi/180) pic)
    let pairs = do
-          (a:as) <- tails $ map (mapSnd brightnessPlaneRun) rotated
+          (a:as) <- tails $ zip [0..] $ map (mapSnd brightnessPlaneRun) rotated
           b <- as
           return (a,b)
-   forM_ pairs $ \((pathA,picA), (pathB,picB)) -> do
-      printf "%s - %s, %s\n" pathA pathB
-         (show $ optimalOverlap picA picB)
+   distances <-
+      forM pairs $ \((ia,(pathA,picA)), (ib,(pathB,picB))) -> do
+         let ((dy,dx), score) = optimalOverlap picA picB
+         printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) score
+         return ((ia,ib), (dx,dy))
+   let (is, ds) = unzip distances
+       (dxs, dys) = unzip ds
+       {-
+       We fix the first image to position (0,0)
+       in order to make the solution unique.
+       To this end I drop the first column from matrix.
+       -}
+       matrix = Matrix.dropColumns 1 $ PackST.runSTMatrix $ do
+          mat <- PackST.newMatrix 0 (length is) (length rotated)
+          zipWithM_
+             (\k (ia,ib) -> do
+                PackST.writeMatrix mat k ia (-1)
+                PackST.writeMatrix mat k ib 1)
+             [0..] is
+          return mat
+       match :: [Int] -> Vector Double
+       match dzs = matrix <\> Vector.fromList (map fromIntegral dzs)
+       pxs = match dxs
+       pys = match dys
+       poss = zip (0 : Vector.toList pxs) (0 : Vector.toList pys)
+
+   mapM_ print poss
+
+   zipWithM_
+      (\(dpx,dpy) (dx,dy) ->
+         printf "(%f,%f) (%i,%i)\n" dpx dpy dx dy)
+      (zip (Vector.toList $ matrix <> pxs) (Vector.toList $ matrix <> pys)) ds
