@@ -9,7 +9,7 @@ import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Math.Complex (Complex, )
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3, (:.)((:.)), Z(Z), Any(Any),
-           (<*), (==*), (&&*), (||*), (?), )
+           (<*), (>=*), (==*), (&&*), (||*), (?), )
 
 import qualified Data.Packed.Matrix as Matrix
 import qualified Data.Packed.Vector as Vector
@@ -345,35 +345,70 @@ convolvePadded sh x y =
        A.zipWith (\xi yi -> xi * Complex.conj yi) (forward x) (forward y)
 
 
-argmaximum ::
+attachDisplacements ::
    (A.Elt a, A.IsScalar a) =>
    Exp Int -> Exp Int ->
-   Acc (Array DIM2 a) -> Acc (A.Scalar ((Int, Int), a))
-argmaximum xsplit ysplit arr =
-   let (Z :. height :. width) = A.unlift $ A.shape arr :: ExpDIM2
-       decorated =
-          A.generate (A.shape arr) $ \p ->
-             let (Z:.y:.x) = A.unlift p :: ExpDIM2
-                 wrap size split c = c<*split ? (c, c-size)
-             in  A.lift ((wrap height ysplit y, wrap width xsplit x), arr A.! p)
-       argmax x y  =  A.snd x <* A.snd y ? (y,x)
-   in  A.fold1All argmax decorated
+   Acc (Array DIM2 a) -> Acc (Array DIM2 ((Int, Int), a))
+attachDisplacements xsplit ysplit arr =
+   let sh = A.shape arr
+       (Z :. height :. width) = A.unlift sh :: ExpDIM2
+   in  A.generate sh $ \p ->
+          let (Z:.y:.x) = A.unlift p :: ExpDIM2
+              wrap size split c = c<*split ? (c, c-size)
+          in  A.lift ((wrap height ysplit y, wrap width xsplit x), arr A.! p)
+
+weightOverlapScores ::
+   (A.Elt a, A.IsFloating a, A.IsScalar a) =>
+   Exp Int -> (Exp Int, Exp Int) -> (Exp Int, Exp Int) ->
+   Acc (Array DIM2 ((Int, Int), a)) ->
+   Acc (Array DIM2 ((Int, Int), a))
+weightOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
+   A.map
+       (A.lift1 $ \(dp,v) ->
+          let (dy,dx) = A.unlift dp
+              clipWidth  = min widtha  (widthb  + dx) - max 0 dx
+              clipHeight = min heighta (heightb + dy) - max 0 dy
+          in  (dp :: Exp (Int, Int),
+                 (clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
+                 ?
+                 (v / (A.fromIntegral clipWidth * A.fromIntegral clipHeight), 0)))
+
+argmax ::
+   (A.Elt a, A.Elt b, A.IsScalar b) =>
+   Exp (a, b) -> Exp (a, b) -> Exp (a, b)
+argmax x y  =  A.snd x <* A.snd y ? (y,x)
+
+argmaximum ::
+   (A.Elt a, A.IsScalar a) =>
+   Acc (Array DIM2 ((Int, Int), a)) -> Acc (A.Scalar ((Int, Int), a))
+argmaximum = A.fold1All argmax
 
 
-optimalOverlap :: Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
-optimalOverlap a b =
+allOverlaps ::
+   Array DIM2 Float -> Array DIM2 Float -> Acc (Array DIM2 ((Int, Int), Float))
+allOverlaps a b =
    let (Z :. heighta :. widtha) = A.arrayShape a
        (Z :. heightb :. widthb) = A.arrayShape b
        width  = ceilingPow2 $ widtha  + widthb
        height = ceilingPow2 $ heighta + heightb
        sh = Z :. height :. width
        half = flip div 2
-   in  A.indexArray
-          (CUDA.run $
-           argmaximum
-              (A.lift $ half $ width-widthb+widtha)
-              (A.lift $ half $ height-heightb+heighta) $
-           convolvePadded sh a b) Z
+       weight =
+          if True
+            then
+               weightOverlapScores 100
+                  (A.lift widtha, A.lift heighta)
+                  (A.lift widthb, A.lift heightb)
+            else id
+   in  weight $
+       attachDisplacements
+          (A.lift $ half $ width-widthb+widtha)
+          (A.lift $ half $ height-heightb+heighta) $
+       convolvePadded sh a b
+
+optimalOverlap :: Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
+optimalOverlap a b =
+   A.indexArray (CUDA.run $ argmaximum $ allOverlaps a b) Z
 
 absolutePositionsFromPairDisplacements ::
    Int -> [((Int, Int), (Int, Int))] ->
