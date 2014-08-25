@@ -355,11 +355,11 @@ optimalOverlap a b =
               (A.lift $ half $ height-heightb+heighta) $
            convolvePadded sh a b) Z
 
-absolutePositionsFromPairDistances ::
+absolutePositionsFromPairDisplacements ::
    Int -> [((Int, Int), (Int, Int))] ->
    ([(Double,Double)], [(Double,Double)])
-absolutePositionsFromPairDistances numPics distances =
-   let (is, ds) = unzip distances
+absolutePositionsFromPairDisplacements numPics displacements =
+   let (is, ds) = unzip displacements
        (dxs, dys) = unzip ds
        {-
        We fix the first image to position (0,0)
@@ -397,19 +397,19 @@ main = do
           (a:as) <- tails $ zip [0..] $ map (mapSnd brightnessPlaneRun) rotated
           b <- as
           return (a,b)
-   distances <-
+   displacements <-
       forM pairs $ \((ia,(pathA,picA)), (ib,(pathB,picB))) -> do
          let ((dy,dx), score) = optimalOverlap picA picB
          printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) score
          return ((ia,ib), (dx,dy))
 
    let (poss, dps) =
-          absolutePositionsFromPairDistances (length rotated) distances
+          absolutePositionsFromPairDisplacements (length rotated) displacements
    putStrLn "\nabsolute positions"
    mapM_ print poss
 
-   putStrLn "\ncompare position differences with pair distances"
+   putStrLn "\ncompare position differences with pair displacements"
    zipWithM_
       (\(dpx,dpy) (dx,dy) ->
          printf "(%f,%f) (%i,%i)\n" dpx dpy dx dy)
-      dps (map snd distances)
+      dps (map snd displacements)
