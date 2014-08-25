@@ -27,6 +27,7 @@ Executable patch-image
 
   Build-Depends:
     accelerate-cuda >=0.15 && <0.16,
+    accelerate-fft >=0.15 && <0.16,
     accelerate-io >=0.15 && <0.16,
     accelerate >=0.15 && <0.16,
     JuicyPixels >=2.0 && <3.2,

@@ -1,11 +1,15 @@
 {-# LANGUAGE TypeOperators #-}
 module Main where
 
+import qualified Data.Array.Accelerate.Math.FFT as FFT
+import qualified Data.Array.Accelerate.Math.Complex as Complex
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate as A
+import Data.Array.Accelerate.Math.Complex (Complex, )
 import Data.Array.Accelerate
-          (Acc, Array, Exp, DIM1, DIM3, (:.)((:.)), Z(Z), Any(Any), )
+          (Acc, Array, Exp, DIM1, DIM2, DIM3, (:.)((:.)), Z(Z), Any(Any),
+           (<*), (&&*), (?), )
 
 import qualified Graphics.Gnuplot.Advanced as GP
 import qualified Graphics.Gnuplot.LineSpecification as LineSpec
@@ -22,9 +26,10 @@ import qualified System.Environment as Env
 import Text.Printf (printf)
 
 import qualified Data.List.Key as Key
+import qualified Data.Bits as Bit
 import Control.Monad.HT (void)
 import Control.Monad (when)
-import Data.List.HT (mapAdjacent)
+import Data.List.HT (mapAdjacent, tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_, foldMap)
 import Data.Tuple.HT (mapSnd)
@@ -156,9 +161,12 @@ rotate rot arr =
                         A.fromIntegral ydst + top)
              in  indexFrac arr (xsrc, ysrc, chan)
 
+
+brightnessPlane :: Acc (Array DIM3 Float) -> Acc (Array DIM2 Float)
+brightnessPlane = flip A.slice (A.lift (Any :. (0::Int)))
+
 rowHistogram :: Acc (Array DIM3 Float) -> Acc (Array DIM1 Float)
-rowHistogram arr =
-   A.fold (+) 0 $ A.slice arr (A.lift (Any :. (0::Int)))
+rowHistogram = A.fold (+) 0 . brightnessPlane
 
 
 unliftRotationParameters ::
@@ -239,10 +247,112 @@ findOptimalRotation pic =
    map (\a -> fromIntegral a / 100) [-100,-95..100::Int]
 
 
+
+
+
+rotateManifest :: Float -> Array DIM3 Word8 -> Array DIM3 Float
+rotateManifest =
+   let rot =
+          CUDA.run1 $ \arg ->
+             let ((c,s), arr) = unliftRotationParameters arg
+             in  rotate (A.the c, A.the s) $ imageFloatFromByte arr
+   in  \angle arr ->
+          rot ((A.fromList Z [cos angle], A.fromList Z [sin angle]), arr)
+
+
+ceilingPow2Exp :: Exp Int -> Exp Int
+ceilingPow2Exp n =
+   A.setBit 0 $ A.ceiling $ logBase 2 (fromIntegral n :: Exp Double)
+
+pad ::
+   (A.Elt a, A.IsNum a) =>
+   Exp DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
+pad sh arr =
+   let (height, width) = A.unlift $ A.unindex2 $ A.shape arr
+   in  A.generate sh $ \p ->
+          let (y, x) = A.unlift $ A.unindex2 p
+          in  (y<*height &&* x<*width)
+              ?
+              (arr A.! A.index2 y x, 0)
+
+convolveImpossible ::
+   (A.Elt a, A.IsFloating a) =>
+   Acc (Array DIM2 a) -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
+convolveImpossible x y =
+   let (heightx, widthx) = A.unlift $ A.unindex2 $ A.shape x
+       (heighty, widthy) = A.unlift $ A.unindex2 $ A.shape y
+       width  = ceilingPow2Exp $ widthx  + widthy
+       height = ceilingPow2Exp $ heightx + heighty
+       sh = A.index2 height width
+       forward z =
+          FFT.fft2D FFT.Forward $ CUDA.run $
+          A.map (A.lift . (Complex.:+ 0)) $ pad sh z
+   in  A.map Complex.real $
+       FFT.fft2D FFT.Inverse $ CUDA.run $
+       A.zipWith (*) (forward x) (forward y)
+
+
+ceilingPow2 :: Int -> Int
+ceilingPow2 n =
+   Bit.setBit 0 $ ceiling $ logBase 2 (fromIntegral n :: Double)
+
+padToComplex ::
+   (A.Elt a, A.IsNum a) =>
+   (A.Scalar DIM2, Array DIM2 a) -> Array DIM2 (Complex a)
+padToComplex =
+   CUDA.run1 $ \shz ->
+      let (sh,z) = A.unlift shz
+      in  A.map (A.lift . (Complex.:+ 0)) $ pad (A.the sh) z
+
+convolve ::
+   (A.Elt a, A.IsFloating a) =>
+   Array DIM2 a -> Array DIM2 a -> Acc (Array DIM2 a)
+convolve x y =
+   let (Z :. heightx :. widthx) = A.arrayShape x
+       (Z :. heighty :. widthy) = A.arrayShape y
+       width  = ceilingPow2 $ widthx  + widthy
+       height = ceilingPow2 $ heightx + heighty
+       forward z =
+          FFT.fft2D FFT.Forward $
+          padToComplex (A.fromList Z [Z :. height :. width], z)
+   in  A.map Complex.real $
+       FFT.fft2D FFT.Inverse $ CUDA.run $
+       A.zipWith (\xi yi -> xi * Complex.conj yi) (forward x) (forward y)
+
+
+argmaximum ::
+   (A.Elt a, A.IsScalar a) =>
+   Acc (Array DIM2 a) -> Acc (A.Scalar ((Int, Int), a))
+argmaximum arr =
+   let decorated =
+          A.generate (A.shape arr) $ \p ->
+             A.lift (A.unindex2 p, arr A.! p)
+       argmax x y  =  A.snd x <* A.snd y ? (y,x)
+   in  A.fold1All argmax decorated
+
+
+optimalOverlap :: Array DIM3 Float -> Array DIM3 Float -> ((Int, Int), Float)
+optimalOverlap =
+   let brightness = CUDA.run1 brightnessPlane
+   in  \x y ->
+          A.indexArray
+             (CUDA.run $ argmaximum $ convolve (brightness x) (brightness y)) Z
+
+
 main :: IO ()
 main = do
    paths <- Env.getArgs
-   forM_ paths $ \path -> do
-      pic <- readImage path
-      when False $ analyseRotations pic
-      printf "%s %f\n" path (findOptimalRotation pic)
+   rotated <-
+      forM paths $ \path -> do
+         pic <- readImage path
+         when False $ analyseRotations pic
+         let angle = findOptimalRotation pic
+         printf "%s %f\n" path angle
+         return (path, rotateManifest (angle*pi/180) pic)
+   let pairs = do
+          (a:as) <- tails rotated
+          b <- as
+          return (a,b)
+   forM_ pairs $ \((pathA,picA), (pathB,picB)) -> do
+      printf "%s - %s, %s\n" pathA pathB
+         (show $ optimalOverlap picA picB)
