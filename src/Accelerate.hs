@@ -9,7 +9,7 @@ import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Math.Complex (Complex, )
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3, (:.)((:.)), Z(Z), Any(Any),
-           (<*), (>=*), (==*), (&&*), (||*), (?), )
+           (<*), (<=*), (>=*), (==*), (&&*), (||*), (?), )
 
 import qualified Data.Packed.Matrix as Matrix
 import qualified Data.Packed.Vector as Vector
@@ -27,6 +27,7 @@ import qualified Codec.Picture as Pic
 import qualified Data.Vector.Storable as SV
 
 import qualified System.Environment as Env
+import qualified System.FilePath as FilePath
 
 import Text.Printf (printf)
 
@@ -435,6 +436,30 @@ absolutePositionsFromPairDisplacements numPics displacements =
         zip (Vector.toList $ matrix <> pxs) (Vector.toList $ matrix <> pys))
 
 
+overlap2 ::
+   (Exp Int, Exp Int) ->
+   (Acc (Array DIM3 Float), Acc (Array DIM3 Float)) -> Acc (Array DIM3 Float)
+overlap2 (dx,dy) (a,b) =
+   let (Z :. heighta :. widtha :. chansa) = A.unlift $ A.shape a :: ExpDIM3
+       (Z :. heightb :. widthb :. chansb) = A.unlift $ A.shape b :: ExpDIM3
+       left = min 0 dx; right  = max widtha  (widthb  + dx)
+       top  = min 0 dy; bottom = max heighta (heightb + dy)
+       width  = right - left
+       height = bottom - top
+       chans = min chansa chansb
+   in  A.generate (A.lift (Z :. height :. width :. chans)) $ \p ->
+          let (Z :. y :. x :. chan) = A.unlift p :: ExpDIM3
+              xa = x + left; xb = xa-dx
+              ya = y + top;  yb = ya-dy
+              pa = A.lift $ Z :. ya :. xa :. chan
+              pb = A.lift $ Z :. yb :. xb :. chan
+              inPicA = 0<=*xa &&* xa<*widtha &&* 0<=*ya &&* ya<*heighta
+              inPicB = 0<=*xb &&* xb<*widthb &&* 0<=*yb &&* yb<*heightb
+          in  inPicA ?
+                 (inPicB ? ((a A.! pa + b A.! pb)/2, a A.! pa),
+                  inPicB ? (b A.! pb, 0))
+
+
 main :: IO ()
 main = do
    paths <- Env.getArgs
@@ -453,10 +478,25 @@ main = do
           (a:as) <- tails $ zip [0..] $ map (mapSnd prepare) rotated
           b <- as
           return (a,b)
+   let composeOverlap =
+          let f =
+                 CUDA.run1 $ \arg ->
+                    let (d,pics) = A.unlift arg
+                           :: ((Acc (A.Scalar Int, A.Scalar Int)),
+                               (Acc (Array DIM3 Float, Array DIM3 Float)))
+                        (dx,dy) = A.unlift d
+                    in  imageByteFromFloat $
+                        overlap2 (A.the dx, A.the dy) (A.unlift pics)
+          in  \(dx,dy) pics ->
+                 f ((A.fromList Z [dx], A.fromList Z [dy]), pics)
    displacements <-
       forM pairs $ \((ia,(pathA,picA)), (ib,(pathB,picB))) -> do
          let ((dy,dx), score) = optimalOverlap picA picB
          printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) score
+         writeImage 90
+            (printf "/tmp/%s-%s.jpeg"
+               (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
+            composeOverlap (dx,dy) (snd $ rotated!!ia, snd $ rotated!!ib)
          return ((ia,ib), (dx,dy))
 
    let (poss, dps) =
