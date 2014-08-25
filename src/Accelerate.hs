@@ -360,6 +360,7 @@ optimalOverlap a b =
 main :: IO ()
 main = do
    paths <- Env.getArgs
+   putStrLn "\nfind rotation angles"
    rotated <-
       forM paths $ \path -> do
          pic <- readImage path
@@ -367,6 +368,8 @@ main = do
          let angle = findOptimalRotation pic
          printf "%s %f\n" path angle
          return (path, rotateManifest (angle*pi/180) pic)
+
+   putStrLn "\nfind relative placements"
    let pairs = do
           (a:as) <- tails $ zip [0..] $ map (mapSnd brightnessPlaneRun) rotated
           b <- as
@@ -396,9 +399,9 @@ main = do
        pxs = match dxs
        pys = match dys
        poss = zip (0 : Vector.toList pxs) (0 : Vector.toList pys)
-
+   putStrLn "\nabsolute positions"
    mapM_ print poss
-
+   putStrLn "\ncompare position differences with pair distances"
    zipWithM_
       (\(dpx,dpy) (dx,dy) ->
          printf "(%f,%f) (%i,%i)\n" dpx dpy dx dy)
