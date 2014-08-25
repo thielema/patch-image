@@ -141,6 +141,7 @@ indexFrac arr (x,y,c) =
           yf
 
 
+type ExpDIM2 = Z :. Exp Int :. Exp Int
 type ExpDIM3 = Z :. Exp Int :. Exp Int :. Exp Int
 
 rotate ::
@@ -307,17 +308,13 @@ padToComplex =
       let (sh,z) = A.unlift shz
       in  A.map (A.lift . (Complex.:+ 0)) $ pad (A.the sh) z
 
-convolve ::
+convolvePadded ::
    (A.Elt a, A.IsFloating a) =>
-   Array DIM2 a -> Array DIM2 a -> Acc (Array DIM2 a)
-convolve x y =
-   let (Z :. heightx :. widthx) = A.arrayShape x
-       (Z :. heighty :. widthy) = A.arrayShape y
-       width  = ceilingPow2 $ widthx  + widthy
-       height = ceilingPow2 $ heightx + heighty
-       forward z =
+   DIM2 -> Array DIM2 a -> Array DIM2 a -> Acc (Array DIM2 a)
+convolvePadded sh x y =
+   let forward z =
           FFT.fft2D FFT.Forward $
-          padToComplex (A.fromList Z [Z :. height :. width], z)
+          padToComplex (A.fromList Z [sh], z)
    in  A.map Complex.real $
        FFT.fft2D FFT.Inverse $ CUDA.run $
        A.zipWith (\xi yi -> xi * Complex.conj yi) (forward x) (forward y)
@@ -325,18 +322,33 @@ convolve x y =
 
 argmaximum ::
    (A.Elt a, A.IsScalar a) =>
+   Exp Int -> Exp Int ->
    Acc (Array DIM2 a) -> Acc (A.Scalar ((Int, Int), a))
-argmaximum arr =
-   let decorated =
+argmaximum xsplit ysplit arr =
+   let (Z :. height :. width) = A.unlift $ A.shape arr :: ExpDIM2
+       decorated =
           A.generate (A.shape arr) $ \p ->
-             A.lift (A.unindex2 p, arr A.! p)
+             let (Z:.y:.x) = A.unlift p :: ExpDIM2
+                 wrap size split c = c<*split ? (c, c-size)
+             in  A.lift ((wrap height ysplit y, wrap width xsplit x), arr A.! p)
        argmax x y  =  A.snd x <* A.snd y ? (y,x)
    in  A.fold1All argmax decorated
 
 
 optimalOverlap :: Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
-optimalOverlap x y =
-   A.indexArray (CUDA.run $ argmaximum $ convolve x y) Z
+optimalOverlap a b =
+   let (Z :. heighta :. widtha) = A.arrayShape a
+       (Z :. heightb :. widthb) = A.arrayShape b
+       width  = ceilingPow2 $ widtha  + widthb
+       height = ceilingPow2 $ heighta + heightb
+       sh = Z :. height :. width
+       half = flip div 2
+   in  A.indexArray
+          (CUDA.run $
+           argmaximum
+              (A.lift $ half $ width-widthb+widtha)
+              (A.lift $ half $ height-heightb+heighta) $
+           convolvePadded sh a b) Z
 
 
 main :: IO ()
