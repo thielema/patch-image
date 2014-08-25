@@ -165,6 +165,9 @@ rotate rot arr =
 brightnessPlane :: Acc (Array DIM3 Float) -> Acc (Array DIM2 Float)
 brightnessPlane = flip A.slice (A.lift (Any :. (0::Int)))
 
+brightnessPlaneRun :: Array DIM3 Float -> Array DIM2 Float
+brightnessPlaneRun = CUDA.run1 brightnessPlane
+
 rowHistogram :: Acc (Array DIM3 Float) -> Acc (Array DIM1 Float)
 rowHistogram = A.fold (+) 0 . brightnessPlane
 
@@ -331,12 +334,9 @@ argmaximum arr =
    in  A.fold1All argmax decorated
 
 
-optimalOverlap :: Array DIM3 Float -> Array DIM3 Float -> ((Int, Int), Float)
-optimalOverlap =
-   let brightness = CUDA.run1 brightnessPlane
-   in  \x y ->
-          A.indexArray
-             (CUDA.run $ argmaximum $ convolve (brightness x) (brightness y)) Z
+optimalOverlap :: Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
+optimalOverlap x y =
+   A.indexArray (CUDA.run $ argmaximum $ convolve x y) Z
 
 
 main :: IO ()
@@ -350,7 +350,7 @@ main = do
          printf "%s %f\n" path angle
          return (path, rotateManifest (angle*pi/180) pic)
    let pairs = do
-          (a:as) <- tails rotated
+          (a:as) <- tails $ map (mapSnd brightnessPlaneRun) rotated
           b <- as
           return (a,b)
    forM_ pairs $ \((pathA,picA), (pathB,picB)) -> do
