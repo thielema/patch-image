@@ -14,7 +14,6 @@ import Data.Array.Accelerate
 import qualified Data.Packed.Matrix as Matrix
 import qualified Data.Packed.Vector as Vector
 import qualified Data.Packed.ST as PackST
-import Data.Packed.Vector (Vector)
 import Numeric.Container ((<\>), (<>))
 
 import qualified Graphics.Gnuplot.Advanced as GP
@@ -356,6 +355,30 @@ optimalOverlap a b =
               (A.lift $ half $ height-heightb+heighta) $
            convolvePadded sh a b) Z
 
+absolutePositionsFromPairDistances ::
+   Int -> [((Int, Int), (Int, Int))] ->
+   ([(Double,Double)], [(Double,Double)])
+absolutePositionsFromPairDistances numPics distances =
+   let (is, ds) = unzip distances
+       (dxs, dys) = unzip ds
+       {-
+       We fix the first image to position (0,0)
+       in order to make the solution unique.
+       To this end I drop the first column from matrix.
+       -}
+       matrix = Matrix.dropColumns 1 $ PackST.runSTMatrix $ do
+          mat <- PackST.newMatrix 0 (length is) numPics
+          zipWithM_
+             (\k (ia,ib) -> do
+                PackST.writeMatrix mat k ia (-1)
+                PackST.writeMatrix mat k ib 1)
+             [0..] is
+          return mat
+       pxs = matrix <\> Vector.fromList (map fromIntegral dxs)
+       pys = matrix <\> Vector.fromList (map fromIntegral dys)
+   in  (zip (0 : Vector.toList pxs) (0 : Vector.toList pys),
+        zip (Vector.toList $ matrix <> pxs) (Vector.toList $ matrix <> pys))
+
 
 main :: IO ()
 main = do
@@ -379,30 +402,14 @@ main = do
          let ((dy,dx), score) = optimalOverlap picA picB
          printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) score
          return ((ia,ib), (dx,dy))
-   let (is, ds) = unzip distances
-       (dxs, dys) = unzip ds
-       {-
-       We fix the first image to position (0,0)
-       in order to make the solution unique.
-       To this end I drop the first column from matrix.
-       -}
-       matrix = Matrix.dropColumns 1 $ PackST.runSTMatrix $ do
-          mat <- PackST.newMatrix 0 (length is) (length rotated)
-          zipWithM_
-             (\k (ia,ib) -> do
-                PackST.writeMatrix mat k ia (-1)
-                PackST.writeMatrix mat k ib 1)
-             [0..] is
-          return mat
-       match :: [Int] -> Vector Double
-       match dzs = matrix <\> Vector.fromList (map fromIntegral dzs)
-       pxs = match dxs
-       pys = match dys
-       poss = zip (0 : Vector.toList pxs) (0 : Vector.toList pys)
+
+   let (poss, dps) =
+          absolutePositionsFromPairDistances (length rotated) distances
    putStrLn "\nabsolute positions"
    mapM_ print poss
+
    putStrLn "\ncompare position differences with pair distances"
    zipWithM_
       (\(dpx,dpy) (dx,dy) ->
          printf "(%f,%f) (%i,%i)\n" dpx dpy dx dy)
-      (zip (Vector.toList $ matrix <> pxs) (Vector.toList $ matrix <> pys)) ds
+      dps (map snd distances)
