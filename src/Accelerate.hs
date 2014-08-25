@@ -171,9 +171,9 @@ unliftRotationParameters arg =
                  Acc (Array DIM3 Word8))
    in  (A.unlift cs, arr)
 
-rotateManifest ::
+rotateHistogram ::
    Float -> Array DIM3 Word8 -> (Array DIM3 Word8, Array DIM1 Float)
-rotateManifest =
+rotateHistogram =
    let rot =
           CUDA.run1 $ \arg ->
              let ((c,s), arr) = unliftRotationParameters arg
@@ -191,7 +191,7 @@ analyseRotations pic = do
    histograms <-
       forM [-100,-95..100::Int] $ \angle -> do
          let degree = fromIntegral angle / 100
-         let (rotated, histogram) = rotateManifest (degree * pi/180) pic
+         let (rotated, histogram) = rotateHistogram (degree * pi/180) pic
          let stem = printf "rotated%+07.2f" degree
          writeImage 90 ("/tmp/" ++ stem ++ ".jpeg") rotated
          let diffHistogram = map abs $ mapAdjacent (-) $ A.toList histogram
