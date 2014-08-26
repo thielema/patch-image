@@ -71,6 +71,16 @@ writeImage quality path arr = do
          Pic.imageData = snd $ AIO.toVectors arr
       }
 
+writeGrey :: Int -> FilePath -> Array DIM2 Word8 -> IO ()
+writeGrey quality path arr = do
+   let (Z :. height :. width) = A.arrayShape arr
+   Pic.saveJpgImage quality path $ Pic.ImageY8 $
+      Pic.Image {
+         Pic.imageWidth = width,
+         Pic.imageHeight = height,
+         Pic.imageData = snd $ AIO.toVectors arr
+      }
+
 imageFloatFromByte ::
    (A.Shape sh, A.Elt a, A.IsFloating a) =>
    Acc (Array sh Word8) -> Acc (Array sh a)
@@ -478,6 +488,31 @@ main = do
           (a:as) <- tails $ zip [0..] $ map (mapSnd prepare) rotated
           b <- as
           return (a,b)
+
+   when True $ do
+      putStrLn "write fft"
+      let pic = snd $ head rotated
+          size = (Z:.512:.1024 :: DIM2)
+      writeGrey 90 "/tmp/padded.jpeg" $
+         CUDA.run1
+            (imageByteFromFloat .
+             pad (A.lift size) .
+             brightnessPlane) $
+         pic
+      writeGrey 90 "/tmp/spectrum.jpeg" $
+         CUDA.run $ imageByteFromFloat $ A.map Complex.real $
+         FFT.fft2D FFT.Forward $
+         CUDA.run1
+            (A.map (A.lift . (Complex.:+ 0)) .
+             pad (A.lift size) .
+             brightnessPlane) $
+         pic
+      writeGrey 90 "/tmp/convolution.jpeg" $
+         CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
+         (\x -> convolvePadded size x x) $
+         CUDA.run1 brightnessPlane $
+         pic
+
    let composeOverlap =
           let f =
                  CUDA.run1 $ \arg ->
@@ -491,6 +526,14 @@ main = do
                  f ((A.fromList Z [dx], A.fromList Z [dy]), pics)
    displacements <-
       forM pairs $ \((ia,(pathA,picA)), (ib,(pathB,picB))) -> do
+         when False $
+            writeGrey 90
+               (printf "/tmp/%s-%s-score.jpeg"
+                  (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
+               CUDA.run $ imageByteFromFloat $
+               A.map (0.0001*) $
+               A.map A.snd $ allOverlaps picA picB
+
          let ((dy,dx), score) = optimalOverlap picA picB
          printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) score
          writeImage 90
