@@ -200,6 +200,28 @@ indexFrac arr (ix:.y:.x) =
           yf
 
 
+{- |
+@rotateStretchMove rot mov@
+first rotate and stretches the image according to 'rot'
+and then moves the picture.
+-}
+rotateStretchMove ::
+   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   (Exp a, Exp a) ->
+   (Exp a, Exp a) ->
+   ExpDIM2 ix -> Acc (Channel ix a) -> Acc (Channel ix a)
+rotateStretchMove (rx,ry) (mx,my) sh arr =
+   let corr = recip $ rx*rx + ry*ry
+       rot = (corr*rx, -corr*ry)
+   in  A.generate (A.lift sh) $ \p ->
+          let (chan :. ydst :. xdst) = unliftDim2 p
+              (xsrc,ysrc) =
+                 rotatePoint rot
+                    (A.fromIntegral xdst - mx,
+                     A.fromIntegral ydst - my)
+          in  indexFrac arr (chan :. ysrc :. xsrc)
+
+
 rotate ::
    (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
    (Exp a, Exp a) ->
@@ -208,14 +230,8 @@ rotate rot arr =
    let (chans :. height :. width) = unliftDim2 $ A.shape arr
        ((left, right), (top, bottom)) =
           boundingBoxOfRotated rot (A.fromIntegral width, A.fromIntegral height)
-   in  A.generate
-          (A.lift (chans :. A.ceiling (bottom-top) :. A.ceiling (right-left))) $ \p ->
-             let (chan :. ydst :. xdst) = unliftDim2 p
-                 (xsrc,ysrc) =
-                    rotatePoint (mapSnd negate rot)
-                       (A.fromIntegral xdst + left,
-                        A.fromIntegral ydst + top)
-             in  indexFrac arr (chan :. ysrc :. xsrc)
+   in  rotateStretchMove rot (-left,-top)
+          (chans :. A.ceiling (bottom-top) :. A.ceiling (right-left)) arr
 
 
 brightnessPlane ::
