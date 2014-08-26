@@ -209,17 +209,23 @@ rotateStretchMove ::
    (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
    (Exp a, Exp a) ->
    (Exp a, Exp a) ->
-   ExpDIM2 ix -> Acc (Channel ix a) -> Acc (Channel ix a)
+   ExpDIM2 ix -> Acc (Channel ix a) ->
+   Acc (Channel ix (Bool, a))
 rotateStretchMove (rx,ry) (mx,my) sh arr =
    let corr = recip $ rx*rx + ry*ry
        rot = (corr*rx, -corr*ry)
+       (_chans :. height :. width) = unliftDim2 $ A.shape arr
    in  A.generate (A.lift sh) $ \p ->
           let (chan :. ydst :. xdst) = unliftDim2 p
               (xsrc,ysrc) =
                  rotatePoint rot
                     (A.fromIntegral xdst - mx,
                      A.fromIntegral ydst - my)
-          in  indexFrac arr (chan :. ysrc :. xsrc)
+              xi = fastRound xsrc
+              yi = fastRound ysrc
+          in  A.lift
+                 (0<=*xi &&* xi<*width &&* 0<=*yi &&* yi<*height,
+                  indexFrac arr (chan :. ysrc :. xsrc))
 
 
 rotate ::
@@ -230,7 +236,8 @@ rotate rot arr =
    let (chans :. height :. width) = unliftDim2 $ A.shape arr
        ((left, right), (top, bottom)) =
           boundingBoxOfRotated rot (A.fromIntegral width, A.fromIntegral height)
-   in  rotateStretchMove rot (-left,-top)
+   in  A.map A.snd $
+       rotateStretchMove rot (-left,-top)
           (chans :. A.ceiling (bottom-top) :. A.ceiling (right-left)) arr
 
 
