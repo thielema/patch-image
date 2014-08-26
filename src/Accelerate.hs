@@ -378,6 +378,27 @@ weightOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
                  ?
                  (v / (A.fromIntegral clipWidth * A.fromIntegral clipHeight), 0)))
 
+{- |
+Set all scores to zero within a certain border.
+Otherwise the matching algorithm will try to match strong bars at the borders
+that are actually digitalization artifacts.
+-}
+minimumOverlapScores ::
+   (A.Elt a, A.IsFloating a, A.IsScalar a) =>
+   Exp Int -> (Exp Int, Exp Int) -> (Exp Int, Exp Int) ->
+   Acc (Array DIM2 ((Int, Int), a)) ->
+   Acc (Array DIM2 ((Int, Int), a))
+minimumOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
+   A.map
+       (A.lift1 $ \(dp,v) ->
+          let (dy,dx) = A.unlift dp
+              clipWidth  = min widtha  (widthb  + dx) - max 0 dx
+              clipHeight = min heighta (heightb + dy) - max 0 dy
+          in  (dp :: Exp (Int, Int),
+                 (clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
+                 ?
+                 (v, 0)))
+
 argmax ::
    (A.Elt a, A.Elt b, A.IsScalar b) =>
    Exp (a, b) -> Exp (a, b) -> Exp (a, b)
@@ -405,7 +426,10 @@ allOverlaps size@(Z :. height :. width) =
                       weightOverlapScores 100
                          (widtha, heighta)
                          (widthb, heightb)
-                   else id
+                   else
+                      minimumOverlapScores 100
+                         (widtha, heighta)
+                         (widthb, heightb)
           in  weight $
               attachDisplacements
                  (half $ A.lift width - widthb + widtha)
