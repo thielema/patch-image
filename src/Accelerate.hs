@@ -32,6 +32,7 @@ import qualified System.FilePath as FilePath
 import Text.Printf (printf)
 
 import qualified Data.List.Key as Key
+import qualified Data.List as List
 import qualified Data.Bits as Bit
 import Control.Monad.HT (void)
 import Control.Monad (zipWithM_, when)
@@ -388,29 +389,26 @@ argmaximum = A.fold1All argmax
 
 
 allOverlaps ::
-   Array DIM2 Float -> Array DIM2 Float -> Acc (Array DIM2 ((Int, Int), Float))
-allOverlaps a b =
-   let (Z :. heighta :. widtha) = A.arrayShape a
-       (Z :. heightb :. widthb) = A.arrayShape b
-       width  = ceilingPow2 $ widtha  + widthb
-       height = ceilingPow2 $ heighta + heightb
+   DIM2 ->
+   Acc (Array DIM2 Float) -> Acc (Array DIM2 Float) ->
+   Acc (Array DIM2 ((Int, Int), Float))
+allOverlaps size@(Z :. height :. width) a b =
+   let (Z :. heighta :. widtha) = A.unlift $ A.shape a
+       (Z :. heightb :. widthb) = A.unlift $ A.shape b
        half = flip div 2
        weight =
           if False
             then
                weightOverlapScores 100
-                  (A.lift widtha, A.lift heighta)
-                  (A.lift widthb, A.lift heightb)
+                  (widtha, heighta)
+                  (widthb, heightb)
             else id
    in  weight $
        attachDisplacements
-          (A.lift $ half $ width-widthb+widtha)
-          (A.lift $ half $ height-heightb+heighta) $
-       convolvePadded (Z :. height :. width) (A.use a) (A.use b)
+          (half $ A.lift width - widthb + widtha)
+          (half $ A.lift height - heightb + heighta) $
+       convolvePadded size a b
 
-optimalOverlap :: Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
-optimalOverlap a b =
-   A.indexArray (CUDA.run $ argmaximum $ allOverlaps a b) Z
 
 absolutePositionsFromPairDisplacements ::
    Int -> [((Int, Int), (Int, Int))] ->
@@ -503,6 +501,18 @@ main = do
          (\x -> convolvePadded size x x) $
          brightnessPlane $ A.use pic
 
+   let (rotHeights, rotWidths) =
+          unzip $
+          map (\(Z:.height:.width:._chans) -> (height, width)) $
+          map (A.arrayShape . snd) rotated
+       maxSum2 sizes =
+          case List.sortBy (flip compare) sizes of
+             size0 : size1 : _ -> size0+size1
+             _ -> error "less than one picture - there should be no pairs"
+       padWidth  = ceilingPow2 $ maxSum2 rotWidths
+       padHeight = ceilingPow2 $ maxSum2 rotHeights
+       padSize = Z :. padHeight :. padWidth
+
    let composeOverlap =
           let f =
                  CUDA.run1 $ \arg ->
@@ -514,15 +524,28 @@ main = do
                         overlap2 (A.the dx, A.the dy) (A.unlift pics)
           in  \(dx,dy) pics ->
                  f ((A.fromList Z [dx], A.fromList Z [dy]), pics)
+   let allOverlapsRun =
+          CUDA.run1 $ \pics ->
+             let (picA, picB) = A.unlift pics
+             in  imageByteFromFloat $
+                    A.map (0.0001*) $
+                    A.map A.snd $
+                    allOverlaps padSize picA picB
+   let optimalOverlap ::
+          Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
+       optimalOverlap =
+          let run =
+                 CUDA.run1 $
+                 argmaximum . A.uncurry (allOverlaps padSize)
+          in  \a b -> A.indexArray (run (a,b)) Z
+
    displacements <-
       forM pairs $ \((ia,(pathA,picA)), (ib,(pathB,picB))) -> do
          when False $
             writeGrey 90
                (printf "/tmp/%s-%s-score.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-               CUDA.run $ imageByteFromFloat $
-               A.map (0.0001*) $
-               A.map A.snd $ allOverlaps picA picB
+               allOverlapsRun (picA, picB)
 
          let ((dy,dx), score) = optimalOverlap picA picB
          printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) score
