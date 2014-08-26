@@ -404,7 +404,7 @@ allOverlaps a b =
        height = ceilingPow2 $ heighta + heightb
        half = flip div 2
        weight =
-          if True
+          if False
             then
                weightOverlapScores 100
                   (A.lift widtha, A.lift heighta)
