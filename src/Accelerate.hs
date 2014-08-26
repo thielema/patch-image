@@ -5,6 +5,8 @@ import qualified Data.Array.Accelerate.Math.FFT as FFT
 import qualified Data.Array.Accelerate.Math.Complex as Complex
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
+import qualified Data.Array.Accelerate.Arithmetic.LinearAlgebra as LinAlg
+import qualified Data.Array.Accelerate.Arithmetic.Utility as AU
 import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Math.Complex (Complex, )
 import Data.Array.Accelerate
@@ -200,6 +202,38 @@ indexFrac arr (ix:.y:.x) =
           yf
 
 
+rotateStretchMoveCoords ::
+   (A.Elt a, A.IsFloating a) =>
+   (Exp a, Exp a) ->
+   (Exp a, Exp a) ->
+   (Exp Int, Exp Int) ->
+   Acc (Channel Z (a, a))
+rotateStretchMoveCoords (rx,ry) (mx,my) (width,height) =
+   let corr = recip $ rx*rx + ry*ry
+       rot = (corr*rx, -corr*ry)
+   in  A.generate (A.lift $ Z:.height:.width) $ \p ->
+          let (_z :. ydst :. xdst) = unliftDim2 p
+          in  A.lift $
+              rotatePoint rot
+                 (A.fromIntegral xdst - mx,
+                  A.fromIntegral ydst - my)
+
+validCoords ::
+   (A.Elt a, A.IsFloating a) =>
+   (Exp Int, Exp Int) ->
+   Acc (Channel Z (a, a)) ->
+   Acc (Channel Z Bool)
+validCoords (width,height) =
+   A.map $ A.lift1 $ \(x,y) ->
+      let xi = fastRound x
+          yi = fastRound y
+      in  0<=*xi &&* xi<*width &&* 0<=*yi &&* yi<*height
+
+replicateChannel ::
+   (A.Slice ix, A.Shape ix, A.Elt a) =>
+   Exp ix -> Acc (Channel Z a) -> Acc (Channel ix a)
+replicateChannel = LinAlg.extrudeMatrix
+
 {- |
 @rotateStretchMove rot mov@
 first rotate and stretches the image according to 'rot'
@@ -211,21 +245,19 @@ rotateStretchMove ::
    (Exp a, Exp a) ->
    ExpDIM2 ix -> Acc (Channel ix a) ->
    Acc (Channel ix (Bool, a))
-rotateStretchMove (rx,ry) (mx,my) sh arr =
-   let corr = recip $ rx*rx + ry*ry
-       rot = (corr*rx, -corr*ry)
-       (_chans :. height :. width) = unliftDim2 $ A.shape arr
-   in  A.generate (A.lift sh) $ \p ->
-          let (chan :. ydst :. xdst) = unliftDim2 p
-              (xsrc,ysrc) =
-                 rotatePoint rot
-                    (A.fromIntegral xdst - mx,
-                     A.fromIntegral ydst - my)
-              xi = fastRound xsrc
-              yi = fastRound ysrc
-          in  A.lift
-                 (0<=*xi &&* xi<*width &&* 0<=*yi &&* yi<*height,
-                  indexFrac arr (chan :. ysrc :. xsrc))
+rotateStretchMove rot mov sh arr =
+   let ( chansDst :. heightDst :. widthDst) = sh
+       (_chansSrc :. heightSrc :. widthSrc) = unliftDim2 $ A.shape arr
+       coords = rotateStretchMoveCoords rot mov (widthDst, heightDst)
+       mask = validCoords (widthSrc, heightSrc) coords
+
+   in  A.zip (replicateChannel chansDst mask) $
+       AU.mapWithIndex
+          (\ix coord ->
+             let (chan :. _ydst :. _xdst) = unliftDim2 ix
+                 (xsrc,ysrc) = A.unlift coord
+             in  indexFrac arr (chan :. ysrc :. xsrc))
+          (replicateChannel chansDst coords)
 
 
 rotate ::
