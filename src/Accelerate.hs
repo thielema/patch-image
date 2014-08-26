@@ -371,6 +371,18 @@ rotateManifest =
    in  \angle arr ->
           rot ((Acc.singleton $ cos angle, Acc.singleton $ sin angle), arr)
 
+prepareOverlapMatching ::
+   (Float, Array DIM3 Word8) -> Array DIM2 Float
+prepareOverlapMatching =
+   let rot =
+          CUDA.run1 $ \arg ->
+             let (orient, arr) = unliftRotationParameters arg
+             in  rotate orient $
+                 removeDCOffset $ brightnessPlane $
+                 separateChannels $ imageFloatFromByte arr
+   in  \(angle, arr) ->
+          rot ((Acc.singleton $ cos angle, Acc.singleton $ sin angle), arr)
+
 
 ceilingPow2Exp :: Exp Int -> Exp Int
 ceilingPow2Exp n =
@@ -585,43 +597,40 @@ main :: IO ()
 main = do
    paths <- Env.getArgs
    putStrLn "\nfind rotation angles"
-   rotated <-
+   picAngles <-
       forM paths $ \path -> do
          pic <- readImage path
          when False $ analyseRotations pic
          let angle = findOptimalRotation pic
-         printf "%s %f\n" path angle
-         return (path, rotateManifest (angle*pi/180) pic)
+         printf "%s %f\176\n" path angle
+         return (path, (angle*pi/180, pic))
 
    putStrLn "\nfind relative placements"
+   let rotated = map (mapSnd prepareOverlapMatching) picAngles
    let pairs = do
-          let prepare = CUDA.run1 $ removeDCOffset . brightnessPlane
-          (a:as) <- tails $ zip [0..] $ map (mapSnd prepare) rotated
+          (a:as) <- tails $ zip [0..] rotated
           b <- as
           return (a,b)
 
    when True $ do
       putStrLn "write fft"
-      let pic = snd $ head rotated
+      let (_,pic0) : (_,pic1) : _ = rotated
           size = (Z:.512:.1024 :: DIM2)
       writeGrey 90 "/tmp/padded.jpeg" $
          CUDA.run1
             (imageByteFromFloat .
-             pad (A.lift size) .
-             brightnessPlane) $
-         pic
+             pad (A.lift size)) $
+         pic0
       writeGrey 90 "/tmp/spectrum.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map Complex.real $
          FFT.fft2D FFT.Forward $
          CUDA.run1
             (A.map (A.lift . (Complex.:+ 0)) .
-             pad (A.lift size) .
-             brightnessPlane) $
-         pic
+             pad (A.lift size)) $
+         pic0
       writeGrey 90 "/tmp/convolution.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
-         (\x -> convolvePadded size x x) $
-         brightnessPlane $ A.use pic
+         convolvePadded size (A.use pic0) (A.use pic1)
 
    let (rotHeights, rotWidths) =
           unzip $
@@ -636,12 +645,19 @@ main = do
        padSize = Z :. padHeight :. padWidth
 
    let composeOverlap =
-          let f =
-                 CUDA.run1 $ Acc.modify ((expr,expr),acc) $ \((dx,dy),pics) ->
+          let rot (angle,pic) =
+                 rotate (cos angle, sin angle) $
+                 separateChannels $ imageFloatFromByte pic
+              f =
+                 CUDA.run1 $
+                 Acc.modify ((expr,expr),((expr,acc),(expr,acc))) $
+                 \((dx,dy), (a,b)) ->
                     imageByteFromFloat $ interleaveChannels $
-                    overlap2 (dx, dy) (A.unlift pics)
-          in  \(dx,dy) pics ->
-                 f ((Acc.singleton dx, Acc.singleton dy), pics)
+                    overlap2 (dx, dy) (rot a, rot b)
+          in  \(dx,dy) ((anglea,pica), (angleb,picb)) ->
+                 f ((Acc.singleton dx, Acc.singleton dy),
+                    ((Acc.singleton anglea, pica),
+                     (Acc.singleton angleb, picb)))
    let allOverlapsRun =
           CUDA.run1 $ Acc.modify (acc,acc) $ \(picA, picB) ->
              imageByteFromFloat $
@@ -668,7 +684,7 @@ main = do
          writeImage 90
             (printf "/tmp/%s-%s.jpeg"
                (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-            composeOverlap (dx,dy) (snd $ rotated!!ia, snd $ rotated!!ib)
+            composeOverlap (dx,dy) (snd $ picAngles!!ia, snd $ picAngles!!ib)
          return ((ia,ib), (dx,dy))
 
    let (poss, dps) =
