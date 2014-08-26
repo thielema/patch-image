@@ -402,7 +402,6 @@ allOverlaps a b =
        (Z :. heightb :. widthb) = A.arrayShape b
        width  = ceilingPow2 $ widtha  + widthb
        height = ceilingPow2 $ heighta + heightb
-       sh = Z :. height :. width
        half = flip div 2
        weight =
           if True
@@ -415,7 +414,7 @@ allOverlaps a b =
        attachDisplacements
           (A.lift $ half $ width-widthb+widtha)
           (A.lift $ half $ height-heightb+heighta) $
-       convolvePadded sh a b
+       convolvePadded (Z :. height :. width) a b
 
 optimalOverlap :: Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
 optimalOverlap a b =
