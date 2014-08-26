@@ -6,9 +6,11 @@ import qualified Data.Array.Accelerate.Math.Complex as Complex
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate.Arithmetic.LinearAlgebra as LinAlg
+import qualified Data.Array.Accelerate.Utility.Lift.Acc as Acc
 import qualified Data.Array.Accelerate.Utility.Arrange as Arrange
 import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Math.Complex (Complex, )
+import Data.Array.Accelerate.Utility.Lift.Acc (acc)
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3,
            (:.)((:.)), Z(Z), Any(Any), All(All),
@@ -285,12 +287,7 @@ rowHistogram = A.fold (+) 0 . brightnessPlane
 unliftRotationParameters ::
    Acc ((A.Scalar Float, A.Scalar Float), Array DIM3 Word8) ->
    ((Acc (A.Scalar Float), Acc (A.Scalar Float)), Acc (Array DIM3 Word8))
-unliftRotationParameters arg =
-   let (cs, arr) =
-          A.unlift arg
-             :: (Acc (A.Scalar Float, A.Scalar Float),
-                 Acc (Array DIM3 Word8))
-   in  (A.unlift cs, arr)
+unliftRotationParameters = Acc.unlift ((acc,acc), acc)
 
 rotateHistogram ::
    Float -> Array DIM3 Word8 -> (Array DIM3 Word8, Array DIM1 Float)
@@ -305,7 +302,7 @@ rotateHistogram =
                     (imageByteFromFloat $ interleaveChannels rotated,
                      rowHistogram rotated)
    in  \angle arr ->
-          rot ((A.fromList Z [cos angle], A.fromList Z [sin angle]), arr)
+          rot ((Acc.singleton $ cos angle, Acc.singleton $ sin angle), arr)
 
 
 analyseRotations :: Array DIM3 Word8 -> IO ()
@@ -354,7 +351,7 @@ scoreRotation =
                  separateChannels $ imageFloatFromByte arr
    in  \angle arr ->
           A.indexArray
-             (rot ((A.fromList Z [cos angle], A.fromList Z [sin angle]), arr)) Z
+             (rot ((Acc.singleton $ cos angle, Acc.singleton $ sin angle), arr)) Z
 
 findOptimalRotation :: Array DIM3 Word8 -> Float
 findOptimalRotation pic =
@@ -373,7 +370,7 @@ rotateManifest =
              in  rotate (A.the c, A.the s) $
                  separateChannels $ imageFloatFromByte arr
    in  \angle arr ->
-          rot ((A.fromList Z [cos angle], A.fromList Z [sin angle]), arr)
+          rot ((Acc.singleton $ cos angle, Acc.singleton $ sin angle), arr)
 
 
 ceilingPow2Exp :: Exp Int -> Exp Int
@@ -641,22 +638,16 @@ main = do
 
    let composeOverlap =
           let f =
-                 CUDA.run1 $ \arg ->
-                    let (d,pics) = A.unlift arg
-                           :: ((Acc (A.Scalar Int, A.Scalar Int)),
-                               (Acc (Array DIM3 Float, Array DIM3 Float)))
-                        (dx,dy) = A.unlift d
-                    in  imageByteFromFloat $ interleaveChannels $
-                        overlap2 (A.the dx, A.the dy) (A.unlift pics)
+                 CUDA.run1 $ Acc.modify ((acc,acc),acc) $ \((dx,dy),pics) ->
+                    imageByteFromFloat $ interleaveChannels $
+                    overlap2 (A.the dx, A.the dy) (A.unlift pics)
           in  \(dx,dy) pics ->
-                 f ((A.fromList Z [dx], A.fromList Z [dy]), pics)
+                 f ((Acc.singleton dx, Acc.singleton dy), pics)
    let allOverlapsRun =
-          CUDA.run1 $ \pics ->
-             let (picA, picB) = A.unlift pics
-             in  imageByteFromFloat $
-                    A.map (0.0001*) $
-                    A.map A.snd $
-                    allOverlaps padSize picA picB
+          CUDA.run1 $ Acc.modify (acc,acc) $ \(picA, picB) ->
+             imageByteFromFloat $
+             A.map (0.0001*) $
+             A.map A.snd $ allOverlaps padSize picA picB
    let optimalOverlap ::
           Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
        optimalOverlap =
