@@ -313,12 +313,6 @@ ceilingPow2 :: Int -> Int
 ceilingPow2 n =
    Bit.setBit 0 $ ceiling $ logBase 2 (fromIntegral n :: Double)
 
-padToComplex ::
-   (A.Elt a, A.IsNum a) =>
-   DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 (Complex a))
-padToComplex sh z =
-   A.map (A.lift . (Complex.:+ 0)) $ pad (A.lift sh) z
-
 removeDCOffset ::
    (A.Elt a, A.IsFloating a) => Acc (Array DIM2 a) -> Acc (Array DIM2 a)
 removeDCOffset arr =
@@ -348,7 +342,7 @@ convolvePadded ::
 convolvePadded sh@(Z :. height :. width) x y =
    let forward =
           FFT.fft2D' FFT.Forward width height .
-          padToComplex sh
+          A.map (A.lift . (Complex.:+ 0)) . pad (A.lift sh)
    in  A.map Complex.real $
        FFT.fft2D' FFT.Inverse width height $
        A.zipWith (\xi yi -> xi * Complex.conj yi) (forward x) (forward y)
