@@ -246,20 +246,19 @@ rotateStretchMove ::
    (Exp a, Exp a) ->
    (Exp a, Exp a) ->
    ExpDIM2 ix -> Acc (Channel ix a) ->
-   Acc (Channel ix (Bool, a))
+   (Acc (Channel Z Bool), Acc (Channel ix a))
 rotateStretchMove rot mov sh arr =
    let ( chansDst :. heightDst :. widthDst) = sh
        (_chansSrc :. heightSrc :. widthSrc) = unliftDim2 $ A.shape arr
        coords = rotateStretchMoveCoords rot mov (widthDst, heightDst)
-       mask = validCoords (widthSrc, heightSrc) coords
 
-   in  A.zip (replicateChannel chansDst mask) $
-       Arrange.mapWithIndex
-          (\ix coord ->
-             let (chan :. _ydst :. _xdst) = unliftDim2 ix
-                 (xsrc,ysrc) = A.unlift coord
-             in  indexFrac arr (chan :. ysrc :. xsrc))
-          (replicateChannel chansDst coords)
+   in  (validCoords (widthSrc, heightSrc) coords,
+        Arrange.mapWithIndex
+           (\ix coord ->
+              let (chan :. _ydst :. _xdst) = unliftDim2 ix
+                  (xsrc,ysrc) = A.unlift coord
+              in  indexFrac arr (chan :. ysrc :. xsrc))
+           (replicateChannel chansDst coords))
 
 
 rotate ::
@@ -270,7 +269,7 @@ rotate rot arr =
    let (chans :. height :. width) = unliftDim2 $ A.shape arr
        ((left, right), (top, bottom)) =
           boundingBoxOfRotated rot (A.fromIntegral width, A.fromIntegral height)
-   in  A.map A.snd $
+   in  snd $
        rotateStretchMove rot (-left,-top)
           (chans :. A.ceiling (bottom-top) :. A.ceiling (right-left)) arr
 
