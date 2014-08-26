@@ -8,7 +8,8 @@ import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Math.Complex (Complex, )
 import Data.Array.Accelerate
-          (Acc, Array, Exp, DIM1, DIM2, DIM3, (:.)((:.)), Z(Z), Any(Any),
+          (Acc, Array, Exp, DIM1, DIM2, DIM3,
+           (:.)((:.)), Z(Z), Any(Any), All(All),
            (<*), (<=*), (>=*), (==*), (&&*), (||*), (?), )
 
 import qualified Data.Packed.Matrix as Matrix
@@ -92,6 +93,34 @@ imageByteFromFloat ::
    Acc (Array sh a) -> Acc (Array sh Word8)
 imageByteFromFloat = A.map (fastRound . (255*) . max 0 . min 1)
 
+
+cycleLeftDim3 :: Exp DIM3 -> Exp DIM3
+cycleLeftDim3 =
+   A.lift1 $
+       \(z :. chans :. height :. width) ->
+          z :. height :. width :. chans :: ExpDIM3 Z
+
+cycleRightDim3 :: Exp DIM3 -> Exp DIM3
+cycleRightDim3 =
+   A.lift1 $
+       \(z :. height :. width :. chans) ->
+          z :. chans :. height :. width :: ExpDIM3 Z
+
+separateChannels :: (A.Elt a) => Acc (Array DIM3 a) -> Acc (Array DIM3 a)
+separateChannels arr =
+   A.backpermute
+      (cycleRightDim3 $ A.shape arr)
+      cycleLeftDim3
+      arr
+
+interleaveChannels :: (A.Elt a) => Acc (Array DIM3 a) -> Acc (Array DIM3 a)
+interleaveChannels arr =
+   A.backpermute
+      (cycleLeftDim3 $ A.shape arr)
+      cycleRightDim3
+      arr
+
+
 fastRound ::
    (A.Elt i, A.IsIntegral i, A.Elt a, A.IsFloating a) => Exp a -> Exp i
 fastRound x = A.floor (x+0.5)
@@ -129,33 +158,39 @@ splitFraction x =
    in  (i, x - A.fromIntegral i)
 
 
+
+type Channel ix a = Array (ix :. Int :. Int) a
+
+type ExpDIM2 ix = Exp ix :. Exp Int :. Exp Int
+type ExpDIM3 ix = Exp ix :. Exp Int :. Exp Int :. Exp Int
+
 unliftDim2 ::
    (A.Slice ix) =>
-   Exp (ix :. Int :. Int) -> Exp ix :. Exp Int :. Exp Int
+   Exp (ix :. Int :. Int) -> ExpDIM2 ix
 unliftDim2 = A.unlift
 
 
 indexLimit ::
-   (A.Elt a) => Acc (Array DIM3 a) -> (Exp Int, Exp Int, Exp Int) -> Exp a
-indexLimit arr (x,y,c) =
-   let (Z :. height :. width :. _chans) =
-          A.unlift $ A.shape arr :: ExpDIM3
+   (A.Slice ix, A.Shape ix, A.Elt a) =>
+   Acc (Channel ix a) -> ExpDIM2 ix -> Exp a
+indexLimit arr (ix:.y:.x) =
+   let (_ :. height :. width) = unliftDim2 $ A.shape arr
        xc = max 0 $ min (width -1) x
        yc = max 0 $ min (height-1) y
-   in  arr A.! A.lift (Z :. yc :. xc :. c)
+   in  arr A.! A.lift (ix :. yc :. xc)
 
 indexFrac ::
-   (A.Elt a, A.IsFloating a) =>
-   Acc (Array DIM3 a) -> (Exp a, Exp a, Exp Int) -> Exp a
-indexFrac arr (x,y,c) =
+   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   Acc (Channel ix a) -> Exp ix :. Exp a :. Exp a -> Exp a
+indexFrac arr (ix:.y:.x) =
    let (xi,xf) = splitFraction x
        (yi,yf) = splitFraction y
        interpolRow yc =
           cubicIp
-             (indexLimit arr (xi-1,yc,c),
-              indexLimit arr (xi,  yc,c),
-              indexLimit arr (xi+1,yc,c),
-              indexLimit arr (xi+2,yc,c))
+             (indexLimit arr (ix:.yc:.xi-1),
+              indexLimit arr (ix:.yc:.xi  ),
+              indexLimit arr (ix:.yc:.xi+1),
+              indexLimit arr (ix:.yc:.xi+2))
              xf
    in  cubicIp
           (interpolRow (yi-1),
@@ -165,32 +200,30 @@ indexFrac arr (x,y,c) =
           yf
 
 
-type ExpDIM2 = Z :. Exp Int :. Exp Int
-type ExpDIM3 = Z :. Exp Int :. Exp Int :. Exp Int
-
 rotate ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
    (Exp a, Exp a) ->
-   Acc (Array DIM3 a) -> Acc (Array DIM3 a)
+   Acc (Channel ix a) -> Acc (Channel ix a)
 rotate rot arr =
-   let (Z :. height :. width :. chans) =
-          A.unlift $ A.shape arr :: ExpDIM3
+   let (chans :. height :. width) = unliftDim2 $ A.shape arr
        ((left, right), (top, bottom)) =
           boundingBoxOfRotated rot (A.fromIntegral width, A.fromIntegral height)
    in  A.generate
-          (A.lift (Z :. A.ceiling (bottom-top) :. A.ceiling (right-left) :. chans)) $ \p ->
-             let (Z :. ydst :. xdst :. chan) = A.unlift p :: ExpDIM3
+          (A.lift (chans :. A.ceiling (bottom-top) :. A.ceiling (right-left))) $ \p ->
+             let (chan :. ydst :. xdst) = unliftDim2 p
                  (xsrc,ysrc) =
                     rotatePoint (mapSnd negate rot)
                        (A.fromIntegral xdst + left,
                         A.fromIntegral ydst + top)
-             in  indexFrac arr (xsrc, ysrc, chan)
+             in  indexFrac arr (chan :. ysrc :. xsrc)
 
 
-brightnessPlane :: Acc (Array DIM3 Float) -> Acc (Array DIM2 Float)
-brightnessPlane = flip A.slice (A.lift (Any :. (0::Int)))
+brightnessPlane ::
+   (A.Slice ix, A.Shape ix) =>
+   Acc (Channel (ix:.Int) Float) -> Acc (Channel ix Float)
+brightnessPlane = flip A.slice (A.lift (Any :. (0::Int) :. All :. All))
 
-rowHistogram :: Acc (Array DIM3 Float) -> Acc (Array DIM1 Float)
+rowHistogram :: Acc (Channel DIM1 Float) -> Acc (Array DIM1 Float)
 rowHistogram = A.fold (+) 0 . brightnessPlane
 
 
@@ -211,9 +244,10 @@ rotateHistogram =
           CUDA.run1 $ \arg ->
              let ((c,s), arr) = unliftRotationParameters arg
                  rotated =
-                    rotate (A.the c, A.the s) $ imageFloatFromByte arr
+                    rotate (A.the c, A.the s) $
+                    separateChannels $ imageFloatFromByte arr
              in  A.lift
-                    (imageByteFromFloat rotated,
+                    (imageByteFromFloat $ interleaveChannels rotated,
                      rowHistogram rotated)
    in  \angle arr ->
           rot ((A.fromList Z [cos angle], A.fromList Z [sin angle]), arr)
@@ -261,7 +295,8 @@ scoreRotation =
           CUDA.run1 $ \arg ->
              let ((c,s), arr) = unliftRotationParameters arg
              in  A.sum $ A.map (^(2::Int)) $ differentiate $ rowHistogram $
-                 rotate (A.the c, A.the s) $ imageFloatFromByte arr
+                 rotate (A.the c, A.the s) $
+                 separateChannels $ imageFloatFromByte arr
    in  \angle arr ->
           A.indexArray
              (rot ((A.fromList Z [cos angle], A.fromList Z [sin angle]), arr)) Z
@@ -280,7 +315,8 @@ rotateManifest =
    let rot =
           CUDA.run1 $ \arg ->
              let ((c,s), arr) = unliftRotationParameters arg
-             in  rotate (A.the c, A.the s) $ imageFloatFromByte arr
+             in  rotate (A.the c, A.the s) $
+                 separateChannels $ imageFloatFromByte arr
    in  \angle arr ->
           rot ((A.fromList Z [cos angle], A.fromList Z [sin angle]), arr)
 
@@ -470,22 +506,23 @@ absolutePositionsFromPairDisplacements numPics displacements =
 
 
 overlap2 ::
+   (A.Slice ix, A.Shape ix) =>
    (Exp Int, Exp Int) ->
-   (Acc (Array DIM3 Float), Acc (Array DIM3 Float)) -> Acc (Array DIM3 Float)
+   (Acc (Channel ix Float), Acc (Channel ix Float)) -> Acc (Channel ix Float)
 overlap2 (dx,dy) (a,b) =
-   let (Z :. heighta :. widtha :. chansa) = A.unlift $ A.shape a :: ExpDIM3
-       (Z :. heightb :. widthb :. chansb) = A.unlift $ A.shape b :: ExpDIM3
+   let (chansa :. heighta :. widtha) = unliftDim2 $ A.shape a
+       (chansb :. heightb :. widthb) = unliftDim2 $ A.shape b
        left = min 0 dx; right  = max widtha  (widthb  + dx)
        top  = min 0 dy; bottom = max heighta (heightb + dy)
        width  = right - left
        height = bottom - top
-       chans = min chansa chansb
-   in  A.generate (A.lift (Z :. height :. width :. chans)) $ \p ->
-          let (Z :. y :. x :. chan) = A.unlift p :: ExpDIM3
+       chans = A.intersect chansa chansb
+   in  A.generate (A.lift (chans :. height :. width)) $ \p ->
+          let (chan :. y :. x) = unliftDim2 p
               xa = x + left; xb = xa-dx
               ya = y + top;  yb = ya-dy
-              pa = A.lift $ Z :. ya :. xa :. chan
-              pb = A.lift $ Z :. yb :. xb :. chan
+              pa = A.lift $ chan :. ya :. xa
+              pb = A.lift $ chan :. yb :. xb
               inPicA = 0<=*xa &&* xa<*widtha &&* 0<=*ya &&* ya<*heighta
               inPicB = 0<=*xb &&* xb<*widthb &&* 0<=*yb &&* yb<*heightb
           in  inPicA ?
@@ -537,7 +574,7 @@ main = do
 
    let (rotHeights, rotWidths) =
           unzip $
-          map (\(Z:.height:.width:._chans) -> (height, width)) $
+          map (\(_chans:.height:.width) -> (height, width)) $
           map (A.arrayShape . snd) rotated
        maxSum2 sizes =
           case List.sortBy (flip compare) sizes of
@@ -554,7 +591,7 @@ main = do
                            :: ((Acc (A.Scalar Int, A.Scalar Int)),
                                (Acc (Array DIM3 Float, Array DIM3 Float)))
                         (dx,dy) = A.unlift d
-                    in  imageByteFromFloat $
+                    in  imageByteFromFloat $ interleaveChannels $
                         overlap2 (A.the dx, A.the dy) (A.unlift pics)
           in  \(dx,dy) pics ->
                  f ((A.fromList Z [dx], A.fromList Z [dy]), pics)
