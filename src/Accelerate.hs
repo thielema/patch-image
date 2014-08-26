@@ -315,11 +315,9 @@ ceilingPow2 n =
 
 padToComplex ::
    (A.Elt a, A.IsNum a) =>
-   (A.Scalar DIM2, Array DIM2 a) -> Array DIM2 (Complex a)
-padToComplex =
-   CUDA.run1 $ \shz ->
-      let (sh,z) = A.unlift shz
-      in  A.map (A.lift . (Complex.:+ 0)) $ pad (A.the sh) z
+   DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 (Complex a))
+padToComplex sh z =
+   A.map (A.lift . (Complex.:+ 0)) $ pad (A.lift sh) z
 
 removeDCOffset ::
    (A.Elt a, A.IsFloating a) => Acc (Array DIM2 a) -> Acc (Array DIM2 a)
@@ -346,13 +344,13 @@ clearDCCoefficient arr =
 
 convolvePadded ::
    (A.Elt a, A.IsFloating a) =>
-   DIM2 -> Array DIM2 a -> Array DIM2 a -> Acc (Array DIM2 a)
-convolvePadded sh x y =
-   let forward z =
-          FFT.fft2D FFT.Forward $
-          padToComplex (A.fromList Z [sh], z)
+   DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
+convolvePadded sh@(Z :. height :. width) x y =
+   let forward =
+          FFT.fft2D' FFT.Forward width height .
+          padToComplex sh
    in  A.map Complex.real $
-       FFT.fft2D FFT.Inverse $ CUDA.run $
+       FFT.fft2D' FFT.Inverse width height $
        A.zipWith (\xi yi -> xi * Complex.conj yi) (forward x) (forward y)
 
 
@@ -414,7 +412,7 @@ allOverlaps a b =
        attachDisplacements
           (A.lift $ half $ width-widthb+widtha)
           (A.lift $ half $ height-heightb+heighta) $
-       convolvePadded (Z :. height :. width) a b
+       convolvePadded (Z :. height :. width) (A.use a) (A.use b)
 
 optimalOverlap :: Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
 optimalOverlap a b =
@@ -509,8 +507,7 @@ main = do
       writeGrey 90 "/tmp/convolution.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
          (\x -> convolvePadded size x x) $
-         CUDA.run1 brightnessPlane $
-         pic
+         brightnessPlane $ A.use pic
 
    let composeOverlap =
           let f =
