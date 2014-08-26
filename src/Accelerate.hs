@@ -128,6 +128,13 @@ splitFraction x =
    let i = A.floor x
    in  (i, x - A.fromIntegral i)
 
+
+unliftDim2 ::
+   (A.Slice ix) =>
+   Exp (ix :. Int :. Int) -> Exp ix :. Exp Int :. Exp Int
+unliftDim2 = A.unlift
+
+
 indexLimit ::
    (A.Elt a) => Acc (Array DIM3 a) -> (Exp Int, Exp Int, Exp Int) -> Exp a
 indexLimit arr (x,y,c) =
@@ -318,7 +325,7 @@ removeDCOffset ::
    (A.Elt a, A.IsFloating a) => Acc (Array DIM2 a) -> Acc (Array DIM2 a)
 removeDCOffset arr =
    let sh = A.shape arr
-       (Z :. height :. width) = A.unlift sh :: ExpDIM2
+       (_z :. height :. width) = unliftDim2 sh
        s =
           A.the (A.fold1All (+) arr)
              / (A.fromIntegral width * A.fromIntegral height)
@@ -333,7 +340,7 @@ clearDCCoefficient ::
    Acc (Array DIM2 (Complex a)) -> Acc (Array DIM2 (Complex a))
 clearDCCoefficient arr =
    A.generate (A.shape arr) $ \p ->
-      let (Z:.y:.x) = A.unlift p :: ExpDIM2
+      let (_z:.y:.x) = unliftDim2 p
       in  x==*0 ||* y==*0 ? (0, arr A.! p)
 
 
@@ -356,9 +363,9 @@ attachDisplacements ::
    Acc (Array DIM2 a) -> Acc (Array DIM2 ((Int, Int), a))
 attachDisplacements xsplit ysplit arr =
    let sh = A.shape arr
-       (Z :. height :. width) = A.unlift sh :: ExpDIM2
+       (_z :. height :. width) = unliftDim2 sh
    in  A.generate sh $ \p ->
-          let (Z:.y:.x) = A.unlift p :: ExpDIM2
+          let (_z:.y:.x) = unliftDim2 p
               wrap size split c = c<*split ? (c, c-size)
           in  A.lift ((wrap height ysplit y, wrap width xsplit x), arr A.! p)
 
