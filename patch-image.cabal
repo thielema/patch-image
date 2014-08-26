@@ -27,6 +27,7 @@ Executable patch-image
 
   Build-Depends:
     accelerate-arithmetic >=0.0 && <0.1,
+    accelerate-utility >=0.0 && <0.1,
     accelerate-cuda >=0.15 && <0.16,
     accelerate-fft >=0.15 && <0.16,
     accelerate-io >=0.15 && <0.16,

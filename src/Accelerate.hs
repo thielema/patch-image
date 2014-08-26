@@ -6,7 +6,7 @@ import qualified Data.Array.Accelerate.Math.Complex as Complex
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate.Arithmetic.LinearAlgebra as LinAlg
-import qualified Data.Array.Accelerate.Arithmetic.Utility as AU
+import qualified Data.Array.Accelerate.Utility.Arrange as Arrange
 import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Math.Complex (Complex, )
 import Data.Array.Accelerate
@@ -252,7 +252,7 @@ rotateStretchMove rot mov sh arr =
        mask = validCoords (widthSrc, heightSrc) coords
 
    in  A.zip (replicateChannel chansDst mask) $
-       AU.mapWithIndex
+       Arrange.mapWithIndex
           (\ix coord ->
              let (chan :. _ydst :. _xdst) = unliftDim2 ix
                  (xsrc,ysrc) = A.unlift coord
