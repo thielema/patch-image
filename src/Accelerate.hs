@@ -10,7 +10,7 @@ import qualified Data.Array.Accelerate.Utility.Lift.Acc as Acc
 import qualified Data.Array.Accelerate.Utility.Arrange as Arrange
 import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Math.Complex (Complex, )
-import Data.Array.Accelerate.Utility.Lift.Acc (acc)
+import Data.Array.Accelerate.Utility.Lift.Acc (acc, expr)
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3,
            (:.)((:.)), Z(Z), Any(Any), All(All),
@@ -286,17 +286,17 @@ rowHistogram = A.fold (+) 0 . brightnessPlane
 
 unliftRotationParameters ::
    Acc ((A.Scalar Float, A.Scalar Float), Array DIM3 Word8) ->
-   ((Acc (A.Scalar Float), Acc (A.Scalar Float)), Acc (Array DIM3 Word8))
-unliftRotationParameters = Acc.unlift ((acc,acc), acc)
+   ((Exp Float, Exp Float), Acc (Array DIM3 Word8))
+unliftRotationParameters = Acc.unlift ((expr,expr), acc)
 
 rotateHistogram ::
    Float -> Array DIM3 Word8 -> (Array DIM3 Word8, Array DIM1 Float)
 rotateHistogram =
    let rot =
           CUDA.run1 $ \arg ->
-             let ((c,s), arr) = unliftRotationParameters arg
+             let (orient, arr) = unliftRotationParameters arg
                  rotated =
-                    rotate (A.the c, A.the s) $
+                    rotate orient $
                     separateChannels $ imageFloatFromByte arr
              in  A.lift
                     (imageByteFromFloat $ interleaveChannels rotated,
@@ -345,9 +345,9 @@ scoreRotation :: Float -> Array DIM3 Word8 -> Float
 scoreRotation =
    let rot =
           CUDA.run1 $ \arg ->
-             let ((c,s), arr) = unliftRotationParameters arg
+             let (orient, arr) = unliftRotationParameters arg
              in  A.sum $ A.map (^(2::Int)) $ differentiate $ rowHistogram $
-                 rotate (A.the c, A.the s) $
+                 rotate orient $
                  separateChannels $ imageFloatFromByte arr
    in  \angle arr ->
           A.indexArray
@@ -366,8 +366,8 @@ rotateManifest :: Float -> Array DIM3 Word8 -> Array DIM3 Float
 rotateManifest =
    let rot =
           CUDA.run1 $ \arg ->
-             let ((c,s), arr) = unliftRotationParameters arg
-             in  rotate (A.the c, A.the s) $
+             let (orient, arr) = unliftRotationParameters arg
+             in  rotate orient $
                  separateChannels $ imageFloatFromByte arr
    in  \angle arr ->
           rot ((Acc.singleton $ cos angle, Acc.singleton $ sin angle), arr)
@@ -638,9 +638,9 @@ main = do
 
    let composeOverlap =
           let f =
-                 CUDA.run1 $ Acc.modify ((acc,acc),acc) $ \((dx,dy),pics) ->
+                 CUDA.run1 $ Acc.modify ((expr,expr),acc) $ \((dx,dy),pics) ->
                     imageByteFromFloat $ interleaveChannels $
-                    overlap2 (A.the dx, A.the dy) (A.unlift pics)
+                    overlap2 (dx, dy) (A.unlift pics)
           in  \(dx,dy) pics ->
                  f ((Acc.singleton dx, Acc.singleton dy), pics)
    let allOverlapsRun =
