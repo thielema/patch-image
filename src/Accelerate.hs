@@ -340,13 +340,14 @@ clearDCCoefficient arr =
 convolvePadded ::
    (A.Elt a, A.IsFloating a) =>
    DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
-convolvePadded sh@(Z :. height :. width) x y =
+convolvePadded sh@(Z :. height :. width) =
    let forward =
           FFT.fft2D' FFT.Forward width height .
           A.map (A.lift . (Complex.:+ 0)) . pad (A.lift sh)
-   in  A.map Complex.real $
-       FFT.fft2D' FFT.Inverse width height $
-       A.zipWith (\xi yi -> xi * Complex.conj yi) (forward x) (forward y)
+       inverse = FFT.fft2D' FFT.Inverse width height
+   in  \ x y ->
+          A.map Complex.real $ inverse $
+          A.zipWith (\xi yi -> xi * Complex.conj yi) (forward x) (forward y)
 
 
 attachDisplacements ::
@@ -392,22 +393,24 @@ allOverlaps ::
    DIM2 ->
    Acc (Array DIM2 Float) -> Acc (Array DIM2 Float) ->
    Acc (Array DIM2 ((Int, Int), Float))
-allOverlaps size@(Z :. height :. width) a b =
-   let (Z :. heighta :. widtha) = A.unlift $ A.shape a
-       (Z :. heightb :. widthb) = A.unlift $ A.shape b
-       half = flip div 2
-       weight =
-          if False
-            then
-               weightOverlapScores 100
-                  (widtha, heighta)
-                  (widthb, heightb)
-            else id
-   in  weight $
-       attachDisplacements
-          (half $ A.lift width - widthb + widtha)
-          (half $ A.lift height - heightb + heighta) $
-       convolvePadded size a b
+allOverlaps size@(Z :. height :. width) =
+   let convolve = convolvePadded size
+   in  \a b ->
+          let (Z :. heighta :. widtha) = A.unlift $ A.shape a
+              (Z :. heightb :. widthb) = A.unlift $ A.shape b
+              half = flip div 2
+              weight =
+                 if False
+                   then
+                      weightOverlapScores 100
+                         (widtha, heighta)
+                         (widthb, heightb)
+                   else id
+          in  weight $
+              attachDisplacements
+                 (half $ A.lift width - widthb + widtha)
+                 (half $ A.lift height - heightb + heighta) $
+              convolve a b
 
 
 absolutePositionsFromPairDisplacements ::
