@@ -44,7 +44,7 @@ import Control.Monad (zipWithM_, when)
 import Data.List.HT (mapAdjacent, tails)
 import Data.Traversable (forM)
 import Data.Foldable (foldMap)
-import Data.Tuple.HT (mapSnd)
+import Data.Tuple.HT (mapPair, mapFst, mapSnd)
 import Data.Word (Word8)
 
 
@@ -593,6 +593,60 @@ overlap2 (dx,dy) (a,b) =
                   inPicB ? (b A.! pb, 0))
 
 
+emptyCanvas ::
+   (A.Slice ix, A.Shape ix) =>
+   ix :. Int :. Int ->
+   (Array DIM2 Int, Array (ix :. Int :. Int) Float)
+emptyCanvas =
+   let fill =
+          CUDA.run1 $ Acc.modify expr $ \sh ->
+             let (_ix :. height :. width) = unliftDim2 sh
+             in  (A.fill (A.lift $ Z:.height:.width) 0,
+                  A.fill sh 0)
+   in  fill . Acc.singleton
+
+
+addToCanvas ::
+   (A.Slice ix, A.Shape ix, A.Elt a, A.IsNum a) =>
+   (Acc (Channel Z Bool), Acc (Channel ix a)) ->
+   (Acc (Channel Z Int),  Acc (Channel ix a)) ->
+   (Acc (Channel Z Int),  Acc (Channel ix a))
+addToCanvas (mask, pic) (count, canvas) =
+   (A.zipWith (+) (A.map A.boolToInt mask) count,
+    A.zipWith (+) canvas $ A.zipWith (*) pic $
+    replicateChannel
+       (A.indexTail $ A.indexTail $ A.shape pic)
+       (A.map (A.fromIntegral . A.boolToInt) mask))
+
+updateCanvas ::
+   (Float,Float) -> (Float,Float) -> Array DIM3 Word8 ->
+   (Channel Z Int, Channel DIM1 Float) ->
+   (Channel Z Int, Channel DIM1 Float)
+updateCanvas =
+   let update =
+          CUDA.run1 $
+          Acc.modify (((expr,expr), (expr,expr), acc), (acc,acc)) $
+          \((rot, mov, pic), (count,canvas)) ->
+             addToCanvas
+                (rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
+                 separateChannels $ imageFloatFromByte pic)
+                (count,canvas)
+   in  \(rx,ry) (mx,my) pic canvas ->
+          update (((Acc.singleton rx, Acc.singleton ry),
+                   (Acc.singleton mx, Acc.singleton my),
+                   pic),
+                  canvas)
+
+finalizeCanvas :: (Channel Z Int, Channel DIM1 Float) -> Array DIM3 Word8
+finalizeCanvas =
+   CUDA.run1 $ Acc.modify (acc,acc) $
+   \(count, canvas) ->
+      imageByteFromFloat $ interleaveChannels $
+      A.zipWith (/) canvas $
+      replicateChannel (A.indexTail $ A.indexTail $ A.shape canvas) $
+      A.map A.fromIntegral count
+
+
 main :: IO ()
 main = do
    paths <- Env.getArgs
@@ -697,3 +751,40 @@ main = do
       (\(dpx,dpy) (dx,dy) ->
          printf "(%f,%f) (%i,%i)\n" dpx dpy dx dy)
       dps (map snd displacements)
+
+   putStrLn "\ncompose all parts"
+   let picRots =
+          map (mapFst (\angle -> (cos angle, sin angle)) . snd) picAngles
+       floatPoss =
+          zipWith
+             (\((l,_), (t,_)) (mx,my) -> (mx-l, my-t))
+             bboxes
+             (map (mapPair (realToFrac, realToFrac)) poss)
+       bboxes =
+          map
+             (\(rot, pic) ->
+                case A.arrayShape pic of
+                   Z:.height:.width:._chans ->
+                      boundingBoxOfRotated rot
+                         (fromIntegral width, fromIntegral height))
+             picRots
+       ((left,right), (top,bottom)) =
+          mapPair
+             (mapPair (minimum, maximum) . unzip,
+              mapPair (minimum, maximum) . unzip) $
+          unzip $
+          zipWith
+             (\(mx,my) bbox ->
+                mapPair (mapPair ((mx+), (mx+)), mapPair ((my+), (my+))) bbox)
+             floatPoss bboxes
+       canvasWidth  = ceiling (right-left)
+       canvasHeight = ceiling (bottom-top)
+   printf "canvas %f-%f, %f-%f\n" left right top bottom
+   printf "canvas size %d, %d\n" canvasWidth canvasHeight
+   writeImage 90 "/tmp/complete.jpeg" $
+      finalizeCanvas $
+      foldl
+         (\canvas ((mx,my), (rot, pic)) ->
+            updateCanvas rot (mx-left, my-top) pic canvas)
+         (emptyCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
+         (zip floatPoss picRots)
