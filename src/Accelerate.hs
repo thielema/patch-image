@@ -7,10 +7,12 @@ import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate.Arithmetic.LinearAlgebra as LinAlg
 import qualified Data.Array.Accelerate.Utility.Lift.Acc as Acc
+import qualified Data.Array.Accelerate.Utility.Lift.Exp as Exp
 import qualified Data.Array.Accelerate.Utility.Arrange as Arrange
 import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Math.Complex (Complex, )
 import Data.Array.Accelerate.Utility.Lift.Acc (acc, expr)
+import Data.Array.Accelerate.Utility.Lift.Exp (atom)
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3,
            (:.)((:.)), Z(Z), Any(Any), All(All),
@@ -20,6 +22,9 @@ import qualified Data.Packed.Matrix as Matrix
 import qualified Data.Packed.Vector as Vector
 import qualified Data.Packed.ST as PackST
 import Numeric.Container ((<\>), (<>))
+
+import qualified Line
+import Point2 (Point2(Point2), distance)
 
 import qualified Graphics.Gnuplot.Advanced as GP
 import qualified Graphics.Gnuplot.LineSpecification as LineSpec
@@ -43,7 +48,7 @@ import Control.Monad.HT (void)
 import Control.Monad (zipWithM_, when)
 import Data.List.HT (mapAdjacent, tails)
 import Data.Traversable (forM)
-import Data.Foldable (foldMap)
+import Data.Foldable (forM_, foldMap)
 import Data.Tuple.HT (mapPair, mapFst, mapSnd)
 import Data.Word (Word8)
 
@@ -647,6 +652,60 @@ finalizeCanvas =
       A.map A.fromIntegral count
 
 
+
+maybePlus ::
+   (A.Elt a) =>
+   (Exp a -> Exp a -> Exp a) ->
+   Exp (Bool, a) -> Exp (Bool, a) -> Exp (Bool, a)
+maybePlus f x y =
+   let (xb,xv) = Exp.unliftPair x
+       (yb,yv) = Exp.unliftPair y
+   in  A.cond xb (A.lift (True, A.cond yb (f xv yv) xv)) y
+
+maskedMinimum ::
+   (A.Shape ix, A.Elt a, A.IsScalar a) =>
+   LinAlg.Vector ix (Bool, a) ->
+   LinAlg.Scalar ix (Bool, a)
+maskedMinimum = A.fold1 (maybePlus min)
+
+maskedMaximum ::
+   (A.Shape ix, A.Elt a, A.IsScalar a) =>
+   LinAlg.Vector ix (Bool, a) ->
+   LinAlg.Scalar ix (Bool, a)
+maskedMaximum = A.fold1 (maybePlus max)
+
+
+project ::
+   (A.Elt a, A.IsFloating a) =>
+   Point2 (Exp a) ->
+   (Point2 (Exp a), Point2 (Exp a)) ->
+   (Exp Bool, Point2 (Exp a))
+project x (a, b) =
+   let (r, _, _, y) = Line.distanceAux a b x
+   in  (0<=*r &&* r<=*1, y)
+
+distanceMap ::
+   (A.Elt a, A.IsFloating a) =>
+   Exp DIM2 -> Acc (Array DIM1 ((a,a),(a,a))) -> Acc (Channel Z a)
+distanceMap sh edges =
+   A.map (Exp.modify (atom,atom) $ \(valid, dist) -> valid ? (dist, 0)) $
+   maskedMinimum $
+   Arrange.mapWithIndex
+      (Exp.modify2 (atom:.atom:.atom:.atom) ((atom, atom), (atom, atom)) $
+            \(_z:.y:.x:._e) (q0, q1) ->
+         let pp = Point2 (A.fromIntegral x, A.fromIntegral y)
+         in  mapSnd (distance pp) $ project pp (Point2 q0, Point2 q1)) $
+   LinAlg.extrudeVector sh edges
+
+distanceMapRun ::
+   DIM2 -> Array DIM1 ((Float,Float),(Float,Float)) -> Channel Z Word8
+distanceMapRun =
+   let dist =
+          CUDA.run1 $ Acc.modify (expr, acc) $
+             imageByteFromFloat . A.map (0.01*) . uncurry distanceMap
+   in  \sh edges -> dist (Acc.singleton sh, edges)
+
+
 main :: IO ()
 main = do
    paths <- Env.getArgs
@@ -788,3 +847,25 @@ main = do
             updateCanvas rot (mx-canvasLeft, my-canvasTop) pic canvas)
          (emptyCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
          (zip floatPoss picRots)
+
+   putStrLn "\ndistance maps"
+   forM_ (zip3 floatPoss picRots picAngles) $
+         \((mx,my), (rot, pic), (path, _)) -> do
+      let (Z:.height:.width):._chans = A.arrayShape pic
+          absx = mx-canvasLeft
+          absy = my-canvasTop
+          move (x,y) = (x+absx, y+absy)
+          widthf  = fromIntegral width
+          heightf = fromIntegral height
+          corner00 = move $ rotatePoint rot (0,0)
+          corner10 = move $ rotatePoint rot (widthf,0)
+          corner01 = move $ rotatePoint rot (0,heightf)
+          corner11 = move $ rotatePoint rot (widthf,heightf)
+          edges =
+             A.fromList (Z:.4)
+                [(corner00, corner10), (corner10, corner11),
+                 (corner11, corner01), (corner01, corner00)]
+      when True $
+         writeGrey 90
+            (printf "/tmp/%s-distance.jpeg" (FilePath.takeBaseName path)) $
+            distanceMapRun (Z :. canvasHeight :. canvasWidth) edges
