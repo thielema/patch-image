@@ -768,7 +768,7 @@ main = do
                       boundingBoxOfRotated rot
                          (fromIntegral width, fromIntegral height))
              picRots
-       ((left,right), (top,bottom)) =
+       ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
           mapPair
              (mapPair (minimum, maximum) . unzip,
               mapPair (minimum, maximum) . unzip) $
@@ -777,14 +777,14 @@ main = do
              (\(mx,my) bbox ->
                 mapPair (mapPair ((mx+), (mx+)), mapPair ((my+), (my+))) bbox)
              floatPoss bboxes
-       canvasWidth  = ceiling (right-left)
-       canvasHeight = ceiling (bottom-top)
-   printf "canvas %f-%f, %f-%f\n" left right top bottom
+       canvasWidth  = ceiling (canvasRight-canvasLeft)
+       canvasHeight = ceiling (canvasBottom-canvasTop)
+   printf "canvas %f-%f, %f-%f\n" canvasLeft canvasRight canvasTop canvasBottom
    printf "canvas size %d, %d\n" canvasWidth canvasHeight
    writeImage 90 "/tmp/complete.jpeg" $
       finalizeCanvas $
       foldl
          (\canvas ((mx,my), (rot, pic)) ->
-            updateCanvas rot (mx-left, my-top) pic canvas)
+            updateCanvas rot (mx-canvasLeft, my-canvasTop) pic canvas)
          (emptyCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
          (zip floatPoss picRots)
