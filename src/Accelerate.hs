@@ -14,7 +14,7 @@ import Data.Array.Accelerate.Math.Complex (Complex, )
 import Data.Array.Accelerate.Utility.Lift.Acc (acc, expr)
 import Data.Array.Accelerate.Utility.Lift.Exp (atom)
 import Data.Array.Accelerate
-          (Acc, Array, Exp, DIM1, DIM2, DIM3,
+          (Acc, Array, Exp, DIM1, DIM2, DIM3, DIM4,
            (:.)((:.)), Z(Z), Any(Any), All(All),
            (<*), (<=*), (>=*), (==*), (&&*), (||*), (?), )
 
@@ -46,10 +46,10 @@ import qualified Data.List as List
 import qualified Data.Bits as Bit
 import Control.Monad.HT (void)
 import Control.Monad (liftM2, zipWithM_, when)
-import Data.List.HT (mapAdjacent, tails)
+import Data.List.HT (removeEach, mapAdjacent, tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_, foldMap)
-import Data.Tuple.HT (mapPair, mapFst, mapSnd)
+import Data.Tuple.HT (mapPair, mapFst, mapSnd, curry3)
 import Data.Word (Word8)
 
 
@@ -774,9 +774,9 @@ separateDistanceMap arr =
       (A.use $ A.fromList (Z:.(4::Int)) $
        liftM2 (,) [False,True] [False,True])
 
-distanceMapRun ::
+distanceMapBox ::
    DIM2 -> ((Float,Float),(Float,Float),(Int,Int)) -> Channel Z Word8
-distanceMapRun =
+distanceMapBox =
    let distances =
           CUDA.run1 $ Acc.modify (expr, expr) $
           \(sh, geom) ->
@@ -791,6 +791,96 @@ distanceMapRun =
                  separateDistanceMap $
                  distanceMap sh geom
    in  \sh geom -> distances (Acc.singleton sh, Acc.singleton geom)
+
+
+containedAnywhere ::
+   (A.Elt a, A.IsFloating a) =>
+   Acc (Array DIM1 ((a,a), (a,a), (Int,Int))) ->
+   Acc (Array DIM3 (a,a)) ->
+   Acc (Array DIM3 Bool)
+containedAnywhere geoms arr =
+   A.fold1 (||*) $ containedAnywhereCore geoms arr
+
+containedAnywhereCore ::
+   (A.Elt a, A.IsFloating a) =>
+   Acc (Array DIM1 ((a,a), (a,a), (Int,Int))) ->
+   Acc (Array DIM3 (a,a)) ->
+   Acc (Array DIM4 Bool)
+containedAnywhereCore geoms arr =
+   outerVector
+      (Exp.modify2 (atom,atom) ((atom,atom),(atom,atom),(atom,atom)) $
+       \(xdst,ydst) (rot, mov, extent) ->
+          let (xsrc,ysrc) = rotateStretchMoveBackPoint rot mov (xdst,ydst)
+          in  inBox extent (fastRound xsrc, fastRound ysrc))
+      arr geoms
+
+
+distanceMapContainedCantLaunch ::
+   DIM2 ->
+   ((Float,Float),(Float,Float),(Int,Int)) ->
+   [((Float,Float),(Float,Float),(Int,Int))] ->
+   Channel Z Word8
+distanceMapContainedCantLaunch =
+   let distances =
+          CUDA.run1 $ Acc.modify (expr, expr, acc) $
+          \(sh, this, others) ->
+             let distMap =
+                    separateDistanceMap $
+                    distanceMap sh this
+                 contained =
+                    containedAnywhere others $
+                    A.map (A.snd . A.snd) distMap
+                 scale =
+                    (4/) $ A.fromIntegral $ uncurry min $
+                    Exp.unliftPair $ Exp.thd3 this
+             in  imageByteFromFloat $
+                 A.map (Exp.modify (atom,atom) $
+                          \(valid, dist) -> valid ? (scale*dist, 0)) $
+                 maskedMinimum $
+                 A.zipWith
+                    (Exp.modify2 atom (atom,(atom,atom)) $ \c (b,(dist,_)) ->
+                       (c&&*b, dist))
+                    contained distMap
+   in  \sh this others ->
+          distances
+             (Acc.singleton sh, Acc.singleton this,
+              A.fromList (Z :. length others) others)
+
+
+distanceMapContained ::
+   DIM2 ->
+   ((Float,Float),(Float,Float),(Int,Int)) ->
+   [((Float,Float),(Float,Float),(Int,Int))] ->
+   Channel Z Word8
+distanceMapContained =
+   let distances0 =
+          curry $ CUDA.run1 $ Acc.modify (expr, expr) $
+          \(sh, this) -> separateDistanceMap $ distanceMap sh this
+       contained0 =
+          curry $ CUDA.run1 $ Acc.modify (acc,acc) $
+          \(geoms, arr) ->
+             containedAnywhereCore geoms $
+             A.map (A.snd . A.snd) arr
+       distances1 =
+          curry3 $ CUDA.run1 $ Acc.modify (expr, acc, acc) $
+          \(this, contained, distMap) ->
+             let scale =
+                    (4/) $ A.fromIntegral $ uncurry min $
+                    Exp.unliftPair $ Exp.thd3 this
+             in  imageByteFromFloat $
+                 A.map (Exp.modify (atom,atom) $
+                          \(valid, dist) -> valid ? (scale*dist, 0)) $
+                 maskedMinimum $
+                 A.zipWith
+                    (Exp.modify2 atom (atom,(atom,atom)) $ \c (b,(dist,_)) ->
+                       (c&&*b, dist))
+                    (A.fold1 (||*) contained) distMap
+   in  \sh this others ->
+          let distMap = distances0 (Acc.singleton sh) (Acc.singleton this)
+          in  distances1
+                 (Acc.singleton this)
+                 (contained0 (A.fromList (Z :. length others) others) distMap)
+                 (distMap)
 
 
 main :: IO ()
@@ -936,14 +1026,17 @@ main = do
          (zip floatPoss picRots)
 
    putStrLn "\ndistance maps"
-   forM_ (zip3 floatPoss picRots picAngles) $
-         \((mx,my), (rot, pic), (path, _)) -> do
-      let (Z:.height:.width):._chans = A.arrayShape pic
-          absx = mx-canvasLeft
-          absy = my-canvasTop
-          mov = (absx,absy)
-          this = (rot, mov, (width,height))
+   let geometries =
+          zipWith
+             (\(mx,my) (rot, pic) ->
+                let Z:.height:.width:._chans = A.arrayShape pic
+                    mov = (mx-canvasLeft, my-canvasTop)
+                in  (rot, mov, (width,height)))
+             floatPoss picRots
+   forM_ (zip (removeEach geometries) picAngles) $
+         \((this, others), (path, _)) -> do
 {-
+      let
           widthf  = fromIntegral width
           heightf = fromIntegral height
           corner00 = rotateStretchMovePoint rot mov (0,0)
@@ -957,7 +1050,15 @@ main = do
 -}
       when True $
          writeGrey 90
-            (printf "/tmp/%s-distance.jpeg" (FilePath.takeBaseName path)) $
-            distanceMapRun
+            (printf "/tmp/%s-distance-box.jpeg" (FilePath.takeBaseName path)) $
+            distanceMapBox
                (Z :. canvasHeight :. canvasWidth)
                this
+      print $ length others
+      print others
+      when True $
+         writeGrey 90
+            (printf "/tmp/%s-distance-contained.jpeg" (FilePath.takeBaseName path)) $
+            distanceMapContained
+               (Z :. canvasHeight :. canvasWidth)
+               this others
