@@ -783,9 +783,9 @@ distanceMapBox =
              let scale =
                     (4/) $ A.fromIntegral $ uncurry min $
                     Exp.unliftPair $ Exp.thd3 geom
-             in  imageByteFromFloat . A.map (scale*) $
+             in  imageByteFromFloat $
                  A.map (Exp.modify (atom,atom) $
-                          \(valid, dist) -> valid ? (dist, 0)) $
+                          \(valid, dist) -> valid ? (scale*dist, 0)) $
                  maskedMinimum $
                  A.map (Exp.mapSnd A.fst) $
                  separateDistanceMap $
