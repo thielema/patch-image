@@ -991,11 +991,6 @@ main = do
    putStrLn "\ncompose all parts"
    let picRots =
           map (mapFst (\angle -> (cos angle, sin angle)) . snd) picAngles
-       floatPoss =
-          zipWith
-             (\((l,_), (t,_)) (mx,my) -> (mx-l, my-t))
-             bboxes
-             (map (mapPair (realToFrac, realToFrac)) poss)
        bboxes =
           map
              (\(rot, pic) ->
@@ -1004,6 +999,11 @@ main = do
                       boundingBoxOfRotated rot
                          (fromIntegral width, fromIntegral height))
              picRots
+       floatPoss =
+          zipWith
+             (\((l,_), (t,_)) (mx,my) -> (mx-l, my-t))
+             bboxes
+             (map (mapPair (realToFrac, realToFrac)) poss)
        ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
           mapPair
              (mapPair (minimum, maximum) . unzip,
