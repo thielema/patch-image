@@ -45,7 +45,7 @@ import qualified Data.List.Key as Key
 import qualified Data.List as List
 import qualified Data.Bits as Bit
 import Control.Monad.HT (void)
-import Control.Monad (zipWithM_, when)
+import Control.Monad (liftM2, zipWithM_, when)
 import Data.List.HT (mapAdjacent, tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_, foldMap)
@@ -141,6 +141,23 @@ floatArray = id
 rotatePoint :: (Num a) => (a,a) -> (a,a) -> (a,a)
 rotatePoint (c,s) (x,y) = (c*x-s*y, s*x+c*y)
 
+rotateStretchMovePoint ::
+   (Fractional a) =>
+   (a, a) -> (a, a) ->
+   (a, a) -> (a, a)
+rotateStretchMovePoint rot (mx,my) p =
+   mapPair ((mx+), (my+)) $ rotatePoint rot p
+
+rotateStretchMoveBackPoint ::
+   (Fractional a) =>
+   (a, a) -> (a, a) ->
+   (a, a) -> (a, a)
+rotateStretchMoveBackPoint (rx,ry) (mx,my) =
+   let corr = recip $ rx*rx + ry*ry
+       rot = (corr*rx, -corr*ry)
+   in  \(x,y) -> rotatePoint rot (x - mx, y - my)
+
+
 boundingBoxOfRotated :: (Num a, Ord a) => (a,a) -> (a,a) -> ((a,a), (a,a))
 boundingBoxOfRotated rot (w,h) =
    let (xs,ys) =
@@ -215,15 +232,19 @@ rotateStretchMoveCoords ::
    (Exp a, Exp a) ->
    (Exp Int, Exp Int) ->
    Acc (Channel Z (a, a))
-rotateStretchMoveCoords (rx,ry) (mx,my) (width,height) =
-   let corr = recip $ rx*rx + ry*ry
-       rot = (corr*rx, -corr*ry)
+rotateStretchMoveCoords rot mov (width,height) =
+   let trans = rotateStretchMoveBackPoint rot mov
    in  A.generate (A.lift $ Z:.height:.width) $ \p ->
           let (_z :. ydst :. xdst) = unliftDim2 p
-          in  A.lift $
-              rotatePoint rot
-                 (A.fromIntegral xdst - mx,
-                  A.fromIntegral ydst - my)
+          in  A.lift $ trans (A.fromIntegral xdst, A.fromIntegral ydst)
+
+inBox ::
+   (A.Elt a, A.IsNum a, A.IsScalar a) =>
+   (Exp a, Exp a) ->
+   (Exp a, Exp a) ->
+   Exp Bool
+inBox (width,height) (x,y) =
+   0<=*x &&* x<*width &&* 0<=*y &&* y<*height
 
 validCoords ::
    (A.Elt a, A.IsFloating a) =>
@@ -232,9 +253,7 @@ validCoords ::
    Acc (Channel Z Bool)
 validCoords (width,height) =
    A.map $ A.lift1 $ \(x,y) ->
-      let xi = fastRound x
-          yi = fastRound y
-      in  0<=*xi &&* xi<*width &&* 0<=*yi &&* yi<*height
+      inBox (width,height) (fastRound x, fastRound y)
 
 replicateChannel ::
    (A.Slice ix, A.Shape ix, A.Elt a) =>
@@ -684,10 +703,10 @@ project x (a, b) =
    let (r, _, _, y) = Line.distanceAux a b x
    in  (0<=*r &&* r<=*1, y)
 
-distanceMap ::
+distanceMapAlt ::
    (A.Elt a, A.IsFloating a) =>
    Exp DIM2 -> Acc (Array DIM1 ((a,a),(a,a))) -> Acc (Channel Z a)
-distanceMap sh edges =
+distanceMapAlt sh edges =
    A.map (Exp.modify (atom,atom) $ \(valid, dist) -> valid ? (dist, 0)) $
    maskedMinimum $
    Arrange.mapWithIndex
@@ -697,13 +716,84 @@ distanceMap sh edges =
          in  mapSnd (distance pp) $ project pp (Point2 q0, Point2 q1)) $
    LinAlg.extrudeVector sh edges
 
-distanceMapRun ::
+distanceMapAltRun ::
    DIM2 -> Array DIM1 ((Float,Float),(Float,Float)) -> Channel Z Word8
-distanceMapRun =
+distanceMapAltRun =
    let dist =
           CUDA.run1 $ Acc.modify (expr, acc) $
-             imageByteFromFloat . A.map (0.01*) . uncurry distanceMap
+             imageByteFromFloat . A.map (0.01*) . uncurry distanceMapAlt
    in  \sh edges -> dist (Acc.singleton sh, edges)
+
+distanceMap ::
+   (A.Elt a, A.IsFloating a) =>
+   Exp DIM2 ->
+   Exp (a,a) ->
+   Exp (a,a) ->
+   Exp (Int,Int) ->
+   Acc (Channel Z (Bool, (((a,(a,a)), (a,(a,a))), ((a,(a,a)), (a,(a,a))))))
+distanceMap sh rot0 mov0 extent0 =
+   let rot = Exp.unliftPair rot0
+       mov = Exp.unliftPair mov0
+       extent@(width,height) = Exp.unliftPair extent0
+       widthf  = A.fromIntegral width
+       heightf = A.fromIntegral height
+       back  = rotateStretchMoveBackPoint rot mov
+       forth = rotateStretchMovePoint rot mov
+   in  A.generate sh $ \p ->
+          let _z:.y:.x = unliftDim2 p
+              (xsrc,ysrc) = back (A.fromIntegral x, A.fromIntegral y)
+              leftDist = max 0 xsrc
+              rightDist = max 0 $ widthf - xsrc
+              topDist = max 0 ysrc
+              bottomDist = max 0 $ heightf - ysrc
+          in  A.lift $
+              (inBox extent (fastRound xsrc, fastRound ysrc),
+               (((leftDist, forth (0,ysrc)),
+                 (rightDist, forth (widthf,ysrc))),
+                ((topDist, forth (xsrc,0)),
+                 (bottomDist, forth (xsrc,heightf)))))
+
+
+-- cf. Data.Array.Accelerate.Arithmetic.Interpolation
+outerVector ::
+   (A.Shape ix, A.Slice ix, A.Elt a, A.Elt b, A.Elt c) =>
+   (Exp a -> Exp b -> Exp c) ->
+   LinAlg.Scalar ix a -> LinAlg.Vector Z b -> LinAlg.Vector ix c
+outerVector f x y =
+   A.zipWith f
+      (A.replicate (A.lift $ Any :. LinAlg.numElems y) x)
+      (LinAlg.extrudeVector (A.shape x) y)
+
+separateDistanceMap ::
+   (A.Elt a) =>
+   Acc (Channel Z (Bool, (((a,(a,a)), (a,(a,a))), ((a,(a,a)), (a,(a,a)))))) ->
+   Acc (Array DIM3 (Bool, (a,(a,a))))
+separateDistanceMap arr =
+   outerVector
+      (Exp.modify2 (atom, ((atom, atom), (atom, atom))) (atom,atom) $
+       \(b,(horiz,vert)) (orient,side) ->
+          (b, orient ? (side ? horiz, side ? vert)))
+      arr
+      (A.use $ A.fromList (Z:.(4::Int)) $
+       liftM2 (,) [False,True] [False,True])
+
+distanceMapRun ::
+   DIM2 -> ((Float,Float),(Float,Float),(Int,Int)) -> Channel Z Word8
+distanceMapRun =
+   let distances =
+          CUDA.run1 $ Acc.modify (expr, expr) $
+          \(sh, geom) ->
+             let (rot, mov, extent) = Exp.unlift (atom,atom,atom) geom
+                 scale =
+                    (4/) $ A.fromIntegral $ uncurry min $ Exp.unliftPair extent
+             in  imageByteFromFloat . A.map (scale*) $
+                 A.map (Exp.modify (atom,atom) $
+                          \(valid, dist) -> valid ? (dist, 0)) $
+                 maskedMinimum $
+                 A.map (Exp.mapSnd A.fst) $
+                 separateDistanceMap $
+                 distanceMap sh rot mov extent
+   in  \sh geom -> distances (Acc.singleton sh, Acc.singleton geom)
 
 
 main :: IO ()
@@ -854,18 +944,22 @@ main = do
       let (Z:.height:.width):._chans = A.arrayShape pic
           absx = mx-canvasLeft
           absy = my-canvasTop
-          move (x,y) = (x+absx, y+absy)
+          mov = (absx,absy)
+{-
           widthf  = fromIntegral width
           heightf = fromIntegral height
-          corner00 = move $ rotatePoint rot (0,0)
-          corner10 = move $ rotatePoint rot (widthf,0)
-          corner01 = move $ rotatePoint rot (0,heightf)
-          corner11 = move $ rotatePoint rot (widthf,heightf)
+          corner00 = rotateStretchMovePoint rot mov (0,0)
+          corner10 = rotateStretchMovePoint rot mov (widthf,0)
+          corner01 = rotateStretchMovePoint rot mov (0,heightf)
+          corner11 = rotateStretchMovePoint rot mov (widthf,heightf)
           edges =
              A.fromList (Z:.4)
                 [(corner00, corner10), (corner10, corner11),
                  (corner11, corner01), (corner01, corner00)]
+-}
       when True $
          writeGrey 90
             (printf "/tmp/%s-distance.jpeg" (FilePath.takeBaseName path)) $
-            distanceMapRun (Z :. canvasHeight :. canvasWidth) edges
+            distanceMapRun
+               (Z :. canvasHeight :. canvasWidth)
+               (rot, mov, (width, height))
