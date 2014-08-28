@@ -766,8 +766,8 @@ outerVector f x y =
 
 separateDistanceMap ::
    (A.Elt a) =>
-   Acc (Channel Z (Bool, (((a,(a,a)), (a,(a,a))), ((a,(a,a)), (a,(a,a)))))) ->
-   Acc (Array DIM3 (Bool, (a,(a,a))))
+   Acc (Channel Z (Bool, ((a, a), (a, a)))) ->
+   Acc (Array DIM3 (Bool, a))
 separateDistanceMap arr =
    outerVector
       (Exp.modify2 (atom, ((atom, atom), (atom, atom))) (atom,atom) $
