@@ -727,14 +727,11 @@ distanceMapAltRun =
 distanceMap ::
    (A.Elt a, A.IsFloating a) =>
    Exp DIM2 ->
-   Exp (a,a) ->
-   Exp (a,a) ->
-   Exp (Int,Int) ->
+   Exp ((a,a), (a,a), (Int,Int)) ->
    Acc (Channel Z (Bool, (((a,(a,a)), (a,(a,a))), ((a,(a,a)), (a,(a,a))))))
-distanceMap sh rot0 mov0 extent0 =
-   let rot = Exp.unliftPair rot0
-       mov = Exp.unliftPair mov0
-       extent@(width,height) = Exp.unliftPair extent0
+distanceMap sh geom =
+   let (rot, mov, extent@(width,height)) =
+          Exp.unlift ((atom,atom),(atom,atom),(atom,atom)) geom
        widthf  = A.fromIntegral width
        heightf = A.fromIntegral height
        back  = rotateStretchMoveBackPoint rot mov
@@ -783,16 +780,16 @@ distanceMapRun =
    let distances =
           CUDA.run1 $ Acc.modify (expr, expr) $
           \(sh, geom) ->
-             let (rot, mov, extent) = Exp.unlift (atom,atom,atom) geom
-                 scale =
-                    (4/) $ A.fromIntegral $ uncurry min $ Exp.unliftPair extent
+             let scale =
+                    (4/) $ A.fromIntegral $ uncurry min $
+                    Exp.unliftPair $ Exp.thd3 geom
              in  imageByteFromFloat . A.map (scale*) $
                  A.map (Exp.modify (atom,atom) $
                           \(valid, dist) -> valid ? (dist, 0)) $
                  maskedMinimum $
                  A.map (Exp.mapSnd A.fst) $
                  separateDistanceMap $
-                 distanceMap sh rot mov extent
+                 distanceMap sh geom
    in  \sh geom -> distances (Acc.singleton sh, Acc.singleton geom)
 
 
@@ -945,6 +942,7 @@ main = do
           absx = mx-canvasLeft
           absy = my-canvasTop
           mov = (absx,absy)
+          this = (rot, mov, (width,height))
 {-
           widthf  = fromIntegral width
           heightf = fromIntegral height
@@ -962,4 +960,4 @@ main = do
             (printf "/tmp/%s-distance.jpeg" (FilePath.takeBaseName path)) $
             distanceMapRun
                (Z :. canvasHeight :. canvasWidth)
-               (rot, mov, (width, height))
+               this
