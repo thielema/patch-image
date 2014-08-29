@@ -46,10 +46,11 @@ import qualified Data.List as List
 import qualified Data.Bits as Bit
 import Control.Monad.HT (void)
 import Control.Monad (liftM2, zipWithM_, when)
+import Data.Maybe (catMaybes)
 import Data.List.HT (removeEach, mapAdjacent, tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_, foldMap)
-import Data.Tuple.HT (mapPair, mapFst, mapSnd)
+import Data.Tuple.HT (mapPair, mapFst, mapSnd, fst3, thd3)
 import Data.Word (Word8)
 
 
@@ -237,6 +238,14 @@ rotateStretchMoveCoords rot mov (width,height) =
    in  A.generate (A.lift $ Z:.height:.width) $ \p ->
           let (_z :. ydst :. xdst) = unliftDim2 p
           in  A.lift $ trans (A.fromIntegral xdst, A.fromIntegral ydst)
+
+inBoxPlain ::
+   (Ord a, Num a) =>
+   (a, a) ->
+   (a, a) ->
+   Bool
+inBoxPlain (width,height) (x,y) =
+   0<=x && x<width && 0<=y && y<height
 
 inBox ::
    (A.Elt a, A.IsNum a, A.IsScalar a) =>
@@ -694,6 +703,13 @@ maskedMaximum ::
 maskedMaximum = A.fold1 (maybePlus max)
 
 
+
+intersections ::
+   (Fractional a, Ord a) =>
+   [Line.L2 a] -> [Line.L2 a] -> [Point2 a]
+intersections segments0 segments1 =
+   catMaybes $ liftM2 Line.intersect segments0 segments1
+
 project ::
    (A.Elt a, A.IsFloating a) =>
    Point2 (Exp a) ->
@@ -850,6 +866,45 @@ distanceMapContained =
               A.fromList (Z :. length others) others)
 
 
+pixelCoordinates ::
+   (A.Elt a, A.IsFloating a) =>
+   Exp DIM2 -> Acc (Channel Z (a,a))
+pixelCoordinates sh =
+   A.generate sh $ Exp.modify (atom:.atom:.atom) $ \(_z:.y:.x) ->
+      (A.fromIntegral x, A.fromIntegral y)
+
+distanceMapPoints ::
+   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   Acc (Array ix (a,a)) ->
+   Acc (Array DIM1 (a,a)) ->
+   Acc (Array ix a)
+distanceMapPoints a b =
+   A.fold1 min $
+   outerVector
+      (Exp.modify2 (atom,atom) (atom,atom) $
+       \pa pb -> distance (Point2 pa) (Point2 pb))
+      a b
+
+distanceMapPointsRun ::
+   DIM2 ->
+   [Point2 Float] ->
+   Channel Z Word8
+distanceMapPointsRun =
+   let distances =
+          CUDA.run1 $ Acc.modify (expr, acc) $
+          \(sh, points) ->
+             let scale =
+                    case Exp.unlift (atom:.atom:.atom) sh of
+                       _z:.y:.x -> (4/) $ A.fromIntegral $ min x y
+             in  imageByteFromFloat $ A.map (scale*) $
+                 distanceMapPoints (pixelCoordinates sh) points
+   in  \sh points ->
+          distances
+             (Acc.singleton sh,
+              A.fromList (Z :. length points) $
+              map (\(Point2 p) -> p) points)
+
+
 main :: IO ()
 main = do
    paths <- Env.getArgs
@@ -998,34 +1053,49 @@ main = do
              (\(mx,my) (rot, pic) ->
                 let Z:.height:.width:._chans = A.arrayShape pic
                     mov = (mx-canvasLeft, my-canvasTop)
-                in  (rot, mov, (width,height)))
+                    trans = Point2 . rotateStretchMovePoint rot mov
+                    widthf  = fromIntegral width
+                    heightf = fromIntegral height
+                    corner00 = trans (0,0)
+                    corner10 = trans (widthf,0)
+                    corner01 = trans (0,heightf)
+                    corner11 = trans (widthf,heightf)
+                    corners = [corner00, corner01, corner10, corner11]
+                    edges =
+                       map (uncurry Line.Segment) $
+                       [(corner00, corner10), (corner10, corner11),
+                        (corner11, corner01), (corner01, corner00)]
+                in  ((rot, mov, (width,height)), corners, edges))
              floatPoss picRots
+
    forM_ (zip (removeEach geometries) picAngles) $
-         \((this, others), (path, _)) -> do
-{-
-      let
-          widthf  = fromIntegral width
-          heightf = fromIntegral height
-          corner00 = rotateStretchMovePoint rot mov (0,0)
-          corner10 = rotateStretchMovePoint rot mov (widthf,0)
-          corner01 = rotateStretchMovePoint rot mov (0,heightf)
-          corner11 = rotateStretchMovePoint rot mov (widthf,heightf)
-          edges =
-             A.fromList (Z:.4)
-                [(corner00, corner10), (corner10, corner11),
-                 (corner11, corner01), (corner01, corner00)]
--}
-      when True $
+         \(((thisGeom, thisCorners, thisEdges), others), (path, _)) -> do
+      let intPoints = intersections thisEdges $ concatMap thd3 others
+      let overlappingCorners =
+             filter
+                (\(Point2 c) ->
+                   any (\(rot, mov, (width,height)) ->
+                          inBoxPlain (width,height) $
+                          mapPair (round, round) $
+                          rotateStretchMoveBackPoint rot mov c) $
+                   map fst3 others)
+                thisCorners
+      when True $ do
+         let stem = FilePath.takeBaseName path
          writeGrey 90
-            (printf "/tmp/%s-distance-box.jpeg" (FilePath.takeBaseName path)) $
+            (printf "/tmp/%s-distance-box.jpeg" stem) $
             distanceMapBox
                (Z :. canvasHeight :. canvasWidth)
-               this
-      print $ length others
-      print others
-      when True $
+               thisGeom
+
          writeGrey 90
-            (printf "/tmp/%s-distance-contained.jpeg" (FilePath.takeBaseName path)) $
+            (printf "/tmp/%s-distance-contained.jpeg" stem) $
             distanceMapContained
                (Z :. canvasHeight :. canvasWidth)
-               this others
+               thisGeom (map fst3 others)
+
+         writeGrey 90
+            (printf "/tmp/%s-distance-points.jpeg" stem) $
+            distanceMapPointsRun
+               (Z :. canvasHeight :. canvasWidth)
+               (intPoints ++ overlappingCorners)
