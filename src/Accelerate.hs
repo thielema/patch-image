@@ -835,31 +835,40 @@ containedAnywhere geoms arr =
 
 
 distanceMapContained ::
+   (A.IsFloating a, A.Elt a) =>
+   Exp DIM2 ->
+   Exp ((a, a), (a, a), (Int, Int)) ->
+   Acc (Array DIM1 ((a, a), (a, a), (Int, Int))) ->
+   Acc (Array DIM2 a)
+distanceMapContained sh this others =
+   let distMap =
+          separateDistanceMap $
+          distanceMap sh this
+       contained =
+          containedAnywhere others $
+          A.map (A.snd . A.snd) distMap
+   in  A.map (Exp.modify (atom,atom) $
+                \(valid, dist) -> valid ? (dist, 0)) $
+       maskedMinimum $
+       A.zipWith
+          (Exp.modify2 atom (atom,(atom,atom)) $ \c (b,(dist,_)) ->
+             (c&&*b, dist))
+          contained distMap
+
+distanceMapContainedRun ::
    DIM2 ->
    ((Float,Float),(Float,Float),(Int,Int)) ->
    [((Float,Float),(Float,Float),(Int,Int))] ->
    Channel Z Word8
-distanceMapContained =
+distanceMapContainedRun =
    let distances =
           CUDA.run1 $ Acc.modify (expr, expr, acc) $
           \(sh, this, others) ->
-             let distMap =
-                    separateDistanceMap $
-                    distanceMap sh this
-                 contained =
-                    containedAnywhere others $
-                    A.map (A.snd . A.snd) distMap
-                 scale =
+             let scale =
                     (4/) $ A.fromIntegral $ uncurry min $
                     Exp.unliftPair $ Exp.thd3 this
-             in  imageByteFromFloat $
-                 A.map (Exp.modify (atom,atom) $
-                          \(valid, dist) -> valid ? (scale*dist, 0)) $
-                 maskedMinimum $
-                 A.zipWith
-                    (Exp.modify2 atom (atom,(atom,atom)) $ \c (b,(dist,_)) ->
-                       (c&&*b, dist))
-                    contained distMap
+             in  imageByteFromFloat $ A.map (scale*) $
+                 distanceMapContained sh this others
    in  \sh this others ->
           distances
              (Acc.singleton sh, Acc.singleton this,
@@ -1090,7 +1099,7 @@ main = do
 
          writeGrey 90
             (printf "/tmp/%s-distance-contained.jpeg" stem) $
-            distanceMapContained
+            distanceMapContainedRun
                (Z :. canvasHeight :. canvasWidth)
                thisGeom (map fst3 others)
 
