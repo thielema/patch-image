@@ -1081,6 +1081,7 @@ main = do
              floatPoss bboxes
        canvasWidth  = ceiling (canvasRight-canvasLeft)
        canvasHeight = ceiling (canvasBottom-canvasTop)
+       canvasShape = Z :. canvasHeight :. canvasWidth
    printf "canvas %f-%f, %f-%f\n" canvasLeft canvasRight canvasTop canvasBottom
    printf "canvas size %d, %d\n" canvasWidth canvasHeight
    writeImage 90 "/tmp/complete.jpeg" $
@@ -1124,31 +1125,24 @@ main = do
                           rotateStretchMoveBackPoint rot mov c) $
                    map fst3 others)
                 thisCorners
+      let allPoints = intPoints ++ overlappingCorners
+      let otherGeoms = map fst3 others
 
       let stem = FilePath.takeBaseName path
       when True $ do
          writeGrey 90
             (printf "/tmp/%s-distance-box.jpeg" stem) $
-            distanceMapBox
-               (Z :. canvasHeight :. canvasWidth)
-               thisGeom
+            distanceMapBox canvasShape thisGeom
 
          writeGrey 90
             (printf "/tmp/%s-distance-contained.jpeg" stem) $
-            distanceMapContainedRun
-               (Z :. canvasHeight :. canvasWidth)
-               thisGeom (map fst3 others)
+            distanceMapContainedRun canvasShape thisGeom otherGeoms
 
          writeGrey 90
             (printf "/tmp/%s-distance-points.jpeg" stem) $
-            distanceMapPointsRun
-               (Z :. canvasHeight :. canvasWidth)
-               (intPoints ++ overlappingCorners)
+            distanceMapPointsRun canvasShape allPoints
 
       when True $ do
          writeGrey 90
             (printf "/tmp/%s-distance.jpeg" stem) $
-            distanceMapRun
-               (Z :. canvasHeight :. canvasWidth)
-               thisGeom (map fst3 others)
-               (intPoints ++ overlappingCorners)
+            distanceMapRun canvasShape thisGeom otherGeoms allPoints
