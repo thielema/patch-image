@@ -949,6 +949,67 @@ distanceMapRun =
                  map (\(Point2 p) -> p) points)
 
 
+emptyWeightedCanvas ::
+   (A.Slice ix, A.Shape ix) =>
+   ix :. Int :. Int ->
+   (Array DIM2 Float, Array (ix :. Int :. Int) Float)
+emptyWeightedCanvas =
+   let fill =
+          CUDA.run1 $ Acc.modify expr $ \sh ->
+             let (_ix :. height :. width) = unliftDim2 sh
+             in  (A.fill (A.lift $ Z:.height:.width) 0,
+                  A.fill sh 0)
+   in  fill . Acc.singleton
+
+
+addToWeightedCanvas ::
+   (A.Slice ix, A.Shape ix, A.Elt a, A.IsNum a) =>
+   (Acc (Channel Z a), Acc (Channel ix a)) ->
+   (Acc (Channel Z a), Acc (Channel ix a)) ->
+   (Acc (Channel Z a), Acc (Channel ix a))
+addToWeightedCanvas (weight, pic) (weightSum, canvas) =
+   (A.zipWith (+) weight weightSum,
+    A.zipWith (+) canvas $ A.zipWith (*) pic $
+    replicateChannel
+       (A.indexTail $ A.indexTail $ A.shape pic)
+       weight)
+
+updateWeightedCanvas ::
+   ((Float,Float),(Float,Float),(Int,Int)) ->
+   [((Float,Float),(Float,Float),(Int,Int))] ->
+   [Point2 Float] ->
+   Array DIM3 Word8 ->
+   (Channel Z Float, Channel DIM1 Float) ->
+   (Channel Z Float, Channel DIM1 Float)
+updateWeightedCanvas =
+   let update =
+          CUDA.run1 $
+          Acc.modify ((expr,acc), acc, (acc,(acc,acc))) $
+          \((this, others), points, (pic, (weightSum,canvas))) ->
+             let (rot, mov, _) =
+                    Exp.unlift ((atom,atom), (atom,atom), atom) this
+             in  addToWeightedCanvas
+                    (distanceMapComplete (A.shape weightSum) this others points,
+                     snd $ rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
+                     separateChannels $ imageFloatFromByte pic)
+                    (weightSum,canvas)
+   in  \this others points pic canvas ->
+          update
+             ((Acc.singleton this, A.fromList (Z :. length others) others),
+              A.fromList (Z :. length points) $ map (\(Point2 p) -> p) points,
+              (pic, canvas))
+
+
+finalizeWeightedCanvas ::
+   (Channel Z Float, Channel DIM1 Float) -> Array DIM3 Word8
+finalizeWeightedCanvas =
+   CUDA.run1 $ Acc.modify (acc,acc) $
+   \(weightSum, canvas) ->
+      imageByteFromFloat $ interleaveChannels $
+      A.zipWith (/) canvas $
+      replicateChannel (A.indexTail $ A.indexTail $ A.shape canvas) weightSum
+
+
 main :: IO ()
 main = do
    paths <- Env.getArgs
@@ -1084,7 +1145,7 @@ main = do
        canvasShape = Z :. canvasHeight :. canvasWidth
    printf "canvas %f-%f, %f-%f\n" canvasLeft canvasRight canvasTop canvasBottom
    printf "canvas size %d, %d\n" canvasWidth canvasHeight
-   writeImage 90 "/tmp/complete.jpeg" $
+   writeImage 90 "/tmp/complete-simple.jpeg" $
       finalizeCanvas $
       foldl
          (\canvas ((mx,my), (rot, pic)) ->
@@ -1151,3 +1212,12 @@ main = do
          writeGrey 90
             (printf "/tmp/%s-distance.jpeg" stem) $
             distanceMapRun canvasShape thisGeom otherGeoms allPoints
+
+   putStrLn "\nweighted composition"
+   writeImage 90 "/tmp/complete.jpeg" $
+      finalizeWeightedCanvas $
+      foldl
+         (\canvas ((thisGeom, otherGeoms, allPoints), (_rot, pic)) ->
+            updateWeightedCanvas thisGeom otherGeoms allPoints pic canvas)
+         (emptyWeightedCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
+         (zip geometryRelations picRots)
