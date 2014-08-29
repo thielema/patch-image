@@ -913,6 +913,19 @@ distanceMapPointsRun =
               A.fromList (Z :. length points) $
               map (\(Point2 p) -> p) points)
 
+
+distanceMapComplete ::
+   (A.Elt a, A.IsFloating a) =>
+   Exp DIM2 ->
+   Exp ((a, a), (a, a), (Int, Int)) ->
+   Acc (Array DIM1 ((a, a), (a, a), (Int, Int))) ->
+   Acc (Array DIM1 (a, a)) ->
+   Acc (Array DIM2 a)
+distanceMapComplete sh this others points =
+   A.zipWith min
+      (distanceMapContained sh this others)
+      (distanceMapPoints (pixelCoordinates sh) points)
+
 distanceMapRun ::
    DIM2 ->
    ((Float,Float),(Float,Float),(Int,Int)) ->
@@ -927,9 +940,7 @@ distanceMapRun =
                     case Exp.unlift (atom:.atom:.atom) sh of
                        _z:.y:.x -> (4/) $ A.fromIntegral $ min x y
              in  imageByteFromFloat $ A.map (scale*) $
-                 A.zipWith min
-                    (distanceMapContained sh this others)
-                    (distanceMapPoints (pixelCoordinates sh) points)
+                 distanceMapComplete sh this others points
    in  \sh this others points ->
           distances
              (Acc.singleton sh,
