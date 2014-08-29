@@ -913,6 +913,30 @@ distanceMapPointsRun =
               A.fromList (Z :. length points) $
               map (\(Point2 p) -> p) points)
 
+distanceMapRun ::
+   DIM2 ->
+   ((Float,Float),(Float,Float),(Int,Int)) ->
+   [((Float,Float),(Float,Float),(Int,Int))] ->
+   [Point2 Float] ->
+   Channel Z Word8
+distanceMapRun =
+   let distances =
+          CUDA.run1 $ Acc.modify (expr, (expr,acc), acc) $
+          \(sh, (this, others), points) ->
+             let scale =
+                    case Exp.unlift (atom:.atom:.atom) sh of
+                       _z:.y:.x -> (4/) $ A.fromIntegral $ min x y
+             in  imageByteFromFloat $ A.map (scale*) $
+                 A.zipWith min
+                    (distanceMapContained sh this others)
+                    (distanceMapPoints (pixelCoordinates sh) points)
+   in  \sh this others points ->
+          distances
+             (Acc.singleton sh,
+              (Acc.singleton this, A.fromList (Z :. length others) others),
+              A.fromList (Z :. length points) $
+                 map (\(Point2 p) -> p) points)
+
 
 main :: IO ()
 main = do
@@ -1089,8 +1113,9 @@ main = do
                           rotateStretchMoveBackPoint rot mov c) $
                    map fst3 others)
                 thisCorners
+
+      let stem = FilePath.takeBaseName path
       when True $ do
-         let stem = FilePath.takeBaseName path
          writeGrey 90
             (printf "/tmp/%s-distance-box.jpeg" stem) $
             distanceMapBox
@@ -1107,4 +1132,12 @@ main = do
             (printf "/tmp/%s-distance-points.jpeg" stem) $
             distanceMapPointsRun
                (Z :. canvasHeight :. canvasWidth)
+               (intPoints ++ overlappingCorners)
+
+      when True $ do
+         writeGrey 90
+            (printf "/tmp/%s-distance.jpeg" stem) $
+            distanceMapRun
+               (Z :. canvasHeight :. canvasWidth)
+               thisGeom (map fst3 others)
                (intPoints ++ overlappingCorners)
