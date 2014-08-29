@@ -1113,20 +1113,25 @@ main = do
                 in  ((rot, mov, (width,height)), corners, edges))
              floatPoss picRots
 
-   forM_ (zip (removeEach geometries) picAngles) $
-         \(((thisGeom, thisCorners, thisEdges), others), (path, _)) -> do
-      let intPoints = intersections thisEdges $ concatMap thd3 others
-      let overlappingCorners =
-             filter
-                (\(Point2 c) ->
-                   any (\(rot, mov, (width,height)) ->
-                          inBoxPlain (width,height) $
-                          mapPair (round, round) $
-                          rotateStretchMoveBackPoint rot mov c) $
-                   map fst3 others)
-                thisCorners
-      let allPoints = intPoints ++ overlappingCorners
-      let otherGeoms = map fst3 others
+   let geometryRelations =
+          flip map (removeEach geometries) $
+             \((thisGeom, thisCorners, thisEdges), others) ->
+                let intPoints = intersections thisEdges $ concatMap thd3 others
+                    overlappingCorners =
+                       filter
+                          (\(Point2 c) ->
+                             any (\(rot, mov, (width,height)) ->
+                                    inBoxPlain (width,height) $
+                                    mapPair (round, round) $
+                                    rotateStretchMoveBackPoint rot mov c) $
+                             map fst3 others)
+                          thisCorners
+                    allPoints = intPoints ++ overlappingCorners
+                    otherGeoms = map fst3 others
+                in  (thisGeom, otherGeoms, allPoints)
+
+   forM_ (zip geometryRelations picAngles) $
+         \((thisGeom, otherGeoms, allPoints), (path, _)) -> do
 
       let stem = FilePath.takeBaseName path
       when True $ do
