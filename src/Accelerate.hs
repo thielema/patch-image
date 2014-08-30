@@ -10,7 +10,7 @@ import qualified Data.Array.Accelerate.Utility.Lift.Acc as Acc
 import qualified Data.Array.Accelerate.Utility.Lift.Exp as Exp
 import qualified Data.Array.Accelerate.Utility.Arrange as Arrange
 import qualified Data.Array.Accelerate as A
-import Data.Array.Accelerate.Math.Complex (Complex, )
+import Data.Array.Accelerate.Math.Complex (Complex((:+)), )
 import Data.Array.Accelerate.Utility.Lift.Acc (acc, expr)
 import Data.Array.Accelerate.Utility.Lift.Exp (atom)
 import Data.Array.Accelerate
@@ -443,7 +443,7 @@ convolveImpossible x y =
        sh = A.index2 height width
        forward z =
           FFT.fft2D FFT.Forward $ CUDA.run $
-          A.map (A.lift . (Complex.:+ 0)) $ pad sh z
+          A.map (A.lift . (:+ 0)) $ pad sh z
    in  A.map Complex.real $
        FFT.fft2D FFT.Inverse $ CUDA.run $
        A.zipWith (*) (forward x) (forward y)
@@ -482,7 +482,7 @@ convolvePadded ::
 convolvePadded sh@(Z :. height :. width) =
    let forward =
           FFT.fft2D' FFT.Forward width height .
-          A.map (A.lift . (Complex.:+ 0)) . pad (A.lift sh)
+          A.map (A.lift . (:+ 0)) . pad (A.lift sh)
        inverse = FFT.fft2D' FFT.Inverse width height
    in  \ x y ->
           A.map Complex.real $ inverse $
@@ -1042,7 +1042,7 @@ main = do
          CUDA.run $ imageByteFromFloat $ A.map Complex.real $
          FFT.fft2D FFT.Forward $
          CUDA.run1
-            (A.map (A.lift . (Complex.:+ 0)) .
+            (A.map (A.lift . (:+ 0)) .
              pad (A.lift size)) $
          pic0
       writeGrey 90 "/tmp/convolution.jpeg" $
