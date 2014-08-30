@@ -1340,7 +1340,7 @@ main = do
             distanceMapRun canvasShape thisGeom otherGeoms allPoints
 
    putStrLn "\nweighted composition"
-   writeImage 90 "/tmp/complete.jpeg" $
+   writeImage 99 "/tmp/complete.jpeg" $
       finalizeWeightedCanvas $
       foldl
          (\canvas ((thisGeom, otherGeoms, allPoints), (_rot, pic)) ->
