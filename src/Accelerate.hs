@@ -871,12 +871,12 @@ distanceMapEdges ::
 distanceMapEdges sh edges =
    A.map (Exp.modify (atom,atom) $ \(valid, dist) -> valid ? (dist, 0)) $
    maskedMinimum $
-   Arrange.mapWithIndex
-      (Exp.modify2 (atom:.atom:.atom:.atom) ((atom, atom), (atom, atom)) $
-            \(_z:.y:.x:._e) (q0, q1) ->
-         let pp = Point2 (A.fromIntegral x, A.fromIntegral y)
-         in  mapSnd (distance pp) $ project pp (Point2 q0, Point2 q1)) $
-   LinAlg.extrudeVector sh edges
+   outerVector
+      (Exp.modify2 (atom,atom) ((atom, atom), (atom, atom)) $ \p (q0, q1) ->
+         let pp = Point2 p
+         in  mapSnd (distance pp) $ project pp (Point2 q0, Point2 q1))
+      (pixelCoordinates sh)
+      edges
 
 distanceMapEdgesRun ::
    DIM2 -> Array DIM1 ((Float,Float),(Float,Float)) -> Channel Z Word8
