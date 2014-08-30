@@ -1335,6 +1335,16 @@ main = do
       (\(dpx,dpy) (dx,dy) ->
          printf "(%f,%f) (%i,%i)\n" dpx dpy dx dy)
       dps (map snd displacements)
+   let (errdx,errdy) =
+          mapPair (maximum,maximum) $ unzip $
+          zipWith
+             (\(dpx,dpy) (dx,dy) ->
+                (abs $ dpx - fromIntegral dx, abs $ dpy - fromIntegral dy))
+             dps (map snd displacements)
+
+   putStrLn ""
+   printf "maximum horizontal error: %f\n" errdx
+   printf "maximum vertical error: %f\n" errdy
 
    putStrLn "\ncompose all parts"
    let picRots =
