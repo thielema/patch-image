@@ -46,6 +46,7 @@ import qualified Data.List as List
 import qualified Data.Bits as Bit
 import Control.Monad.HT (void)
 import Control.Monad (liftM2, zipWithM_, when)
+import Data.Maybe.HT (toMaybe)
 import Data.Maybe (catMaybes)
 import Data.List.HT (removeEach, mapAdjacent, tails)
 import Data.Traversable (forM)
@@ -789,6 +790,9 @@ overlapDifferenceRun =
           A.indexArray
              (diff ((Acc.singleton dx, Acc.singleton dy), (a,b))) Z
 
+maximumOverlapDifference :: Float
+maximumOverlapDifference = 0.2
+
 
 absolutePositionsFromPairDisplacements ::
    Int -> [((Int, Int), (Int, Int))] ->
@@ -1301,6 +1305,7 @@ main = do
                      optimalOverlap padSize)
 
    displacements <-
+      fmap catMaybes $
       forM pairs $ \((ia,(pathA,picA)), (ib,(pathB,picB))) -> do
          forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when False $
             writeGrey 90
@@ -1310,13 +1315,15 @@ main = do
 
          let d = fst $ optimalOverlapShared picA picB
          let diff = overlapDifferenceRun d picA picB
-         printf "%s - %s, %s %f\n" pathA pathB (show d) diff
+         let overlapping = diff<0.2
+         printf "%s - %s, %s, difference %f%s\n" pathA pathB (show d) diff
+            (if overlapping then "" else " unrelated -> ignoring")
          when True $
             writeImage 90
                (printf "/tmp/%s-%s.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
                composeOverlap d (snd $ picAngles!!ia, snd $ picAngles!!ib)
-         return ((ia,ib), d)
+         return $ toMaybe overlapping ((ia,ib), d)
 
    let (poss, dps) =
           absolutePositionsFromPairDisplacements (length rotated) displacements
