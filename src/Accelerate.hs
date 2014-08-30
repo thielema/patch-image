@@ -618,14 +618,20 @@ allOverlaps size@(Z :. height :. width) =
           let (Z :. heighta :. widtha) = A.unlift $ A.shape a
               (Z :. heightb :. widthb) = A.unlift $ A.shape b
               half = flip div 2
+              minOverlap =
+                 min
+                    (min widtha heighta)
+                    (min widthb heightb)
+                 `div`
+                 4
               weight =
                  if False
                    then
-                      weightOverlapScores 100
+                      weightOverlapScores minOverlap
                          (widtha, heighta)
                          (widthb, heightb)
                    else
-                      minimumOverlapScores 100
+                      minimumOverlapScores minOverlap
                          (widtha, heighta)
                          (widthb, heightb)
           in  weight $
