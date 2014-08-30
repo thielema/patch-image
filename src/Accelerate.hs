@@ -476,10 +476,10 @@ clearDCCoefficient arr =
       in  x==*0 ||* y==*0 ? (0, arr A.! p)
 
 
-convolvePadded ::
+convolvePaddedSimple ::
    (A.Elt a, A.IsFloating a) =>
    DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
-convolvePadded sh@(Z :. height :. width) =
+convolvePaddedSimple sh@(Z :. height :. width) =
    let forward =
           FFT.fft2D' FFT.Forward width height .
           A.map (A.lift . (:+ 0)) . pad 0 (A.lift sh)
@@ -487,6 +487,65 @@ convolvePadded sh@(Z :. height :. width) =
    in  \ x y ->
           A.map Complex.real $ inverse $
           A.zipWith (\xi yi -> xi * Complex.conj yi) (forward x) (forward y)
+
+
+imagUnit :: (A.Elt a, A.IsNum a) => Exp (Complex a)
+imagUnit = Exp.modify2 atom atom (:+) 0 1
+
+{- |
+Let f and g be two real valued images.
+The spectrum of f+i*g is spec f + i * spec g.
+Let 'flip' be the spectrum with negated indices modulo image size.
+It holds: flip (spec f) = conj (spec f).
+
+(a + conj b) / 2
+  = (spec (f+i*g) + conj (flip (spec (f+i*g)))) / 2
+  = (spec f + i*spec g + conj (flip (spec f)) + conj (flip (spec (i*g)))) / 2
+  = (2*spec f + i*spec g + conj (i*flip (spec g))) / 2
+  = (2*spec f + i*spec g - i * conj (flip (spec g))) / 2
+  = spec f
+
+(a - conj b) * (-i/2)
+  = (-i*a + conj (-i*b)) / 2
+  -> this swaps role of f and g in the proof above
+-}
+untangleRealSpectra ::
+   (A.Elt a, A.IsFloating a) =>
+   Acc (Array DIM2 (Complex a)) -> Acc (Array DIM2 (Complex a, Complex a))
+untangleRealSpectra spec =
+   A.zipWith
+      (\a b ->
+         A.lift $
+            ((a + Complex.conj b) / 2,
+             (a - Complex.conj b) * (-imagUnit / 2)))
+      spec $
+   A.backpermute (A.shape spec)
+      (Exp.modify (atom:.atom:.atom) $
+       \(_z:.y:.x) ->
+          let (_z:.height:.width) = unliftDim2 $ A.shape spec
+          in  Z :. mod (-y) height :. mod (-x) width)
+      spec
+
+{-
+This is more efficient than 'convolvePaddedSimple'
+since it needs only one forward Fourier transform,
+where 'convolvePaddedSimple' needs two of them.
+For the analysis part,
+perform two real-valued Fourier transforms using one complex-valued transform.
+Afterwards we untangle the superposed spectra.
+-}
+convolvePadded ::
+   (A.Elt a, A.IsFloating a) =>
+   DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
+convolvePadded sh@(Z :. height :. width) =
+   let forward = FFT.fft2D' FFT.Forward width height
+       inverse = FFT.fft2D' FFT.Inverse width height
+   in  \ a b ->
+          A.map Complex.real $ inverse $
+          A.map (Exp.modify (atom,atom) $ \(ai,bi) -> ai * Complex.conj bi) $
+          untangleRealSpectra $ forward $
+          pad 0 (A.lift sh) $
+          A.zipWith (Exp.modify2 atom atom (:+)) a b
 
 
 attachDisplacements ::
