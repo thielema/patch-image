@@ -558,7 +558,7 @@ attachDisplacements xsplit ysplit arr =
    in  A.generate sh $ \p ->
           let (_z:.y:.x) = unliftDim2 p
               wrap size split c = c<*split ? (c, c-size)
-          in  A.lift ((wrap height ysplit y, wrap width xsplit x), arr A.! p)
+          in  A.lift ((wrap width xsplit x, wrap height ysplit y), arr A.! p)
 
 weightOverlapScores ::
    (A.Elt a, A.IsFloating a, A.IsScalar a) =>
@@ -568,7 +568,7 @@ weightOverlapScores ::
 weightOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
        (A.lift1 $ \(dp,v) ->
-          let (dy,dx) = A.unlift dp
+          let (dx,dy) = A.unlift dp
               clipWidth  = min widtha  (widthb  + dx) - max 0 dx
               clipHeight = min heighta (heightb + dy) - max 0 dy
           in  (dp :: Exp (Int, Int),
@@ -1174,7 +1174,7 @@ main = do
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
                allOverlapsShared (picA, picB)
 
-         let ((dy,dx), score) = optimalOverlapShared picA picB
+         let ((dx,dy), score) = optimalOverlapShared picA picB
          printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) score
          writeImage 90
             (printf "/tmp/%s-%s.jpeg"
