@@ -702,6 +702,40 @@ defaultPadSize :: Maybe DIM2
 defaultPadSize = Just $ Z :. 1024 :. 1024
 
 
+overlapDifference ::
+   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   (Exp Int, Exp Int) ->
+   (Acc (Channel ix a), Acc (Channel ix a)) -> Acc (A.Scalar a)
+overlapDifference (dx,dy) (a,b) =
+   let (_ :. heighta :. widtha) = unliftDim2 $ A.shape a
+       (_ :. heightb :. widthb) = unliftDim2 $ A.shape b
+       leftOverlap = max 0 dx
+       topOverlap  = max 0 dy
+       rightOverlap  = min widtha  (widthb  + dx)
+       bottomOverlap = min heighta (heightb + dy)
+       widthOverlap  = rightOverlap - leftOverlap
+       heightOverlap = bottomOverlap - topOverlap
+       extentOverlap = (widthOverlap,heightOverlap)
+   in  A.map sqrt $
+       A.map (/(A.fromIntegral widthOverlap * A.fromIntegral heightOverlap)) $
+       A.fold1All (+) $
+       A.map (^(2::Int)) $
+       A.zipWith (-)
+          (clip (leftOverlap,topOverlap) extentOverlap a)
+          (clip (leftOverlap-dx,topOverlap-dy) extentOverlap b)
+
+overlapDifferenceRun ::
+   (Int, Int) ->
+   Channel Z Float -> Channel Z Float -> Float
+overlapDifferenceRun =
+   let diff =
+          CUDA.run1 $
+          Acc.modify ((expr,expr), (acc,acc)) $
+          uncurry overlapDifference
+   in  \(dx,dy) a b ->
+          A.indexArray
+             (diff ((Acc.singleton dx, Acc.singleton dy), (a,b))) Z
+
 
 absolutePositionsFromPairDisplacements ::
    Int -> [((Int, Int), (Int, Int))] ->
@@ -1221,8 +1255,9 @@ main = do
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
                allOverlapsShared (picA, picB)
 
-         let ((dx,dy), score) = optimalOverlapShared picA picB
-         printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) score
+         let d@(dx,dy) = fst $ optimalOverlapShared picA picB
+         let diff = overlapDifferenceRun d picA picB
+         printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) diff
          when True $
             writeImage 90
                (printf "/tmp/%s-%s.jpeg"
