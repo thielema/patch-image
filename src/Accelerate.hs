@@ -1255,15 +1255,15 @@ main = do
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
                allOverlapsShared (picA, picB)
 
-         let d@(dx,dy) = fst $ optimalOverlapShared picA picB
+         let d = fst $ optimalOverlapShared picA picB
          let diff = overlapDifferenceRun d picA picB
-         printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) diff
+         printf "%s - %s, %s %f\n" pathA pathB (show d) diff
          when True $
             writeImage 90
                (printf "/tmp/%s-%s.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-               composeOverlap (dx,dy) (snd $ picAngles!!ia, snd $ picAngles!!ib)
-         return ((ia,ib), (dx,dy))
+               composeOverlap d (snd $ picAngles!!ia, snd $ picAngles!!ib)
+         return ((ia,ib), d)
 
    let (poss, dps) =
           absolutePositionsFromPairDisplacements (length rotated) displacements
