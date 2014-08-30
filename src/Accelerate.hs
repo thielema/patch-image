@@ -865,10 +865,10 @@ project x (a, b) =
    let (r, _, _, y) = Line.distanceAux a b x
    in  (0<=*r &&* r<=*1, y)
 
-distanceMapAlt ::
+distanceMapEdges ::
    (A.Elt a, A.IsFloating a) =>
    Exp DIM2 -> Acc (Array DIM1 ((a,a),(a,a))) -> Acc (Channel Z a)
-distanceMapAlt sh edges =
+distanceMapEdges sh edges =
    A.map (Exp.modify (atom,atom) $ \(valid, dist) -> valid ? (dist, 0)) $
    maskedMinimum $
    Arrange.mapWithIndex
@@ -878,20 +878,20 @@ distanceMapAlt sh edges =
          in  mapSnd (distance pp) $ project pp (Point2 q0, Point2 q1)) $
    LinAlg.extrudeVector sh edges
 
-distanceMapAltRun ::
+distanceMapEdgesRun ::
    DIM2 -> Array DIM1 ((Float,Float),(Float,Float)) -> Channel Z Word8
-distanceMapAltRun =
+distanceMapEdgesRun =
    let dist =
           CUDA.run1 $ Acc.modify (expr, acc) $
-             imageByteFromFloat . A.map (0.01*) . uncurry distanceMapAlt
+             imageByteFromFloat . A.map (0.01*) . uncurry distanceMapEdges
    in  \sh edges -> dist (Acc.singleton sh, edges)
 
-distanceMap ::
+distanceMapBox ::
    (A.Elt a, A.IsFloating a) =>
    Exp DIM2 ->
    Exp ((a,a), (a,a), (Int,Int)) ->
    Acc (Channel Z (Bool, (((a,(a,a)), (a,(a,a))), ((a,(a,a)), (a,(a,a))))))
-distanceMap sh geom =
+distanceMapBox sh geom =
    let (rot, mov, extent@(width,height)) =
           Exp.unlift ((atom,atom),(atom,atom),(atom,atom)) geom
        widthf  = A.fromIntegral width
@@ -936,9 +936,9 @@ separateDistanceMap arr =
       (A.use $ A.fromList (Z:.(4::Int)) $
        liftM2 (,) [False,True] [False,True])
 
-distanceMapBox ::
+distanceMapBoxRun ::
    DIM2 -> ((Float,Float),(Float,Float),(Int,Int)) -> Channel Z Word8
-distanceMapBox =
+distanceMapBoxRun =
    let distances =
           CUDA.run1 $ Acc.modify (expr, expr) $
           \(sh, geom) ->
@@ -951,7 +951,7 @@ distanceMapBox =
                  maskedMinimum $
                  A.map (Exp.mapSnd A.fst) $
                  separateDistanceMap $
-                 distanceMap sh geom
+                 distanceMapBox sh geom
    in  \sh geom -> distances (Acc.singleton sh, Acc.singleton geom)
 
 
@@ -989,7 +989,7 @@ distanceMapContained ::
 distanceMapContained sh this others =
    let distMap =
           separateDistanceMap $
-          distanceMap sh this
+          distanceMapBox sh this
        contained =
           containedAnywhere others $
           A.map (A.snd . A.snd) distMap
@@ -1060,14 +1060,14 @@ distanceMapPointsRun =
               map (\(Point2 p) -> p) points)
 
 
-distanceMapComplete ::
+distanceMap ::
    (A.Elt a, A.IsFloating a) =>
    Exp DIM2 ->
    Exp ((a, a), (a, a), (Int, Int)) ->
    Acc (Array DIM1 ((a, a), (a, a), (Int, Int))) ->
    Acc (Array DIM1 (a, a)) ->
    Acc (Array DIM2 a)
-distanceMapComplete sh this others points =
+distanceMap sh this others points =
    A.zipWith min
       (distanceMapContained sh this others)
       (distanceMapPoints (pixelCoordinates sh) points)
@@ -1086,7 +1086,7 @@ distanceMapRun =
                     case Exp.unlift (atom:.atom:.atom) sh of
                        _z:.y:.x -> (4/) $ A.fromIntegral $ min x y
              in  imageByteFromFloat $ A.map (scale*) $
-                 distanceMapComplete sh this others points
+                 distanceMap sh this others points
    in  \sh this others points ->
           distances
              (Acc.singleton sh,
@@ -1135,7 +1135,7 @@ updateWeightedCanvas =
              let (rot, mov, _) =
                     Exp.unlift ((atom,atom), (atom,atom), atom) this
              in  addToWeightedCanvas
-                    (distanceMapComplete (A.shape weightSum) this others points,
+                    (distanceMap (A.shape weightSum) this others points,
                      snd $ rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
                      separateChannels $ imageFloatFromByte pic)
                     (weightSum,canvas)
@@ -1324,7 +1324,7 @@ main = do
       when True $ do
          writeGrey 90
             (printf "/tmp/%s-distance-box.jpeg" stem) $
-            distanceMapBox canvasShape thisGeom
+            distanceMapBoxRun canvasShape thisGeom
 
          writeGrey 90
             (printf "/tmp/%s-distance-contained.jpeg" stem) $
