@@ -610,8 +610,8 @@ argmaximum = A.fold1All argmax
 
 allOverlaps ::
    DIM2 ->
-   Acc (Array DIM2 Float) -> Acc (Array DIM2 Float) ->
-   Acc (Array DIM2 ((Int, Int), Float))
+   Acc (Channel Z Float) -> Acc (Channel Z Float) ->
+   Acc (Channel Z ((Int, Int), Float))
 allOverlaps size@(Z :. height :. width) =
    let convolve = convolvePadded size
    in  \a b ->
@@ -636,7 +636,7 @@ allOverlaps size@(Z :. height :. width) =
 
 
 allOverlapsRun ::
-   DIM2 -> (Array DIM2 Float, Array DIM2 Float) -> Array DIM2 Word8
+   DIM2 -> (Channel Z Float, Channel Z Float) -> Array DIM2 Word8
 allOverlapsRun padSize =
    CUDA.run1 $ Acc.modify (acc,acc) $ \(picA, picB) ->
       imageByteFromFloat $
@@ -645,7 +645,7 @@ allOverlapsRun padSize =
       A.map A.snd $ allOverlaps padSize picA picB
 
 optimalOverlap ::
-   DIM2 -> Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
+   DIM2 -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
 optimalOverlap padSize =
    let run =
           CUDA.run1 $
@@ -726,7 +726,7 @@ composeOverlap =
 emptyCanvas ::
    (A.Slice ix, A.Shape ix) =>
    ix :. Int :. Int ->
-   (Array DIM2 Int, Array (ix :. Int :. Int) Float)
+   (Channel Z Int, Channel ix Float)
 emptyCanvas =
    let fill =
           CUDA.run1 $ Acc.modify expr $ \sh ->
