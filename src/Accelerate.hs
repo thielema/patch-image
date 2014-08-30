@@ -422,15 +422,15 @@ ceilingPow2Exp n =
    A.setBit 0 $ A.ceiling $ logBase 2 (fromIntegral n :: Exp Double)
 
 pad ::
-   (A.Elt a, A.IsNum a) =>
-   Exp DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
-pad sh arr =
+   (A.Elt a) =>
+   Exp a -> Exp DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
+pad a sh arr =
    let (height, width) = A.unlift $ A.unindex2 $ A.shape arr
    in  A.generate sh $ \p ->
           let (y, x) = A.unlift $ A.unindex2 p
           in  (y<*height &&* x<*width)
               ?
-              (arr A.! A.index2 y x, 0)
+              (arr A.! A.index2 y x, a)
 
 convolveImpossible ::
    (A.Elt a, A.IsFloating a) =>
@@ -443,7 +443,7 @@ convolveImpossible x y =
        sh = A.index2 height width
        forward z =
           FFT.fft2D FFT.Forward $ CUDA.run $
-          A.map (A.lift . (:+ 0)) $ pad sh z
+          A.map (A.lift . (:+ 0)) $ pad 0 sh z
    in  A.map Complex.real $
        FFT.fft2D FFT.Inverse $ CUDA.run $
        A.zipWith (*) (forward x) (forward y)
@@ -482,7 +482,7 @@ convolvePadded ::
 convolvePadded sh@(Z :. height :. width) =
    let forward =
           FFT.fft2D' FFT.Forward width height .
-          A.map (A.lift . (:+ 0)) . pad (A.lift sh)
+          A.map (A.lift . (:+ 0)) . pad 0 (A.lift sh)
        inverse = FFT.fft2D' FFT.Inverse width height
    in  \ x y ->
           A.map Complex.real $ inverse $
@@ -1036,14 +1036,14 @@ main = do
       writeGrey 90 "/tmp/padded.jpeg" $
          CUDA.run1
             (imageByteFromFloat .
-             pad (A.lift size)) $
+             pad 0 (A.lift size)) $
          pic0
       writeGrey 90 "/tmp/spectrum.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map Complex.real $
          FFT.fft2D FFT.Forward $
          CUDA.run1
             (A.map (A.lift . (:+ 0)) .
-             pad (A.lift size)) $
+             pad 0 (A.lift size)) $
          pic0
       writeGrey 90 "/tmp/convolution.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
