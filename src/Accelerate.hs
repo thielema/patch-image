@@ -1223,10 +1223,11 @@ main = do
 
          let ((dx,dy), score) = optimalOverlapShared picA picB
          printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) score
-         writeImage 90
-            (printf "/tmp/%s-%s.jpeg"
-               (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-            composeOverlap (dx,dy) (snd $ picAngles!!ia, snd $ picAngles!!ib)
+         when True $
+            writeImage 90
+               (printf "/tmp/%s-%s.jpeg"
+                  (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
+               composeOverlap (dx,dy) (snd $ picAngles!!ia, snd $ picAngles!!ib)
          return ((ia,ib), (dx,dy))
 
    let (poss, dps) =
