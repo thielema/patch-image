@@ -635,6 +635,25 @@ allOverlaps size@(Z :. height :. width) =
               convolve a b
 
 
+allOverlapsRun ::
+   DIM2 -> (Array DIM2 Float, Array DIM2 Float) -> Array DIM2 Word8
+allOverlapsRun padSize =
+   CUDA.run1 $ Acc.modify (acc,acc) $ \(picA, picB) ->
+      imageByteFromFloat $
+      -- A.map (2*) $
+      A.map (0.0001*) $
+      A.map A.snd $ allOverlaps padSize picA picB
+
+optimalOverlap ::
+   DIM2 -> Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
+optimalOverlap padSize =
+   let run =
+          CUDA.run1 $
+          argmaximum . A.uncurry (allOverlaps padSize)
+   in  \a b -> A.indexArray (run (a,b)) Z
+
+
+
 absolutePositionsFromPairDisplacements ::
    Int -> [((Int, Int), (Int, Int))] ->
    ([(Double,Double)], [(Double,Double)])
@@ -683,6 +702,25 @@ overlap2 (dx,dy) (a,b) =
           in  inPicA ?
                  (inPicB ? ((a A.! pa + b A.! pb)/2, a A.! pa),
                   inPicB ? (b A.! pb, 0))
+
+composeOverlap ::
+   (Int, Int) ->
+   ((Float, Array DIM3 Word8), (Float, Array DIM3 Word8)) ->
+   Array DIM3 Word8
+composeOverlap =
+   let rot (angle,pic) =
+          rotate (cos angle, sin angle) $
+          separateChannels $ imageFloatFromByte pic
+       f =
+          CUDA.run1 $
+          Acc.modify ((expr,expr),((expr,acc),(expr,acc))) $
+          \((dx,dy), (a,b)) ->
+             imageByteFromFloat $ interleaveChannels $
+             overlap2 (dx, dy) (rot a, rot b)
+   in  \(dx,dy) ((anglea,pica), (angleb,picb)) ->
+          f ((Acc.singleton dx, Acc.singleton dy),
+             ((Acc.singleton anglea, pica),
+              (Acc.singleton angleb, picb)))
 
 
 emptyCanvas ::
@@ -1120,42 +1158,15 @@ main = do
        padHeight = ceilingPow2 $ maxSum2 rotHeights
        padSize = Z :. padHeight :. padWidth
 
-   let composeOverlap =
-          let rot (angle,pic) =
-                 rotate (cos angle, sin angle) $
-                 separateChannels $ imageFloatFromByte pic
-              f =
-                 CUDA.run1 $
-                 Acc.modify ((expr,expr),((expr,acc),(expr,acc))) $
-                 \((dx,dy), (a,b)) ->
-                    imageByteFromFloat $ interleaveChannels $
-                    overlap2 (dx, dy) (rot a, rot b)
-          in  \(dx,dy) ((anglea,pica), (angleb,picb)) ->
-                 f ((Acc.singleton dx, Acc.singleton dy),
-                    ((Acc.singleton anglea, pica),
-                     (Acc.singleton angleb, picb)))
-   let allOverlapsRun =
-          CUDA.run1 $ Acc.modify (acc,acc) $ \(picA, picB) ->
-             imageByteFromFloat $
-             A.map (0.0001*) $
-             A.map A.snd $ allOverlaps padSize picA picB
-   let optimalOverlap ::
-          Array DIM2 Float -> Array DIM2 Float -> ((Int, Int), Float)
-       optimalOverlap =
-          let run =
-                 CUDA.run1 $
-                 argmaximum . A.uncurry (allOverlaps padSize)
-          in  \a b -> A.indexArray (run (a,b)) Z
-
    displacements <-
       forM pairs $ \((ia,(pathA,picA)), (ib,(pathB,picB))) -> do
          when False $
             writeGrey 90
                (printf "/tmp/%s-%s-score.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-               allOverlapsRun (picA, picB)
+               allOverlapsRun padSize (picA, picB)
 
-         let ((dy,dx), score) = optimalOverlap picA picB
+         let ((dy,dx), score) = optimalOverlap padSize picA picB
          printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) score
          writeImage 90
             (printf "/tmp/%s-%s.jpeg"
