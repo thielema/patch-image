@@ -659,6 +659,49 @@ optimalOverlap padSize =
    in  \a b -> A.indexArray (run (a,b)) Z
 
 
+shrink ::
+   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   ExpDIM2 Z -> Acc (Channel ix a) -> Acc (Channel ix a)
+shrink (_:.yk:.xk) arr =
+   let (shape:.height:.width) = unliftDim2 $ A.shape arr
+   in  A.map (/ (A.fromIntegral xk * A.fromIntegral yk)) $
+       A.fold1 (+) $ A.fold1 (+) $
+       A.backpermute
+          (A.lift $ shape :. div height yk :. div width xk :. yk :. xk)
+          (Exp.modify (atom:.atom:.atom:.atom:.atom) $
+           \(z:.yi:.xi:.yj:.xj) -> z:.yi*yk+yj:.xi*xk+xj)
+          arr
+
+-- cf. numeric-prelude
+divUp :: (Integral a) => a -> a -> a
+divUp a b = - div (-a) b
+
+{-
+Reduce image sizes below the padSize before matching images.
+-}
+optimalOverlapBig ::
+   DIM2 -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
+optimalOverlapBig padSize@(Z:.heightPad:.widthPad) =
+   let run =
+          CUDA.run1 $
+          Acc.modify (acc,acc) $ \(a,b) ->
+             let (Z :. heighta :. widtha) = A.unlift $ A.shape a
+                 (Z :. heightb :. widthb) = A.unlift $ A.shape b
+                 yk = divUp (heighta+heightb) $ A.lift heightPad
+                 xk = divUp (widtha +widthb)  $ A.lift widthPad
+                 factors = A.lift Z :. yk :. xk
+                 scalePos =
+                    Exp.modify ((atom,atom), atom) $
+                    \((xm,ym), score) -> ((xm*xk, ym*yk), score)
+             in  A.map scalePos $ argmaximum $
+                 allOverlaps padSize (shrink factors a) (shrink factors b)
+   in  \a b -> A.indexArray (run (a,b)) Z
+
+
+defaultPadSize :: Maybe DIM2
+defaultPadSize = Just $ Z :. 1024 :. 1024
+
+
 
 absolutePositionsFromPairDisplacements ::
    Int -> [((Int, Int), (Int, Int))] ->
@@ -1152,23 +1195,27 @@ main = do
          CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
          convolvePadded size (A.use pic0) (A.use pic1)
 
-   let (rotHeights, rotWidths) =
-          unzip $
-          map (\(_chans:.height:.width) -> (height, width)) $
-          map (A.arrayShape . snd) rotated
-       maxSum2 sizes =
-          case List.sortBy (flip compare) sizes of
-             size0 : size1 : _ -> size0+size1
-             _ -> error "less than one picture - there should be no pairs"
-       padWidth  = ceilingPow2 $ maxSum2 rotWidths
-       padHeight = ceilingPow2 $ maxSum2 rotHeights
-       padSize = Z :. padHeight :. padWidth
-       allOverlapsShared = allOverlapsRun padSize
-       optimalOverlapShared = optimalOverlap padSize
+   let (maybeAllOverlapsShared, optimalOverlapShared) =
+          case defaultPadSize of
+             Just padSize -> (Nothing, optimalOverlapBig padSize)
+             Nothing ->
+                let (rotHeights, rotWidths) =
+                       unzip $
+                       map (\(_chans:.height:.width) -> (height, width)) $
+                       map (A.arrayShape . snd) rotated
+                    maxSum2 sizes =
+                       case List.sortBy (flip compare) sizes of
+                          size0 : size1 : _ -> size0+size1
+                          _ -> error "less than one picture - there should be no pairs"
+                    padWidth  = ceilingPow2 $ maxSum2 rotWidths
+                    padHeight = ceilingPow2 $ maxSum2 rotHeights
+                    padSize = Z :. padHeight :. padWidth
+                in  (Just $ allOverlapsRun padSize,
+                     optimalOverlap padSize)
 
    displacements <-
       forM pairs $ \((ia,(pathA,picA)), (ib,(pathB,picB))) -> do
-         when False $
+         forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when False $
             writeGrey 90
                (printf "/tmp/%s-%s-score.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
