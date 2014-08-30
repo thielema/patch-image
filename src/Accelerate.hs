@@ -698,6 +698,59 @@ optimalOverlapBig padSize@(Z:.heightPad:.widthPad) =
    in  \a b -> A.indexArray (run (a,b)) Z
 
 
+clip ::
+   (A.Slice ix, A.Shape ix, A.Elt a) =>
+   (Exp Int, Exp Int) ->
+   (Exp Int, Exp Int) ->
+   Acc (Channel ix a) -> Acc (Channel ix a)
+clip (left,top) (width,height) arr =
+   A.backpermute
+      (A.lift $ A.indexTail (A.indexTail (A.shape arr)) :. height :. width)
+      (Exp.modify (atom:.atom:.atom) $
+       \(z :. y :. x) -> z :. y+top :. x+left)
+      arr
+
+{-
+Like 'optimalOverlapBig'
+but computes precise distance in a second step
+using a part in the overlapping area..
+-}
+optimalOverlapBigFine ::
+   DIM2 -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
+optimalOverlapBigFine padSize@(Z:.heightPad:.widthPad) =
+   let run =
+          CUDA.run1 $
+          Acc.modify (acc,acc) $ \(a,b) ->
+             let (Z :. heighta :. widtha) = A.unlift $ A.shape a
+                 (Z :. heightb :. widthb) = A.unlift $ A.shape b
+                 yk = divUp (heighta+heightb) $ A.lift heightPad
+                 xk = divUp (widtha +widthb)  $ A.lift widthPad
+                 factors = A.lift Z :. yk :. xk
+                 (coarsedx,coarsedy) =
+                    mapPair ((xk*), (yk*)) $
+                    Exp.unliftPair $ A.fst $ A.the $ argmaximum $
+                    allOverlaps padSize (shrink factors a) (shrink factors b)
+                 leftOverlap = max 0 coarsedx
+                 topOverlap  = max 0 coarsedy
+                 rightOverlap  = min widtha  (widthb  + coarsedx)
+                 bottomOverlap = min heighta (heightb + coarsedy)
+                 widthOverlap  = rightOverlap - leftOverlap
+                 heightOverlap = bottomOverlap - topOverlap
+                 widthFocus  = min widthOverlap $ A.lift $ div widthPad 2
+                 heightFocus = min heightOverlap $ A.lift $ div heightPad 2
+                 extentFocus = (widthFocus,heightFocus)
+                 leftFocus = leftOverlap + div (widthOverlap-widthFocus) 2
+                 topFocus  = topOverlap  + div (heightOverlap-heightFocus) 2
+                 addCoarsePos =
+                    Exp.modify ((atom,atom), atom) $
+                    \((xm,ym), score) -> ((xm+coarsedx, ym+coarsedy), score)
+             in  A.map addCoarsePos $ argmaximum $
+                 allOverlaps padSize
+                    (clip (leftFocus,topFocus) extentFocus a)
+                    (clip (leftFocus-coarsedx,topFocus-coarsedy) extentFocus b)
+   in  \a b -> A.indexArray (run (a,b)) Z
+
+
 defaultPadSize :: Maybe DIM2
 defaultPadSize = Just $ Z :. 1024 :. 1024
 
@@ -1231,7 +1284,7 @@ main = do
 
    let (maybeAllOverlapsShared, optimalOverlapShared) =
           case defaultPadSize of
-             Just padSize -> (Nothing, optimalOverlapBig padSize)
+             Just padSize -> (Nothing, optimalOverlapBigFine padSize)
              Nothing ->
                 let (rotHeights, rotWidths) =
                        unzip $
