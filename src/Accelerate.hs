@@ -1157,6 +1157,8 @@ main = do
        padWidth  = ceilingPow2 $ maxSum2 rotWidths
        padHeight = ceilingPow2 $ maxSum2 rotHeights
        padSize = Z :. padHeight :. padWidth
+       allOverlapsShared = allOverlapsRun padSize
+       optimalOverlapShared = optimalOverlap padSize
 
    displacements <-
       forM pairs $ \((ia,(pathA,picA)), (ib,(pathB,picB))) -> do
@@ -1164,9 +1166,9 @@ main = do
             writeGrey 90
                (printf "/tmp/%s-%s-score.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-               allOverlapsRun padSize (picA, picB)
+               allOverlapsShared (picA, picB)
 
-         let ((dy,dx), score) = optimalOverlap padSize picA picB
+         let ((dy,dx), score) = optimalOverlapShared picA picB
          printf "%s - %s, %s %f\n" pathA pathB (show (dx,dy)) score
          writeImage 90
             (printf "/tmp/%s-%s.jpeg"
