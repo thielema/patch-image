@@ -627,9 +627,9 @@ allOverlaps size@(Z :. height :. width) =
 
 
 allOverlapsRun ::
-   DIM2 -> (Channel Z Float, Channel Z Float) -> Array DIM2 Word8
+   DIM2 -> Channel Z Float -> Channel Z Float -> Array DIM2 Word8
 allOverlapsRun padSize =
-   CUDA.run1 $ Acc.modify (acc,acc) $ \(picA, picB) ->
+   Run.with CUDA.run1 $ \picA picB ->
       imageByteFromFloat $
       -- A.map (2*) $
       A.map (0.0001*) $
@@ -1295,7 +1295,7 @@ main = do
             writeGrey 90
                (printf "/tmp/%s-%s-score.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-               allOverlapsShared (picA, picB)
+               allOverlapsShared picA picB
 
          let d = fst $ optimalOverlapShared picA picB
          let diff = overlapDifferenceRun d picA picB
