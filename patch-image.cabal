@@ -43,8 +43,8 @@ Executable patch-image
 
   GHC-Options: -Wall -threaded -fwarn-tabs -fwarn-incomplete-record-updates
 
-Executable patch-image-test
-  Main-Is: Main.hs
+Executable patch-image-scratch
+  Main-Is: Scratch.hs
   Hs-Source-Dirs: src
 
   Build-Depends:
