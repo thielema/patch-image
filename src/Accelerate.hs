@@ -607,8 +607,8 @@ argmax ::
 argmax x y  =  A.snd x <* A.snd y ? (y,x)
 
 argmaximum ::
-   (A.Elt a, A.IsScalar a) =>
-   Acc (Array DIM2 ((Int, Int), a)) -> Acc (A.Scalar ((Int, Int), a))
+   (A.Elt a, A.Elt b, A.IsScalar b) =>
+   Acc (Channel Z (a, b)) -> Acc (A.Scalar (a, b))
 argmaximum = A.fold1All argmax
 
 
