@@ -9,6 +9,7 @@ import qualified Data.Array.Accelerate.Arithmetic.LinearAlgebra as LinAlg
 import qualified Data.Array.Accelerate.Utility.Lift.Run as Run
 import qualified Data.Array.Accelerate.Utility.Lift.Exp as Exp
 import qualified Data.Array.Accelerate.Utility.Arrange as Arrange
+import qualified Data.Array.Accelerate.Utility.Loop as Loop
 import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Math.Complex (Complex((:+)), )
 import Data.Array.Accelerate.Utility.Lift.Exp (atom)
@@ -389,14 +390,20 @@ rotateManifest =
              rotate orient $ separateChannels $ imageFloatFromByte arr
    in  \angle arr -> rot (cos angle, sin angle) arr
 
+
+defaultSmooth :: Int
+defaultSmooth = 20
+
 prepareOverlapMatching ::
    (Float, Array DIM3 Word8) -> Array DIM2 Float
 prepareOverlapMatching =
    let rot =
           Run.with CUDA.run1 $ \orient arr ->
              rotate orient $
-             removeDCOffset $ brightnessPlane $
-             separateChannels $ imageFloatFromByte arr
+             (if True
+                then highpass (A.lift defaultSmooth)
+                else removeDCOffset) $
+             brightnessPlane $ separateChannels $ imageFloatFromByte arr
    in  \(angle, arr) -> rot (cos angle, sin angle) arr
 
 
@@ -457,6 +464,20 @@ clearDCCoefficient arr =
    A.generate (A.shape arr) $ \p ->
       let (_z:.y:.x) = unliftDim2 p
       in  x==*0 ||* y==*0 ? (0, arr A.! p)
+
+
+smooth3 :: (A.Elt a, A.IsFloating a) => A.Stencil3 a -> Exp a
+smooth3 (l,m,r) = (l+2*m+r)/4
+
+lowpass, highpass ::
+   (A.Elt a, A.IsFloating a) =>
+   Exp Int -> Acc (Channel Z a) -> Acc (Channel Z a)
+lowpass count =
+   Loop.nest count $
+      A.stencil (\(a,m,b) -> smooth3 (smooth3 a, smooth3 m, smooth3 b)) A.Clamp
+
+highpass count arr =
+  A.zipWith (-) arr $ lowpass count arr
 
 
 convolvePaddedSimple ::
