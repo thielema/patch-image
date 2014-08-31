@@ -6,6 +6,7 @@ import qualified Data.Array.Accelerate.Math.Complex as Complex
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate.Arithmetic.LinearAlgebra as LinAlg
+import qualified Data.Array.Accelerate.Utility.Lift.Run as Run
 import qualified Data.Array.Accelerate.Utility.Lift.Acc as Acc
 import qualified Data.Array.Accelerate.Utility.Lift.Exp as Exp
 import qualified Data.Array.Accelerate.Utility.Arrange as Arrange
@@ -317,25 +318,17 @@ rowHistogram :: Acc (Channel DIM1 Float) -> Acc (Array DIM1 Float)
 rowHistogram = A.fold (+) 0 . brightnessPlane
 
 
-unliftRotationParameters ::
-   Acc ((A.Scalar Float, A.Scalar Float), Array DIM3 Word8) ->
-   ((Exp Float, Exp Float), Acc (Array DIM3 Word8))
-unliftRotationParameters = Acc.unlift ((expr,expr), acc)
-
 rotateHistogram ::
    Float -> Array DIM3 Word8 -> (Array DIM3 Word8, Array DIM1 Float)
 rotateHistogram =
    let rot =
-          CUDA.run1 $ \arg ->
-             let (orient, arr) = unliftRotationParameters arg
-                 rotated =
+          Run.with CUDA.run1 $ \orient arr ->
+             let rotated =
                     rotate orient $
                     separateChannels $ imageFloatFromByte arr
-             in  A.lift
-                    (imageByteFromFloat $ interleaveChannels rotated,
-                     rowHistogram rotated)
-   in  \angle arr ->
-          rot ((Acc.singleton $ cos angle, Acc.singleton $ sin angle), arr)
+             in  (imageByteFromFloat $ interleaveChannels rotated,
+                  rowHistogram rotated)
+   in  \angle arr -> rot (cos angle, sin angle) arr
 
 
 analyseRotations :: Array DIM3 Word8 -> IO ()
@@ -377,14 +370,10 @@ differentiate arr =
 scoreRotation :: Float -> Array DIM3 Word8 -> Float
 scoreRotation =
    let rot =
-          CUDA.run1 $ \arg ->
-             let (orient, arr) = unliftRotationParameters arg
-             in  A.sum $ A.map (^(2::Int)) $ differentiate $ rowHistogram $
-                 rotate orient $
-                 separateChannels $ imageFloatFromByte arr
-   in  \angle arr ->
-          A.indexArray
-             (rot ((Acc.singleton $ cos angle, Acc.singleton $ sin angle), arr)) Z
+          Run.with CUDA.run1 $ \orient arr ->
+             A.sum $ A.map (^(2::Int)) $ differentiate $ rowHistogram $
+             rotate orient $ separateChannels $ imageFloatFromByte arr
+   in  \angle arr -> A.indexArray (rot (cos angle, sin angle) arr) Z
 
 findOptimalRotation :: Array DIM3 Word8 -> Float
 findOptimalRotation pic =
@@ -398,24 +387,19 @@ findOptimalRotation pic =
 rotateManifest :: Float -> Array DIM3 Word8 -> Array DIM3 Float
 rotateManifest =
    let rot =
-          CUDA.run1 $ \arg ->
-             let (orient, arr) = unliftRotationParameters arg
-             in  rotate orient $
-                 separateChannels $ imageFloatFromByte arr
-   in  \angle arr ->
-          rot ((Acc.singleton $ cos angle, Acc.singleton $ sin angle), arr)
+          Run.with CUDA.run1 $ \orient arr ->
+             rotate orient $ separateChannels $ imageFloatFromByte arr
+   in  \angle arr -> rot (cos angle, sin angle) arr
 
 prepareOverlapMatching ::
    (Float, Array DIM3 Word8) -> Array DIM2 Float
 prepareOverlapMatching =
    let rot =
-          CUDA.run1 $ \arg ->
-             let (orient, arr) = unliftRotationParameters arg
-             in  rotate orient $
-                 removeDCOffset $ brightnessPlane $
-                 separateChannels $ imageFloatFromByte arr
-   in  \(angle, arr) ->
-          rot ((Acc.singleton $ cos angle, Acc.singleton $ sin angle), arr)
+          Run.with CUDA.run1 $ \orient arr ->
+             rotate orient $
+             removeDCOffset $ brightnessPlane $
+             separateChannels $ imageFloatFromByte arr
+   in  \(angle, arr) -> rot (cos angle, sin angle) arr
 
 
 ceilingPow2Exp :: Exp Int -> Exp Int
