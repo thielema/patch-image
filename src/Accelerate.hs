@@ -395,7 +395,7 @@ defaultSmooth :: Int
 defaultSmooth = 20
 
 prepareOverlapMatching ::
-   (Float, Array DIM3 Word8) -> Array DIM2 Float
+   (Float, Array DIM3 Word8) -> Channel Z Float
 prepareOverlapMatching =
    let rot =
           Run.with CUDA.run1 $ \orient arr ->
@@ -413,7 +413,7 @@ ceilingPow2Exp n =
 
 pad ::
    (A.Elt a) =>
-   Exp a -> Exp DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
+   Exp a -> Exp DIM2 -> Acc (Channel Z a) -> Acc (Channel Z a)
 pad a sh arr =
    let (height, width) = A.unlift $ A.unindex2 $ A.shape arr
    in  A.generate sh $ \p ->
@@ -424,7 +424,7 @@ pad a sh arr =
 
 convolveImpossible ::
    (A.Elt a, A.IsFloating a) =>
-   Acc (Array DIM2 a) -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
+   Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
 convolveImpossible x y =
    let (heightx, widthx) = A.unlift $ A.unindex2 $ A.shape x
        (heighty, widthy) = A.unlift $ A.unindex2 $ A.shape y
@@ -444,7 +444,7 @@ ceilingPow2 n =
    Bit.setBit 0 $ ceiling $ logBase 2 (fromIntegral n :: Double)
 
 removeDCOffset ::
-   (A.Elt a, A.IsFloating a) => Acc (Array DIM2 a) -> Acc (Array DIM2 a)
+   (A.Elt a, A.IsFloating a) => Acc (Channel Z a) -> Acc (Channel Z a)
 removeDCOffset arr =
    let sh = A.shape arr
        (_z :. height :. width) = unliftDim2 sh
@@ -482,7 +482,7 @@ highpass count arr =
 
 convolvePaddedSimple ::
    (A.Elt a, A.IsFloating a) =>
-   DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
+   DIM2 -> Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
 convolvePaddedSimple sh@(Z :. height :. width) =
    let forward =
           FFT.fft2D' FFT.Forward width height .
@@ -540,7 +540,7 @@ Afterwards we untangle the superposed spectra.
 -}
 convolvePadded ::
    (A.Elt a, A.IsFloating a) =>
-   DIM2 -> Acc (Array DIM2 a) -> Acc (Array DIM2 a) -> Acc (Array DIM2 a)
+   DIM2 -> Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
 convolvePadded sh@(Z :. height :. width) =
    let forward = FFT.fft2D' FFT.Forward width height
        inverse = FFT.fft2D' FFT.Inverse width height
@@ -555,7 +555,7 @@ convolvePadded sh@(Z :. height :. width) =
 attachDisplacements ::
    (A.Elt a, A.IsScalar a) =>
    Exp Int -> Exp Int ->
-   Acc (Array DIM2 a) -> Acc (Array DIM2 ((Int, Int), a))
+   Acc (Channel Z a) -> Acc (Channel Z ((Int, Int), a))
 attachDisplacements xsplit ysplit arr =
    let sh = A.shape arr
        (_z :. height :. width) = unliftDim2 sh
@@ -567,8 +567,8 @@ attachDisplacements xsplit ysplit arr =
 weightOverlapScores ::
    (A.Elt a, A.IsFloating a, A.IsScalar a) =>
    Exp Int -> (Exp Int, Exp Int) -> (Exp Int, Exp Int) ->
-   Acc (Array DIM2 ((Int, Int), a)) ->
-   Acc (Array DIM2 ((Int, Int), a))
+   Acc (Channel Z ((Int, Int), a)) ->
+   Acc (Channel Z ((Int, Int), a))
 weightOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
        (A.lift1 $ \(dp,v) ->
@@ -588,8 +588,8 @@ that are actually digitalization artifacts.
 minimumOverlapScores ::
    (A.Elt a, A.IsFloating a, A.IsScalar a) =>
    Exp Int -> (Exp Int, Exp Int) -> (Exp Int, Exp Int) ->
-   Acc (Array DIM2 ((Int, Int), a)) ->
-   Acc (Array DIM2 ((Int, Int), a))
+   Acc (Channel Z ((Int, Int), a)) ->
+   Acc (Channel Z ((Int, Int), a))
 minimumOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
        (A.lift1 $ \(dp,v) ->
@@ -646,7 +646,7 @@ allOverlaps size@(Z :. height :. width) =
 
 
 allOverlapsRun ::
-   DIM2 -> Channel Z Float -> Channel Z Float -> Array DIM2 Word8
+   DIM2 -> Channel Z Float -> Channel Z Float -> Channel Z Word8
 allOverlapsRun padSize =
    Run.with CUDA.run1 $ \picA picB ->
       imageByteFromFloat $
@@ -1052,7 +1052,7 @@ distanceMapContained ::
    Exp DIM2 ->
    Exp ((a, a), (a, a), (Int, Int)) ->
    Acc (Array DIM1 ((a, a), (a, a), (Int, Int))) ->
-   Acc (Array DIM2 a)
+   Acc (Channel Z a)
 distanceMapContained sh this others =
    let distMap =
           separateDistanceMap $
@@ -1131,7 +1131,7 @@ distanceMap ::
    Exp ((a, a), (a, a), (Int, Int)) ->
    Acc (Array DIM1 ((a, a), (a, a), (Int, Int))) ->
    Acc (Array DIM1 (a, a)) ->
-   Acc (Array DIM2 a)
+   Acc (Channel Z a)
 distanceMap sh this others points =
    A.zipWith min
       (distanceMapContained sh this others)
@@ -1161,7 +1161,7 @@ distanceMapRun =
 emptyWeightedCanvas ::
    (A.Slice ix, A.Shape ix) =>
    ix :. Int :. Int ->
-   (Array DIM2 Float, Array (ix :. Int :. Int) Float)
+   (Channel Z Float, Channel ix Float)
 emptyWeightedCanvas =
    Run.with CUDA.run1 $ \sh ->
       let (_ix :. height :. width) = unliftDim2 sh
