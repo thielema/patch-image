@@ -107,15 +107,15 @@ imageByteFromFloat = A.map (fastRound . (255*) . max 0 . min 1)
 
 cycleLeftDim3 :: Exp DIM3 -> Exp DIM3
 cycleLeftDim3 =
-   A.lift1 $
+   Exp.modify (atom :. atom :. atom :. atom) $
        \(z :. chans :. height :. width) ->
-          z :. height :. width :. chans :: ExpDIM3 Z
+          z :. height :. width :. chans
 
 cycleRightDim3 :: Exp DIM3 -> Exp DIM3
 cycleRightDim3 =
-   A.lift1 $
+   Exp.modify (atom :. atom :. atom :. atom) $
        \(z :. height :. width :. chans) ->
-          z :. chans :. height :. width :: ExpDIM3 Z
+          z :. chans :. height :. width
 
 separateChannels :: (A.Elt a) => Acc (Array DIM3 a) -> Acc (Array DIM3 a)
 separateChannels arr =
@@ -571,11 +571,10 @@ weightOverlapScores ::
    Acc (Channel Z ((Int, Int), a))
 weightOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
-       (A.lift1 $ \(dp,v) ->
-          let (dx,dy) = A.unlift dp
-              clipWidth  = min widtha  (widthb  + dx) - max 0 dx
+       (Exp.modify ((atom,atom),atom) $ \(dp@(dy,dx),v) ->
+          let clipWidth  = min widtha  (widthb  + dx) - max 0 dx
               clipHeight = min heighta (heightb + dy) - max 0 dy
-          in  (dp :: Exp (Int, Int),
+          in  (dp,
                  (clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
                  ?
                  (v / (A.fromIntegral clipWidth * A.fromIntegral clipHeight), 0)))
@@ -592,11 +591,10 @@ minimumOverlapScores ::
    Acc (Channel Z ((Int, Int), a))
 minimumOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
-       (A.lift1 $ \(dp,v) ->
-          let (dy,dx) = A.unlift dp
-              clipWidth  = min widtha  (widthb  + dx) - max 0 dx
+       (Exp.modify ((atom,atom),atom) $ \(dp@(dy,dx),v) ->
+          let clipWidth  = min widtha  (widthb  + dx) - max 0 dx
               clipHeight = min heighta (heightb + dy) - max 0 dy
-          in  (dp :: Exp (Int, Int),
+          in  (dp,
                  (clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
                  ?
                  (v, 0)))
