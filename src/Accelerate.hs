@@ -7,12 +7,10 @@ import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate.Arithmetic.LinearAlgebra as LinAlg
 import qualified Data.Array.Accelerate.Utility.Lift.Run as Run
-import qualified Data.Array.Accelerate.Utility.Lift.Acc as Acc
 import qualified Data.Array.Accelerate.Utility.Lift.Exp as Exp
 import qualified Data.Array.Accelerate.Utility.Arrange as Arrange
 import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Math.Complex (Complex((:+)), )
-import Data.Array.Accelerate.Utility.Lift.Acc (acc, expr)
 import Data.Array.Accelerate.Utility.Lift.Exp (atom)
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3,
@@ -668,8 +666,7 @@ optimalOverlapBig ::
    DIM2 -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
 optimalOverlapBig padSize@(Z:.heightPad:.widthPad) =
    let run =
-          CUDA.run1 $
-          Acc.modify (acc,acc) $ \(a,b) ->
+          Run.with CUDA.run1 $ \a b ->
              let (Z :. heighta :. widtha) = A.unlift $ A.shape a
                  (Z :. heightb :. widthb) = A.unlift $ A.shape b
                  yk = divUp (heighta+heightb) $ A.lift heightPad
@@ -680,7 +677,7 @@ optimalOverlapBig padSize@(Z:.heightPad:.widthPad) =
                     \((xm,ym), score) -> ((xm*xk, ym*yk), score)
              in  A.map scalePos $ argmaximum $
                  allOverlaps padSize (shrink factors a) (shrink factors b)
-   in  \a b -> A.indexArray (run (a,b)) Z
+   in  \a b -> A.indexArray (run a b) Z
 
 
 clip ::
@@ -704,8 +701,7 @@ optimalOverlapBigFine ::
    DIM2 -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
 optimalOverlapBigFine padSize@(Z:.heightPad:.widthPad) =
    let run =
-          CUDA.run1 $
-          Acc.modify (acc,acc) $ \(a,b) ->
+          Run.with CUDA.run1 $ \a b ->
              let (Z :. heighta :. widtha) = A.unlift $ A.shape a
                  (Z :. heightb :. widthb) = A.unlift $ A.shape b
                  yk = divUp (heighta+heightb) $ A.lift heightPad
@@ -733,7 +729,7 @@ optimalOverlapBigFine padSize@(Z:.heightPad:.widthPad) =
                  allOverlaps padSize
                     (clip (leftFocus,topFocus) extentFocus a)
                     (clip (leftFocus-coarsedx,topFocus-coarsedy) extentFocus b)
-   in  \a b -> A.indexArray (run (a,b)) Z
+   in  \a b -> A.indexArray (run a b) Z
 
 
 defaultPadSize :: Maybe DIM2
@@ -743,8 +739,8 @@ defaultPadSize = Just $ Z :. 1024 :. 1024
 overlapDifference ::
    (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
    (Exp Int, Exp Int) ->
-   (Acc (Channel ix a), Acc (Channel ix a)) -> Acc (A.Scalar a)
-overlapDifference (dx,dy) (a,b) =
+   Acc (Channel ix a) -> Acc (Channel ix a) -> Acc (A.Scalar a)
+overlapDifference (dx,dy) a b =
    let (_ :. heighta :. widtha) = unliftDim2 $ A.shape a
        (_ :. heightb :. widthb) = unliftDim2 $ A.shape b
        leftOverlap = max 0 dx
@@ -766,13 +762,8 @@ overlapDifferenceRun ::
    (Int, Int) ->
    Channel Z Float -> Channel Z Float -> Float
 overlapDifferenceRun =
-   let diff =
-          CUDA.run1 $
-          Acc.modify ((expr,expr), (acc,acc)) $
-          uncurry overlapDifference
-   in  \(dx,dy) a b ->
-          A.indexArray
-             (diff ((Acc.singleton dx, Acc.singleton dy), (a,b))) Z
+   let diff = Run.with CUDA.run1 overlapDifference
+   in  \d a b -> A.indexArray (diff d a b) Z
 
 maximumOverlapDifference :: Float
 maximumOverlapDifference = 0.2
@@ -835,16 +826,10 @@ composeOverlap =
    let rot (angle,pic) =
           rotate (cos angle, sin angle) $
           separateChannels $ imageFloatFromByte pic
-       f =
-          CUDA.run1 $
-          Acc.modify ((expr,expr),((expr,acc),(expr,acc))) $
-          \((dx,dy), (a,b)) ->
-             imageByteFromFloat $ interleaveChannels $
-             overlap2 (dx, dy) (rot a, rot b)
-   in  \(dx,dy) ((anglea,pica), (angleb,picb)) ->
-          f ((Acc.singleton dx, Acc.singleton dy),
-             ((Acc.singleton anglea, pica),
-              (Acc.singleton angleb, picb)))
+   in  Run.with CUDA.run1 $
+       \(dx,dy) (a,b) ->
+          imageByteFromFloat $ interleaveChannels $
+          overlap2 (dx, dy) (rot a, rot b)
 
 
 emptyCanvas ::
@@ -852,12 +837,10 @@ emptyCanvas ::
    ix :. Int :. Int ->
    (Channel Z Int, Channel ix Float)
 emptyCanvas =
-   let fill =
-          CUDA.run1 $ Acc.modify expr $ \sh ->
-             let (_ix :. height :. width) = unliftDim2 sh
-             in  (A.fill (A.lift $ Z:.height:.width) 0,
-                  A.fill sh 0)
-   in  fill . Acc.singleton
+   Run.with CUDA.run1 $ \sh ->
+      let (_ix :. height :. width) = unliftDim2 sh
+      in  (A.fill (A.lift $ Z:.height:.width) 0,
+           A.fill sh 0)
 
 
 addToCanvas ::
@@ -877,23 +860,16 @@ updateCanvas ::
    (Channel Z Int, Channel DIM1 Float) ->
    (Channel Z Int, Channel DIM1 Float)
 updateCanvas =
-   let update =
-          CUDA.run1 $
-          Acc.modify (((expr,expr), (expr,expr), acc), (acc,acc)) $
-          \((rot, mov, pic), (count,canvas)) ->
-             addToCanvas
-                (rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
-                 separateChannels $ imageFloatFromByte pic)
-                (count,canvas)
-   in  \(rx,ry) (mx,my) pic canvas ->
-          update (((Acc.singleton rx, Acc.singleton ry),
-                   (Acc.singleton mx, Acc.singleton my),
-                   pic),
-                  canvas)
+   Run.with CUDA.run1 $
+   \rot mov pic (count,canvas) ->
+      addToCanvas
+         (rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
+          separateChannels $ imageFloatFromByte pic)
+         (count,canvas)
 
 finalizeCanvas :: (Channel Z Int, Channel DIM1 Float) -> Array DIM3 Word8
 finalizeCanvas =
-   CUDA.run1 $ Acc.modify (acc,acc) $
+   Run.with CUDA.run1 $
    \(count, canvas) ->
       imageByteFromFloat $ interleaveChannels $
       A.zipWith (/) canvas $
@@ -956,10 +932,8 @@ distanceMapEdges sh edges =
 distanceMapEdgesRun ::
    DIM2 -> Array DIM1 ((Float,Float),(Float,Float)) -> Channel Z Word8
 distanceMapEdgesRun =
-   let dist =
-          CUDA.run1 $ Acc.modify (expr, acc) $
-             imageByteFromFloat . A.map (0.01*) . uncurry distanceMapEdges
-   in  \sh edges -> dist (Acc.singleton sh, edges)
+   Run.with CUDA.run1 $ \sh ->
+      imageByteFromFloat . A.map (0.01*) . distanceMapEdges sh
 
 distanceMapBox ::
    (A.Elt a, A.IsFloating a) =>
@@ -1014,20 +988,17 @@ separateDistanceMap arr =
 distanceMapBoxRun ::
    DIM2 -> ((Float,Float),(Float,Float),(Int,Int)) -> Channel Z Word8
 distanceMapBoxRun =
-   let distances =
-          CUDA.run1 $ Acc.modify (expr, expr) $
-          \(sh, geom) ->
-             let scale =
-                    (4/) $ A.fromIntegral $ uncurry min $
-                    Exp.unliftPair $ Exp.thd3 geom
-             in  imageByteFromFloat $
-                 A.map (Exp.modify (atom,atom) $
-                          \(valid, dist) -> valid ? (scale*dist, 0)) $
-                 maskedMinimum $
-                 A.map (Exp.mapSnd A.fst) $
-                 separateDistanceMap $
-                 distanceMapBox sh geom
-   in  \sh geom -> distances (Acc.singleton sh, Acc.singleton geom)
+   Run.with CUDA.run1 $ \sh geom ->
+      let scale =
+             (4/) $ A.fromIntegral $ uncurry min $
+             Exp.unliftPair $ Exp.thd3 geom
+      in  imageByteFromFloat $
+          A.map (Exp.modify (atom,atom) $
+                   \(valid, dist) -> valid ? (scale*dist, 0)) $
+          maskedMinimum $
+          A.map (Exp.mapSnd A.fst) $
+          separateDistanceMap $
+          distanceMapBox sh geom
 
 
 -- maybe move to Utility
@@ -1083,17 +1054,16 @@ distanceMapContainedRun ::
    Channel Z Word8
 distanceMapContainedRun =
    let distances =
-          CUDA.run1 $ Acc.modify (expr, expr, acc) $
-          \(sh, this, others) ->
+          Run.with CUDA.run1 $
+          \sh this others ->
              let scale =
                     (4/) $ A.fromIntegral $ uncurry min $
                     Exp.unliftPair $ Exp.thd3 this
              in  imageByteFromFloat $ A.map (scale*) $
                  distanceMapContained sh this others
    in  \sh this others ->
-          distances
-             (Acc.singleton sh, Acc.singleton this,
-              A.fromList (Z :. length others) others)
+          distances sh this
+             (A.fromList (Z :. length others) others)
 
 
 pixelCoordinates ::
@@ -1121,18 +1091,17 @@ distanceMapPointsRun ::
    Channel Z Word8
 distanceMapPointsRun =
    let distances =
-          CUDA.run1 $ Acc.modify (expr, acc) $
-          \(sh, points) ->
+          Run.with CUDA.run1 $
+          \sh points ->
              let scale =
                     case Exp.unlift (atom:.atom:.atom) sh of
                        _z:.y:.x -> (4/) $ A.fromIntegral $ min x y
              in  imageByteFromFloat $ A.map (scale*) $
                  distanceMapPoints (pixelCoordinates sh) points
    in  \sh points ->
-          distances
-             (Acc.singleton sh,
-              A.fromList (Z :. length points) $
-              map (\(Point2 p) -> p) points)
+          distances sh $
+             A.fromList (Z :. length points) $
+             map (\(Point2 p) -> p) points
 
 
 distanceMap ::
@@ -1155,19 +1124,17 @@ distanceMapRun ::
    Channel Z Word8
 distanceMapRun =
    let distances =
-          CUDA.run1 $ Acc.modify (expr, (expr,acc), acc) $
-          \(sh, (this, others), points) ->
+          Run.with CUDA.run1 $
+          \sh this others points ->
              let scale =
                     case Exp.unlift (atom:.atom:.atom) sh of
                        _z:.y:.x -> (4/) $ A.fromIntegral $ min x y
              in  imageByteFromFloat $ A.map (scale*) $
                  distanceMap sh this others points
    in  \sh this others points ->
-          distances
-             (Acc.singleton sh,
-              (Acc.singleton this, A.fromList (Z :. length others) others),
-              A.fromList (Z :. length points) $
-                 map (\(Point2 p) -> p) points)
+          distances sh this
+             (A.fromList (Z :. length others) others)
+             (A.fromList (Z :. length points) $ map (\(Point2 p) -> p) points)
 
 
 emptyWeightedCanvas ::
@@ -1175,12 +1142,10 @@ emptyWeightedCanvas ::
    ix :. Int :. Int ->
    (Array DIM2 Float, Array (ix :. Int :. Int) Float)
 emptyWeightedCanvas =
-   let fill =
-          CUDA.run1 $ Acc.modify expr $ \sh ->
-             let (_ix :. height :. width) = unliftDim2 sh
-             in  (A.fill (A.lift $ Z:.height:.width) 0,
-                  A.fill sh 0)
-   in  fill . Acc.singleton
+   Run.with CUDA.run1 $ \sh ->
+      let (_ix :. height :. width) = unliftDim2 sh
+      in  (A.fill (A.lift $ Z:.height:.width) 0,
+           A.fill sh 0)
 
 
 addToWeightedCanvas ::
@@ -1204,9 +1169,8 @@ updateWeightedCanvas ::
    (Channel Z Float, Channel DIM1 Float)
 updateWeightedCanvas =
    let update =
-          CUDA.run1 $
-          Acc.modify ((expr,acc), acc, (acc,(acc,acc))) $
-          \((this, others), points, (pic, (weightSum,canvas))) ->
+          Run.with CUDA.run1 $
+          \this others points pic (weightSum,canvas) ->
              let (rot, mov, _) =
                     Exp.unlift ((atom,atom), (atom,atom), atom) this
              in  addToWeightedCanvas
@@ -1215,16 +1179,15 @@ updateWeightedCanvas =
                      separateChannels $ imageFloatFromByte pic)
                     (weightSum,canvas)
    in  \this others points pic canvas ->
-          update
-             ((Acc.singleton this, A.fromList (Z :. length others) others),
-              A.fromList (Z :. length points) $ map (\(Point2 p) -> p) points,
-              (pic, canvas))
+          update this (A.fromList (Z :. length others) others)
+             (A.fromList (Z :. length points) $ map (\(Point2 p) -> p) points)
+             pic canvas
 
 
 finalizeWeightedCanvas ::
    (Channel Z Float, Channel DIM1 Float) -> Array DIM3 Word8
 finalizeWeightedCanvas =
-   CUDA.run1 $ Acc.modify (acc,acc) $
+   Run.with CUDA.run1 $
    \(weightSum, canvas) ->
       imageByteFromFloat $ interleaveChannels $
       A.zipWith (/) canvas $
