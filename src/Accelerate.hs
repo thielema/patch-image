@@ -1179,14 +1179,15 @@ addToWeightedCanvas (weight, pic) (weightSum, canvas) =
        (A.indexTail $ A.indexTail $ A.shape pic)
        weight)
 
-updateWeightedCanvas ::
+-- launch timeout
+updateWeightedCanvasMerged ::
    ((Float,Float),(Float,Float),(Int,Int)) ->
    [((Float,Float),(Float,Float),(Int,Int))] ->
    [Point2 Float] ->
    Array DIM3 Word8 ->
    (Channel Z Float, Channel DIM1 Float) ->
    (Channel Z Float, Channel DIM1 Float)
-updateWeightedCanvas =
+updateWeightedCanvasMerged =
    let update =
           Run.with CUDA.run1 $
           \this others points pic (weightSum,canvas) ->
@@ -1201,6 +1202,58 @@ updateWeightedCanvas =
           update this (A.fromList (Z :. length others) others)
              (A.fromList (Z :. length points) $ map (\(Point2 p) -> p) points)
              pic canvas
+
+updateWeightedCanvas ::
+   ((Float,Float),(Float,Float),(Int,Int)) ->
+   [((Float,Float),(Float,Float),(Int,Int))] ->
+   [Point2 Float] ->
+   Array DIM3 Word8 ->
+   (Channel Z Float, Channel DIM1 Float) ->
+   (Channel Z Float, Channel DIM1 Float)
+updateWeightedCanvas =
+   let distances = Run.with CUDA.run1 distanceMap
+       update =
+          Run.with CUDA.run1 $
+          \this pic dist (weightSum,canvas) ->
+             let (rot, mov, _) =
+                    Exp.unlift ((atom,atom), (atom,atom), atom) this
+             in  addToWeightedCanvas
+                    (dist,
+                     snd $ rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
+                     separateChannels $ imageFloatFromByte pic)
+                    (weightSum,canvas)
+   in  \this others points pic (weightSum,canvas) ->
+          update this
+             pic
+             (distances (A.arrayShape weightSum) this
+                 (A.fromList (Z :. length others) others)
+                 (A.fromList (Z :. length points) $ map (\(Point2 p) -> p) points))
+             (weightSum,canvas)
+
+-- launch timeout
+updateWeightedCanvasSplit ::
+   ((Float,Float),(Float,Float),(Int,Int)) ->
+   [((Float,Float),(Float,Float),(Int,Int))] ->
+   [Point2 Float] ->
+   Array DIM3 Word8 ->
+   (Channel Z Float, Channel DIM1 Float) ->
+   (Channel Z Float, Channel DIM1 Float)
+updateWeightedCanvasSplit =
+   let update = Run.with CUDA.run1 addToWeightedCanvas
+       distances = Run.with CUDA.run1 distanceMap
+       rotated =
+          Run.with CUDA.run1 $
+          \sh rot mov pic ->
+             snd $ rotateStretchMove rot mov (unliftDim2 sh) $
+             separateChannels $ imageFloatFromByte pic
+   in  \this@(rot, mov, _) others points pic (weightSum,canvas) ->
+          update
+             (distances (A.arrayShape weightSum) this
+                 (A.fromList (Z :. length others) others)
+                 (A.fromList (Z :. length points) $
+                  map (\(Point2 p) -> p) points),
+              rotated (A.arrayShape canvas) rot mov pic)
+             (weightSum,canvas)
 
 
 finalizeWeightedCanvas ::
