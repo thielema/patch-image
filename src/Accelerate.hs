@@ -1351,19 +1351,19 @@ process args = do
       putStrLn "write fft"
       let (_,pic0) : (_,pic1) : _ = rotated
           size = (Z:.512:.1024 :: DIM2)
-      writeGrey 90 "/tmp/padded.jpeg" $
+      writeGrey (Option.quality opt) "/tmp/padded.jpeg" $
          CUDA.run1
             (imageByteFromFloat .
              pad 0 (A.lift size)) $
          pic0
-      writeGrey 90 "/tmp/spectrum.jpeg" $
+      writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map Complex.real $
          FFT.fft2D FFT.Forward $
          CUDA.run1
             (A.map (A.lift . (:+ 0)) .
              pad 0 (A.lift size)) $
          pic0
-      writeGrey 90 "/tmp/convolution.jpeg" $
+      writeGrey (Option.quality opt) "/tmp/convolution.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
          convolvePadded size (A.use pic0) (A.use pic1)
 
@@ -1390,7 +1390,7 @@ process args = do
       fmap catMaybes $
       forM pairs $ \((ia,(pathA,picA)), (ib,(pathB,picB))) -> do
          forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when False $
-            writeGrey 90
+            writeGrey (Option.quality opt)
                (printf "/tmp/%s-%s-score.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
                allOverlapsShared (Option.minimumOverlap opt) picA picB
@@ -1401,7 +1401,7 @@ process args = do
          printf "%s - %s, %s, difference %f%s\n" pathA pathB (show d) diff
             (if overlapping then "" else " unrelated -> ignoring")
          forM_ (Option.outputOverlap opt) $ \format ->
-            writeImage 90
+            writeImage (Option.quality opt)
                (printf format
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
                composeOverlap d (snd $ picAngles!!ia, snd $ picAngles!!ib)
@@ -1510,20 +1510,20 @@ process args = do
 
       let stem = FilePath.takeBaseName path
       when True $ do
-         writeGrey 90
+         writeGrey (Option.quality opt)
             (printf "/tmp/%s-distance-box.jpeg" stem) $
             distanceMapBoxRun canvasShape thisGeom
 
-         writeGrey 90
+         writeGrey (Option.quality opt)
             (printf "/tmp/%s-distance-contained.jpeg" stem) $
             distanceMapContainedRun canvasShape thisGeom otherGeoms
 
-         writeGrey 90
+         writeGrey (Option.quality opt)
             (printf "/tmp/%s-distance-points.jpeg" stem) $
             distanceMapPointsRun canvasShape allPoints
 
       forM_ (Option.outputDistanceMap opt) $ \format ->
-         writeGrey 90 (printf format stem) $
+         writeGrey (Option.quality opt) (printf format stem) $
             distanceMapRun canvasShape thisGeom otherGeoms allPoints
 
    forM_ (Option.output opt) $ \path -> do
