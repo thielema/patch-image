@@ -615,20 +615,23 @@ argmaximum = A.fold1All argmax
 
 allOverlaps ::
    DIM2 ->
+   Exp Float ->
    Acc (Channel Z Float) -> Acc (Channel Z Float) ->
    Acc (Channel Z ((Int, Int), Float))
-allOverlaps size@(Z :. height :. width) =
+allOverlaps size@(Z :. height :. width) minOverlapPortion =
    let convolve = convolvePadded size
    in  \a b ->
           let (Z :. heighta :. widtha) = A.unlift $ A.shape a
               (Z :. heightb :. widthb) = A.unlift $ A.shape b
               half = flip div 2
               minOverlap =
-                 min
-                    (min widtha heighta)
-                    (min widthb heightb)
-                 `div`
-                 4
+                 fastRound $
+                    minOverlapPortion
+                    *
+                    A.fromIntegral
+                       (min
+                          (min widtha heighta)
+                          (min widthb heightb))
               weight =
                  if False
                    then
@@ -647,21 +650,21 @@ allOverlaps size@(Z :. height :. width) =
 
 
 allOverlapsRun ::
-   DIM2 -> Channel Z Float -> Channel Z Float -> Channel Z Word8
+   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> Channel Z Word8
 allOverlapsRun padSize =
-   Run.with CUDA.run1 $ \picA picB ->
+   Run.with CUDA.run1 $ \minOverlap picA picB ->
       imageByteFromFloat $
       -- A.map (2*) $
       A.map (0.0001*) $
-      A.map A.snd $ allOverlaps padSize picA picB
+      A.map A.snd $ allOverlaps padSize minOverlap picA picB
 
 optimalOverlap ::
-   DIM2 -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
+   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
 optimalOverlap padSize =
    let run =
-          CUDA.run1 $
-          argmaximum . A.uncurry (allOverlaps padSize)
-   in  \a b -> A.indexArray (run (a,b)) Z
+          Run.with CUDA.run1 $ \minimumOverlap a b ->
+          argmaximum $ allOverlaps padSize minimumOverlap a b
+   in  \overlap a b -> A.indexArray (run overlap a b) Z
 
 
 shrink ::
@@ -685,10 +688,10 @@ divUp a b = - div (-a) b
 Reduce image sizes below the padSize before matching images.
 -}
 optimalOverlapBig ::
-   DIM2 -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
+   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
 optimalOverlapBig padSize@(Z:.heightPad:.widthPad) =
    let run =
-          Run.with CUDA.run1 $ \a b ->
+          Run.with CUDA.run1 $ \minimumOverlap a b ->
              let (Z :. heighta :. widtha) = A.unlift $ A.shape a
                  (Z :. heightb :. widthb) = A.unlift $ A.shape b
                  yk = divUp (heighta+heightb) $ A.lift heightPad
@@ -698,8 +701,9 @@ optimalOverlapBig padSize@(Z:.heightPad:.widthPad) =
                     Exp.modify ((atom,atom), atom) $
                     \((xm,ym), score) -> ((xm*xk, ym*yk), score)
              in  A.map scalePos $ argmaximum $
-                 allOverlaps padSize (shrink factors a) (shrink factors b)
-   in  \a b -> A.indexArray (run a b) Z
+                 allOverlaps padSize minimumOverlap
+                    (shrink factors a) (shrink factors b)
+   in  \minimumOverlap a b -> A.indexArray (run minimumOverlap a b) Z
 
 
 clip ::
@@ -720,10 +724,10 @@ but computes precise distance in a second step
 using a part in the overlapping area..
 -}
 optimalOverlapBigFine ::
-   DIM2 -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
+   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
 optimalOverlapBigFine padSize@(Z:.heightPad:.widthPad) =
    let run =
-          Run.with CUDA.run1 $ \a b ->
+          Run.with CUDA.run1 $ \minimumOverlap a b ->
              let (Z :. heighta :. widtha) = A.unlift $ A.shape a
                  (Z :. heightb :. widthb) = A.unlift $ A.shape b
                  yk = divUp (heighta+heightb) $ A.lift heightPad
@@ -732,7 +736,8 @@ optimalOverlapBigFine padSize@(Z:.heightPad:.widthPad) =
                  (coarsedx,coarsedy) =
                     mapPair ((xk*), (yk*)) $
                     Exp.unliftPair $ A.fst $ A.the $ argmaximum $
-                    allOverlaps padSize (shrink factors a) (shrink factors b)
+                    allOverlaps padSize minimumOverlap
+                       (shrink factors a) (shrink factors b)
                  leftOverlap = max 0 coarsedx
                  topOverlap  = max 0 coarsedy
                  rightOverlap  = min widtha  (widthb  + coarsedx)
@@ -748,10 +753,10 @@ optimalOverlapBigFine padSize@(Z:.heightPad:.widthPad) =
                     Exp.modify ((atom,atom), atom) $
                     \((xm,ym), score) -> ((xm+coarsedx, ym+coarsedy), score)
              in  A.map addCoarsePos $ argmaximum $
-                 allOverlaps padSize
+                 allOverlaps padSize minimumOverlap
                     (clip (leftFocus,topFocus) extentFocus a)
                     (clip (leftFocus-coarsedx,topFocus-coarsedy) extentFocus b)
-   in  \a b -> A.indexArray (run a b) Z
+   in  \minimumOverlap a b -> A.indexArray (run minimumOverlap a b) Z
 
 
 defaultPadSize :: Maybe DIM2
@@ -1396,9 +1401,9 @@ process args = do
             writeGrey 90
                (printf "/tmp/%s-%s-score.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-               allOverlapsShared picA picB
+               allOverlapsShared (Option.minimumOverlap opt) picA picB
 
-         let d = fst $ optimalOverlapShared picA picB
+         let d = fst $ optimalOverlapShared (Option.minimumOverlap opt) picA picB
          let diff = overlapDifferenceRun d picA picB
          let overlapping = diff<0.2
          printf "%s - %s, %s, difference %f%s\n" pathA pathB (show d) diff

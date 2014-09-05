@@ -23,7 +23,8 @@ data Option =
    Option {
       output :: Maybe FilePath,
       outputHard :: Maybe FilePath,
-      quality :: Int
+      quality :: Int,
+      minimumOverlap :: Float
    }
 
 defltOption :: Option
@@ -31,7 +32,8 @@ defltOption =
    Option {
       output = Nothing,
       outputHard = Nothing,
-      quality = 99
+      quality = 99,
+      minimumOverlap = 1/4
    }
 
 
@@ -70,6 +72,13 @@ description desc =
          parseNumber "compression quality" (\q -> 0<=q && q<=100) "a percentage" str)
       (printf "JPEG compression quality for output, default: %d"
          (quality defltOption)) :
+
+   Opt.Option [] ["minimum-overlap"]
+      (flip ReqArg "FRACTION" $ \str flags ->
+         fmap (\x -> flags{minimumOverlap = x}) $
+         parseNumber "minimum overlap" (0<=) "non-negative" str)
+      (printf "Minimum overlap portion between pairs of images, default: %f"
+         (minimumOverlap defltOption)) :
 
    []
 
