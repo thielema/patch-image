@@ -26,7 +26,8 @@ data Option =
       quality :: Int,
       smooth :: Int,
       minimumOverlap :: Float,
-      maximumDifference :: Float
+      maximumDifference :: Float,
+      padSize :: Int
    }
 
 defltOption :: Option
@@ -37,7 +38,8 @@ defltOption =
       quality = 99,
       smooth = 20,
       minimumOverlap = 1/4,
-      maximumDifference = 0.2
+      maximumDifference = 0.2,
+      padSize = 1024
    }
 
 
@@ -97,6 +99,13 @@ description desc =
          parseNumber "maximum difference" (\x -> 0<=x && x<=1) "between 0 and 1" str)
       (printf "Maximum average difference between overlapping parts, default: %f"
          (maximumDifference defltOption)) :
+
+   Opt.Option [] ["pad-size"]
+      (flip ReqArg "NATURAL" $ \str flags ->
+         fmap (\x -> flags{padSize = x}) $
+         parseNumber "pad size" (0<=) "non-negative" str)
+      (printf "Pad size for matching convolution, default: %d"
+         (padSize defltOption)) :
 
    []
 

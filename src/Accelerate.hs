@@ -648,19 +648,19 @@ allOverlaps size@(Z :. height :. width) minOverlapPortion =
 
 allOverlapsRun ::
    DIM2 -> Float -> Channel Z Float -> Channel Z Float -> Channel Z Word8
-allOverlapsRun padSize =
+allOverlapsRun padExtent =
    Run.with CUDA.run1 $ \minOverlap picA picB ->
       imageByteFromFloat $
       -- A.map (2*) $
       A.map (0.0001*) $
-      A.map A.snd $ allOverlaps padSize minOverlap picA picB
+      A.map A.snd $ allOverlaps padExtent minOverlap picA picB
 
 optimalOverlap ::
    DIM2 -> Float -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
-optimalOverlap padSize =
+optimalOverlap padExtent =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
-          argmaximum $ allOverlaps padSize minimumOverlap a b
+          argmaximum $ allOverlaps padExtent minimumOverlap a b
    in  \overlap a b -> A.indexArray (run overlap a b) Z
 
 
@@ -682,11 +682,11 @@ divUp :: (Integral a) => a -> a -> a
 divUp a b = - div (-a) b
 
 {-
-Reduce image sizes below the padSize before matching images.
+Reduce image sizes below the padExtent before matching images.
 -}
 optimalOverlapBig ::
    DIM2 -> Float -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
-optimalOverlapBig padSize@(Z:.heightPad:.widthPad) =
+optimalOverlapBig padExtent@(Z:.heightPad:.widthPad) =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
              let (Z :. heighta :. widtha) = A.unlift $ A.shape a
@@ -698,7 +698,7 @@ optimalOverlapBig padSize@(Z:.heightPad:.widthPad) =
                     Exp.modify ((atom,atom), atom) $
                     \((xm,ym), score) -> ((xm*xk, ym*yk), score)
              in  A.map scalePos $ argmaximum $
-                 allOverlaps padSize minimumOverlap
+                 allOverlaps padExtent minimumOverlap
                     (shrink factors a) (shrink factors b)
    in  \minimumOverlap a b -> A.indexArray (run minimumOverlap a b) Z
 
@@ -722,7 +722,7 @@ using a part in the overlapping area..
 -}
 optimalOverlapBigFine ::
    DIM2 -> Float -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
-optimalOverlapBigFine padSize@(Z:.heightPad:.widthPad) =
+optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
              let (Z :. heighta :. widtha) = A.unlift $ A.shape a
@@ -733,7 +733,7 @@ optimalOverlapBigFine padSize@(Z:.heightPad:.widthPad) =
                  (coarsedx,coarsedy) =
                     mapPair ((xk*), (yk*)) $
                     Exp.unliftPair $ A.fst $ A.the $ argmaximum $
-                    allOverlaps padSize minimumOverlap
+                    allOverlaps padExtent minimumOverlap
                        (shrink factors a) (shrink factors b)
                  leftOverlap = max 0 coarsedx
                  topOverlap  = max 0 coarsedy
@@ -750,14 +750,10 @@ optimalOverlapBigFine padSize@(Z:.heightPad:.widthPad) =
                     Exp.modify ((atom,atom), atom) $
                     \((xm,ym), score) -> ((xm+coarsedx, ym+coarsedy), score)
              in  A.map addCoarsePos $ argmaximum $
-                 allOverlaps padSize minimumOverlap
+                 allOverlaps padExtent minimumOverlap
                     (clip (leftFocus,topFocus) extentFocus a)
                     (clip (leftFocus-coarsedx,topFocus-coarsedy) extentFocus b)
    in  \minimumOverlap a b -> A.indexArray (run minimumOverlap a b) Z
-
-
-defaultPadSize :: Maybe DIM2
-defaultPadSize = Just $ Z :. 1024 :. 1024
 
 
 overlapDifference ::
@@ -1371,9 +1367,10 @@ process args = do
          CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
          convolvePadded size (A.use pic0) (A.use pic1)
 
+   let padSize = Option.padSize opt
    let (maybeAllOverlapsShared, optimalOverlapShared) =
-          case defaultPadSize of
-             Just padSize -> (Nothing, optimalOverlapBigFine padSize)
+          case Just $ Z :. padSize :. padSize of
+             Just padExtent -> (Nothing, optimalOverlapBigFine padExtent)
              Nothing ->
                 let (rotHeights, rotWidths) =
                        unzip $
@@ -1385,9 +1382,9 @@ process args = do
                           _ -> error "less than one picture - there should be no pairs"
                     padWidth  = ceilingPow2 $ maxSum2 rotWidths
                     padHeight = ceilingPow2 $ maxSum2 rotHeights
-                    padSize = Z :. padHeight :. padWidth
-                in  (Just $ allOverlapsRun padSize,
-                     optimalOverlap padSize)
+                    padExtent = Z :. padHeight :. padWidth
+                in  (Just $ allOverlapsRun padExtent,
+                     optimalOverlap padExtent)
 
    displacements <-
       fmap catMaybes $
