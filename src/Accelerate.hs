@@ -394,20 +394,17 @@ rotateManifest =
    in  \angle arr -> rot (cos angle, sin angle) arr
 
 
-defaultSmooth :: Int
-defaultSmooth = 20
-
 prepareOverlapMatching ::
-   (Float, Array DIM3 Word8) -> Channel Z Float
+   Int -> (Float, Array DIM3 Word8) -> Channel Z Float
 prepareOverlapMatching =
    let rot =
-          Run.with CUDA.run1 $ \orient arr ->
+          Run.with CUDA.run1 $ \radius orient arr ->
              rotate orient $
              (if True
-                then highpass (A.lift defaultSmooth)
+                then highpass radius
                 else removeDCOffset) $
              brightnessPlane $ separateChannels $ imageFloatFromByte arr
-   in  \(angle, arr) -> rot (cos angle, sin angle) arr
+   in  \radius (angle, arr) -> rot radius (cos angle, sin angle) arr
 
 
 ceilingPow2Exp :: Exp Int -> Exp Int
@@ -1350,7 +1347,8 @@ process args = do
          return (path, (angle*pi/180, pic))
 
    putStrLn "\nfind relative placements"
-   let rotated = map (mapSnd prepareOverlapMatching) picAngles
+   let rotated =
+          map (mapSnd (prepareOverlapMatching (Option.smooth opt))) picAngles
    let pairs = do
           (a:as) <- tails $ zip [0..] rotated
           b <- as

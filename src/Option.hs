@@ -24,6 +24,7 @@ data Option =
       output :: Maybe FilePath,
       outputHard :: Maybe FilePath,
       quality :: Int,
+      smooth :: Int,
       minimumOverlap :: Float
    }
 
@@ -33,6 +34,7 @@ defltOption =
       output = Nothing,
       outputHard = Nothing,
       quality = 99,
+      smooth = 20,
       minimumOverlap = 1/4
    }
 
@@ -72,6 +74,13 @@ description desc =
          parseNumber "compression quality" (\q -> 0<=q && q<=100) "a percentage" str)
       (printf "JPEG compression quality for output, default: %d"
          (quality defltOption)) :
+
+   Opt.Option [] ["smooth"]
+      (flip ReqArg "NATURAL" $ \str flags ->
+         fmap (\x -> flags{smooth = x}) $
+         parseNumber "smooth radius" (0<=) "non-negative" str)
+      (printf "Smooth radius for DC elimination, default: %d"
+         (smooth defltOption)) :
 
    Opt.Option [] ["minimum-overlap"]
       (flip ReqArg "FRACTION" $ \str flags ->
