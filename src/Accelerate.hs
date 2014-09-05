@@ -1,6 +1,8 @@
 {-# LANGUAGE TypeOperators #-}
 module Main where
 
+import qualified Option
+
 import qualified Data.Array.Accelerate.Math.FFT as FFT
 import qualified Data.Array.Accelerate.Math.Complex as Complex
 import qualified Data.Array.Accelerate.CUDA as CUDA
@@ -37,7 +39,6 @@ import qualified Codec.Picture as Pic
 
 import qualified Data.Vector.Storable as SV
 
-import qualified System.Environment as Env
 import qualified System.FilePath as FilePath
 
 import Text.Printf (printf)
@@ -1330,9 +1331,10 @@ finalizeWeightedCanvas =
       replicateChannel (A.indexTail $ A.indexTail $ A.shape canvas) weightSum
 
 
-main :: IO ()
-main = do
-   paths <- Env.getArgs
+process :: Option.Args -> IO ()
+process args = do
+   let paths = Option.inputs args
+   let opt = Option.option args
    putStrLn "\nfind rotation angles"
    picAngles <-
       forM paths $ \path -> do
@@ -1459,7 +1461,8 @@ main = do
        canvasShape = Z :. canvasHeight :. canvasWidth
    printf "canvas %f-%f, %f-%f\n" canvasLeft canvasRight canvasTop canvasBottom
    printf "canvas size %d, %d\n" canvasWidth canvasHeight
-   writeImage 90 "/tmp/complete-simple.jpeg" $
+   forM_ (Option.outputHard opt) $ \path ->
+      writeImage (Option.quality opt) path $
       finalizeCanvas $
       foldl
          (\canvas ((mx,my), (rot, pic)) ->
@@ -1527,11 +1530,15 @@ main = do
             (printf "/tmp/%s-distance.jpeg" stem) $
             distanceMapRun canvasShape thisGeom otherGeoms allPoints
 
-   putStrLn "\nweighted composition"
-   writeImage 99 "/tmp/complete.jpeg" $
+   forM_ (Option.output opt) $ \path -> do
+     putStrLn "\nweighted composition"
+     writeImage (Option.quality opt) path $
       finalizeWeightedCanvas $
       foldl
          (\canvas ((thisGeom, otherGeoms, allPoints), (_rot, pic)) ->
             updateWeightedCanvas thisGeom otherGeoms allPoints pic canvas)
          (emptyWeightedCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
          (zip geometryRelations picRots)
+
+main :: IO ()
+main = process =<< Option.get

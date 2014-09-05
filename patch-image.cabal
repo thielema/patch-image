@@ -23,6 +23,9 @@ Source-Repository head
 
 Executable patch-image
   Main-Is: Accelerate.hs
+  Other-Modules:
+    Option.Utility
+    Option
   Hs-Source-Dirs: src
 
   Build-Depends:
