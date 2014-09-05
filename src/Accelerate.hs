@@ -1400,9 +1400,9 @@ process args = do
          let overlapping = diff < Option.maximumDifference opt
          printf "%s - %s, %s, difference %f%s\n" pathA pathB (show d) diff
             (if overlapping then "" else " unrelated -> ignoring")
-         when True $
+         forM_ (Option.outputOverlap opt) $ \format ->
             writeImage 90
-               (printf "/tmp/%s-%s.jpeg"
+               (printf format
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
                composeOverlap d (snd $ picAngles!!ia, snd $ picAngles!!ib)
          return $ toMaybe overlapping ((ia,ib), d)
@@ -1522,9 +1522,8 @@ process args = do
             (printf "/tmp/%s-distance-points.jpeg" stem) $
             distanceMapPointsRun canvasShape allPoints
 
-      when True $ do
-         writeGrey 90
-            (printf "/tmp/%s-distance.jpeg" stem) $
+      forM_ (Option.outputDistanceMap opt) $ \format ->
+         writeGrey 90 (printf format stem) $
             distanceMapRun canvasShape thisGeom otherGeoms allPoints
 
    forM_ (Option.output opt) $ \path -> do

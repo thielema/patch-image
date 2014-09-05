@@ -23,6 +23,8 @@ data Option =
    Option {
       output :: Maybe FilePath,
       outputHard :: Maybe FilePath,
+      outputOverlap :: Maybe String, -- e.g. "/tmp/%s-%s-overlap.jpeg"
+      outputDistanceMap :: Maybe String, -- e.g. "/tmp/%s-distance.jpeg"
       quality :: Int,
       smooth :: Int,
       minimumOverlap :: Float,
@@ -35,6 +37,8 @@ defltOption =
    Option {
       output = Nothing,
       outputHard = Nothing,
+      outputOverlap = Nothing,
+      outputDistanceMap = Nothing,
       quality = 99,
       smooth = 20,
       minimumOverlap = 1/4,
@@ -71,6 +75,16 @@ description desc =
       (flip ReqArg "PATH" $ \str flags ->
          return $ flags{outputHard = Just str})
       ("path to collage without fading") :
+
+   Opt.Option [] ["output-overlap"]
+      (flip ReqArg "FORMAT" $ \str flags ->
+         return $ flags{outputOverlap = Just str})
+      ("path format for overlapped pairs") :
+
+   Opt.Option [] ["output-distance-map"]
+      (flip ReqArg "FORMAT" $ \str flags ->
+         return $ flags{outputDistanceMap = Just str})
+      ("path format for distance maps") :
 
    Opt.Option [] ["quality"]
       (flip ReqArg "PERCENTAGE" $ \str flags ->
