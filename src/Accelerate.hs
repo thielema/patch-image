@@ -21,6 +21,7 @@ import Data.Array.Accelerate
 import qualified Data.Packed.Matrix as Matrix
 import qualified Data.Packed.Vector as Vector
 import qualified Data.Packed.ST as PackST
+import qualified Numeric.Container as Container
 import Numeric.Container ((<\>), (<>))
 
 import qualified Line
@@ -42,6 +43,7 @@ import qualified System.FilePath as FilePath
 import Text.Printf (printf)
 
 import qualified Data.List.Key as Key
+import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import qualified Data.Bits as Bit
 import Control.Monad.HT (void)
@@ -811,6 +813,68 @@ absolutePositionsFromPairDisplacements numPics displacements =
        pys = matrix <\> Vector.fromList (map fromIntegral dys)
    in  (zip (0 : Vector.toList pxs) (0 : Vector.toList pys),
         zip (Vector.toList $ matrix <> pxs) (Vector.toList $ matrix <> pys))
+
+{-
+Approximate rotation from point correspondences.
+Here (dx, dy) is the displacement with respect to the origin (0,0),
+that is, the pair plays the role of the absolute position.
+
+x1 = dx + c*x0 - s*y0
+y1 = dy + s*x0 + c*y0
+
+               /dx\
+/1 0 x0 -y0\ . |dy| = /x1\
+\0 1 y0  x0/   |c |   \y1/
+               \s /
+
+Maybe, dx and dy should be scaled down.
+Otherwise they are weighted much more than the rotation.
+-}
+layoutFromPairDisplacements ::
+   Int -> [((Int, (Int, Int)), (Int, (Int, Int)))] ->
+   ([((Double,Double), (Double,Double))],
+    [(Double,Double)])
+layoutFromPairDisplacements numPics correspondences =
+   let {-
+       (ca, cb) = unzip correspondences
+       (is, ds) = unzip correspondences
+       (dxs, dys) = unzip ds
+       -}
+       {-
+       We fix the first image to position (0,0)
+       in order to make the solution unique.
+       To this end I drop the first column from matrix.
+       -}
+       matrix = Matrix.dropColumns 4 $ PackST.runSTMatrix $ do
+          mat <- PackST.newMatrix 0 (2 * length correspondences) numPics
+          zipWithM_
+             (\k ((ia,(xai,yai)),(ib,(xbi,ybi))) -> do
+                let xa = fromIntegral xai
+                let xb = fromIntegral xbi
+                let ya = fromIntegral yai
+                let yb = fromIntegral ybi
+                PackST.writeMatrix mat (k+0) (4*ia+0) (-1)
+                PackST.writeMatrix mat (k+1) (4*ia+1) (-1)
+                PackST.writeMatrix mat (k+0) (4*ia+2) xa
+                PackST.writeMatrix mat (k+0) (4*ia+3) (-ya)
+                PackST.writeMatrix mat (k+1) (4*ia+2) ya
+                PackST.writeMatrix mat (k+1) (4*ia+3) xa
+                PackST.writeMatrix mat (k+0) (4*ib+0) 1
+                PackST.writeMatrix mat (k+1) (4*ib+1) 1
+                PackST.writeMatrix mat (k+0) (4*ib+2) xb
+                PackST.writeMatrix mat (k+0) (4*ib+3) (-yb)
+                PackST.writeMatrix mat (k+1) (4*ib+2) yb
+                PackST.writeMatrix mat (k+1) (4*ib+3) xb)
+             [0,2..] correspondences
+          return mat
+       ps =
+          matrix
+          <\>
+          Container.constant 0 (2 * length correspondences)
+   in  (map (\[dx,dy,rx,ry] -> ((dx,dy), (rx,ry))) $
+        ListHT.sliceVertical 4 $ Vector.toList ps,
+        map (\[dx,dy] -> (dx,dy)) $
+        ListHT.sliceVertical 2 $ Vector.toList $ matrix <> ps)
 
 
 overlap2 ::
