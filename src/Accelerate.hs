@@ -789,9 +789,6 @@ overlapDifferenceRun =
    let diff = Run.with CUDA.run1 overlapDifference
    in  \d a b -> A.indexArray (diff d a b) Z
 
-maximumOverlapDifference :: Float
-maximumOverlapDifference = 0.2
-
 
 absolutePositionsFromPairDisplacements ::
    Int -> [((Int, Int), (Int, Int))] ->
@@ -1403,7 +1400,7 @@ process args = do
 
          let d = fst $ optimalOverlapShared (Option.minimumOverlap opt) picA picB
          let diff = overlapDifferenceRun d picA picB
-         let overlapping = diff<0.2
+         let overlapping = diff < Option.maximumDifference opt
          printf "%s - %s, %s, difference %f%s\n" pathA pathB (show d) diff
             (if overlapping then "" else " unrelated -> ignoring")
          when True $

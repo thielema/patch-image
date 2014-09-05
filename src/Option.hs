@@ -25,7 +25,8 @@ data Option =
       outputHard :: Maybe FilePath,
       quality :: Int,
       smooth :: Int,
-      minimumOverlap :: Float
+      minimumOverlap :: Float,
+      maximumDifference :: Float
    }
 
 defltOption :: Option
@@ -35,7 +36,8 @@ defltOption =
       outputHard = Nothing,
       quality = 99,
       smooth = 20,
-      minimumOverlap = 1/4
+      minimumOverlap = 1/4,
+      maximumDifference = 0.2
    }
 
 
@@ -88,6 +90,13 @@ description desc =
          parseNumber "minimum overlap" (0<=) "non-negative" str)
       (printf "Minimum overlap portion between pairs of images, default: %f"
          (minimumOverlap defltOption)) :
+
+   Opt.Option [] ["maximum-difference"]
+      (flip ReqArg "FRACTION" $ \str flags ->
+         fmap (\x -> flags{maximumDifference = x}) $
+         parseNumber "maximum difference" (\x -> 0<=x && x<=1) "between 0 and 1" str)
+      (printf "Maximum average difference between overlapping parts, default: %f"
+         (maximumDifference defltOption)) :
 
    []
 
