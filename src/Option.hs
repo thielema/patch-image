@@ -35,6 +35,8 @@ data Option =
       outputOverlap :: Maybe String, -- e.g. "/tmp/%s-%s-overlap.jpeg"
       outputDistanceMap :: Maybe String, -- e.g. "/tmp/%s-distance.jpeg"
       quality :: Int,
+      maximumAbsoluteAngle :: Float,
+      numberAngleSteps :: Int,
       smooth :: Int,
       minimumOverlap :: Float,
       maximumDifference :: Float,
@@ -50,6 +52,8 @@ defltOption =
       outputOverlap = Nothing,
       outputDistanceMap = Nothing,
       quality = 99,
+      maximumAbsoluteAngle = 1,
+      numberAngleSteps = 40,
       smooth = 20,
       minimumOverlap = 1/4,
       maximumDifference = 0.2,
@@ -127,6 +131,20 @@ optionDescription desc =
          parseNumber "smooth radius" (0<=) "non-negative" str)
       (printf "Smooth radius for DC elimination, default: %d"
          (smooth defltOption)) :
+
+   Opt.Option [] ["maximum-absolute-angle"] -- "max-abs-angle"
+      (flip ReqArg "DEGREE" $ \str flags ->
+         fmap (\x -> flags{maximumAbsoluteAngle = x}) $
+         parseNumber "maximum absolute angle" (0<=) "non-negative" str)
+      (printf "Maximum absolute angle for test rotations, default: %f"
+         (maximumAbsoluteAngle defltOption)) :
+
+   Opt.Option [] ["number-of-angles"] -- "num-angles"
+      (flip ReqArg "NATURAL" $ \str flags ->
+         fmap (\x -> flags{numberAngleSteps = x}) $
+         parseNumber "number of angle steps" (0<=) "non-negative" str)
+      (printf "Number of steps for test rotations, default: %d"
+         (numberAngleSteps defltOption)) :
 
    Opt.Option [] ["minimum-overlap"]
       (flip ReqArg "FRACTION" $ \str flags ->

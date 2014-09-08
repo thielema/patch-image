@@ -336,11 +336,17 @@ rotateHistogram =
    in  \angle arr -> rot (cos angle, sin angle) arr
 
 
-analyseRotations :: Array DIM3 Word8 -> IO ()
-analyseRotations pic = do
+{-
+duplicate of Graphics.Gnuplot.Utility.linearScale
+-}
+linearScale :: Fractional a => Int -> (a,a) -> [a]
+linearScale n (x0,x1) =
+   map (\m -> x0 + (x1-x0) * fromIntegral m / fromIntegral n) [0..n]
+
+analyseRotations :: [Float] -> Array DIM3 Word8 -> IO ()
+analyseRotations angles pic = do
    histograms <-
-      forM [-100,-95..100::Int] $ \angle -> do
-         let degree = fromIntegral angle / 100
+      forM angles $ \degree -> do
          let (rotated, histogram) = rotateHistogram (degree * pi/180) pic
          let stem = printf "rotated%+07.2f" degree
          writeImage 90 ("/tmp/" ++ stem ++ ".jpeg") rotated
@@ -380,10 +386,9 @@ scoreRotation =
              rotate orient $ separateChannels $ imageFloatFromByte arr
    in  \angle arr -> A.indexArray (rot (cos angle, sin angle) arr) Z
 
-findOptimalRotation :: Array DIM3 Word8 -> Float
-findOptimalRotation pic =
-   Key.maximum (flip scoreRotation pic . (* (pi/180))) $
-   map (\a -> fromIntegral a / 100) [-100,-95..100::Int]
+findOptimalRotation :: [Float] -> Array DIM3 Word8 -> Float
+findOptimalRotation angles pic =
+   Key.maximum (flip scoreRotation pic . (* (pi/180))) angles
 
 
 
@@ -1340,9 +1345,14 @@ process args = do
    picAngles <-
       forM paths $ \(imageOption, path) -> do
          pic <- readImage (Option.verbosity opt) path
-         when False $ analyseRotations pic
+         let maxAngle = Option.maximumAbsoluteAngle opt
+         let angles =
+                linearScale (Option.numberAngleSteps opt)
+                   (-maxAngle, maxAngle)
+         when False $ analyseRotations angles pic
          let angle =
-                maybe (findOptimalRotation pic) id $ Option.angle imageOption
+                maybe (findOptimalRotation angles pic) id $
+                Option.angle imageOption
          info $ printf "%s %f\176\n" path angle
          return (path, (angle*pi/180, pic))
 
