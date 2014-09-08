@@ -1224,6 +1224,18 @@ distanceMapRun =
              (A.fromList (Z :. length points) $ map (\(Point2 p) -> p) points)
 
 
+distanceMapGamma ::
+   (A.Elt a, A.IsFloating a) =>
+   Exp a ->
+   Exp DIM2 ->
+   Exp ((a, a), (a, a), (Int, Int)) ->
+   Acc (Array DIM1 ((a, a), (a, a), (Int, Int))) ->
+   Acc (Array DIM1 (a, a)) ->
+   Acc (Channel Z a)
+distanceMapGamma gamma sh this others points =
+   A.map (**gamma) $ distanceMap sh this others points
+
+
 emptyWeightedCanvas ::
    (A.Slice ix, A.Shape ix) =>
    ix :. Int :. Int ->
@@ -1272,6 +1284,7 @@ updateWeightedCanvasMerged =
              pic canvas
 
 updateWeightedCanvas ::
+   Float ->
    ((Float,Float),(Float,Float),(Int,Int)) ->
    [((Float,Float),(Float,Float),(Int,Int))] ->
    [Point2 Float] ->
@@ -1279,7 +1292,7 @@ updateWeightedCanvas ::
    (Channel Z Float, Channel DIM1 Float) ->
    (Channel Z Float, Channel DIM1 Float)
 updateWeightedCanvas =
-   let distances = Run.with CUDA.run1 distanceMap
+   let distances = Run.with CUDA.run1 distanceMapGamma
        update =
           Run.with CUDA.run1 $
           \this pic dist (weightSum,canvas) ->
@@ -1290,10 +1303,9 @@ updateWeightedCanvas =
                      snd $ rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
                      separateChannels $ imageFloatFromByte pic)
                     (weightSum,canvas)
-   in  \this others points pic (weightSum,canvas) ->
-          update this
-             pic
-             (distances (A.arrayShape weightSum) this
+   in  \gamma this others points pic (weightSum,canvas) ->
+          update this pic
+             (distances gamma (A.arrayShape weightSum) this
                  (A.fromList (Z :. length others) others)
                  (A.fromList (Z :. length points) $ map (\(Point2 p) -> p) points))
              (weightSum,canvas)
@@ -1556,7 +1568,8 @@ process args = do
       finalizeWeightedCanvas $
       foldl
          (\canvas ((thisGeom, otherGeoms, allPoints), (_rot, pic)) ->
-            updateWeightedCanvas thisGeom otherGeoms allPoints pic canvas)
+            updateWeightedCanvas (Option.distanceGamma opt)
+               thisGeom otherGeoms allPoints pic canvas)
          (emptyWeightedCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
          (zip geometryRelations picRots)
 

@@ -40,6 +40,7 @@ data Option =
       smooth :: Int,
       minimumOverlap :: Float,
       maximumDifference :: Float,
+      distanceGamma :: Float,
       padSize :: Int
    }
 
@@ -57,6 +58,7 @@ defltOption =
       smooth = 20,
       minimumOverlap = 1/4,
       maximumDifference = 0.2,
+      distanceGamma = 2,
       padSize = 1024
    }
 
@@ -159,6 +161,13 @@ optionDescription desc =
          parseNumber "maximum difference" (\x -> 0<=x && x<=1) "between 0 and 1" str)
       (printf "Maximum average difference between overlapping parts, default: %f"
          (maximumDifference defltOption)) :
+
+   Opt.Option [] ["distance-gamma"]
+      (flip ReqArg "FRACTION" $ \str flags ->
+         fmap (\x -> flags{distanceGamma = x}) $
+         parseNumber "gamma exponent" (0<) "positive" str)
+      (printf "Distance exponent, default: %f"
+         (distanceGamma defltOption)) :
 
    Opt.Option [] ["pad-size"]
       (flip ReqArg "NATURAL" $ \str flags ->
