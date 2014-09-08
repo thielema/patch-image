@@ -1,6 +1,6 @@
 module Option where
 
-import Option.Utility (exitFailureMsg, parseNumber)
+import Option.Utility (exitFailureMsg, parseNumber, fmapOptDescr)
 
 import qualified System.Console.GetOpt as Opt
 import qualified System.Environment as Env
@@ -20,8 +20,12 @@ import Text.Printf (printf)
 data Args =
    Args {
       option :: Option,
-      inputs :: [FilePath]
+      inputs :: [(Image, FilePath)]
    }
+
+defltArgs :: Args
+defltArgs = Args {option = defltOption, inputs = []}
+
 
 data Option =
    Option {
@@ -53,21 +57,31 @@ defltOption =
    }
 
 
+data Image =
+   Image {
+      angle :: Maybe Float
+   }
+   deriving (Eq)
+
+defltImage :: Image
+defltImage = Image {angle = Nothing}
+
+
 type Description a = [Opt.OptDescr (a -> IO a)]
 
 {-
 Guide for common Linux/Unix command-line options:
   http://www.faqs.org/docs/artu/ch10s05.html
 -}
-description :: Description Option -> Description Option
-description desc =
+optionDescription :: Description a -> Description Option
+optionDescription desc =
    Opt.Option ['h'] ["help"]
       (NoArg $ \ _flags -> do
          programName <- Env.getProgName
          putStrLn $
             usageInfo
                ("Usage: " ++ programName ++
-                " [OPTIONS]... [INPUT]...") $
+                " [OPTIONS]... [[INPUTOPTIONS]... INPUT]...") $
             desc
          Exit.exitSuccess)
       "show options" :
@@ -138,21 +152,44 @@ description desc =
    []
 
 
+description :: Description (Image, Args) -> Description (Image, Args)
+description desc =
+   map
+      (fmapOptDescr $ \update (image, old) -> do
+         new <- update $ option old
+         return (image, old {option = new}))
+      (optionDescription desc)
+   ++
+
+   Opt.Option [] ["angle"]
+      (flip ReqArg "DEGREE" $ \str (image, args) ->
+         fmap (\x -> (image{angle = Just x}, args)) $
+         parseNumber "angle" (\w -> -1000<=w && w<=1000) "degree" str)
+      (printf "Fix angle of the next image, default: %s" $
+       maybe "automatic estimation" show (angle defltImage)) :
+
+   []
+
+
+addFile :: FilePath -> ((Image, Args) -> IO (Image, Args))
+addFile path (image, args) =
+   return (defltImage, args {inputs = (image,path) : inputs args})
+
+
+
 get :: IO Args
 get = do
    let desc = description desc
    argv <- Env.getArgs
-   let (opts, files, errors) = getOpt Opt.RequireOrder desc argv
+   let (args, _files, errors) = getOpt (Opt.ReturnInOrder addFile) desc argv
    when (not $ null errors) $
       exitFailureMsg (init (concat errors))
 
-   parsedOpts <- foldl (>>=) (return defltOption) opts
+   (lastImage, parsedArgs) <- foldl (>>=) (return (defltImage, defltArgs)) args
 
-   case files of
+   when (lastImage /= defltImage) $
+      exitFailureMsg "unused trailing image options"
+
+   case inputs parsedArgs of
       [] -> exitFailureMsg "no input files"
-      _ ->
-         return $
-         Args {
-            option = parsedOpts,
-            inputs = files
-         }
+      images -> return $ parsedArgs {inputs = reverse images}

@@ -1335,12 +1335,14 @@ process args = do
    let opt = Option.option args
    let notice = CmdLine.notice (Option.verbosity opt)
    let info = CmdLine.info (Option.verbosity opt)
+
    notice "\nfind rotation angles"
    picAngles <-
-      forM paths $ \path -> do
+      forM paths $ \(imageOption, path) -> do
          pic <- readImage (Option.verbosity opt) path
          when False $ analyseRotations pic
-         let angle = findOptimalRotation pic
+         let angle =
+                maybe (findOptimalRotation pic) id $ Option.angle imageOption
          info $ printf "%s %f\176\n" path angle
          return (path, (angle*pi/180, pic))
 
