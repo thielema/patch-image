@@ -10,6 +10,10 @@ import qualified System.Exit as Exit
 
 import Control.Monad (when)
 
+import qualified Distribution.Verbosity as Verbosity
+import qualified Distribution.ReadE as ReadE
+import Distribution.Verbosity (Verbosity)
+
 import Text.Printf (printf)
 
 
@@ -21,6 +25,7 @@ data Args =
 
 data Option =
    Option {
+      verbosity :: Verbosity,
       output :: Maybe FilePath,
       outputHard :: Maybe FilePath,
       outputOverlap :: Maybe String, -- e.g. "/tmp/%s-%s-overlap.jpeg"
@@ -35,6 +40,7 @@ data Option =
 defltOption :: Option
 defltOption =
    Option {
+      verbosity = Verbosity.verbose,
       output = Nothing,
       outputHard = Nothing,
       outputOverlap = Nothing,
@@ -65,6 +71,14 @@ description desc =
             desc
          Exit.exitSuccess)
       "show options" :
+
+   Opt.Option ['v'] ["verbose"]
+      (flip ReqArg "N" $ \str flags -> do
+         case ReadE.runReadE Verbosity.flagToVerbosity str of
+            Right n -> return (flags{verbosity = n})
+            Left msg -> exitFailureMsg msg)
+      (printf "verbosity level: 0..3, default: %d"
+         (fromEnum $ verbosity defltOption)) :
 
    Opt.Option [] ["output"]
       (flip ReqArg "PATH" $ \str flags ->

@@ -41,6 +41,8 @@ import qualified Data.Vector.Storable as SV
 
 import qualified System.FilePath as FilePath
 
+import qualified Distribution.Simple.Utils as CmdLine
+import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
 import qualified Data.List.Key as Key
@@ -58,8 +60,8 @@ import Data.Tuple.HT (mapPair, mapFst, mapSnd, fst3, thd3)
 import Data.Word (Word8)
 
 
-readImage :: FilePath -> IO (Array DIM3 Word8)
-readImage path = do
+readImage :: Verbosity -> FilePath -> IO (Array DIM3 Word8)
+readImage verbosity path = do
    epic <- Pic.readImage path
    case epic of
       Left msg -> ioError $ userError msg
@@ -67,10 +69,11 @@ readImage path = do
          case dynpic of
             Pic.ImageYCbCr8 pic -> do
                let dat = Pic.imageData pic
-               printf "yuv %dx%d, size %d\n"
-                  (Pic.imageWidth pic)
-                  (Pic.imageHeight pic)
-                  (SV.length dat)
+               CmdLine.info verbosity $
+                  printf "yuv %dx%d, size %d\n"
+                     (Pic.imageWidth pic)
+                     (Pic.imageHeight pic)
+                     (SV.length dat)
                return $
                   AIO.fromVectors
                      (Z :. Pic.imageHeight pic :. Pic.imageWidth pic :. 3)
@@ -1330,16 +1333,18 @@ process :: Option.Args -> IO ()
 process args = do
    let paths = Option.inputs args
    let opt = Option.option args
-   putStrLn "\nfind rotation angles"
+   let notice = CmdLine.notice (Option.verbosity opt)
+   let info = CmdLine.info (Option.verbosity opt)
+   notice "\nfind rotation angles"
    picAngles <-
       forM paths $ \path -> do
-         pic <- readImage path
+         pic <- readImage (Option.verbosity opt) path
          when False $ analyseRotations pic
          let angle = findOptimalRotation pic
-         printf "%s %f\176\n" path angle
+         info $ printf "%s %f\176\n" path angle
          return (path, (angle*pi/180, pic))
 
-   putStrLn "\nfind relative placements"
+   notice "\nfind relative placements"
    let rotated =
           map (mapSnd (prepareOverlapMatching (Option.smooth opt))) picAngles
    let pairs = do
@@ -1348,7 +1353,7 @@ process args = do
           return (a,b)
 
    when True $ do
-      putStrLn "write fft"
+      notice "write fft"
       let (_,pic0) : (_,pic1) : _ = rotated
           size = (Z:.512:.1024 :: DIM2)
       writeGrey (Option.quality opt) "/tmp/padded.jpeg" $
@@ -1398,8 +1403,9 @@ process args = do
          let d = fst $ optimalOverlapShared (Option.minimumOverlap opt) picA picB
          let diff = overlapDifferenceRun d picA picB
          let overlapping = diff < Option.maximumDifference opt
-         printf "%s - %s, %s, difference %f%s\n" pathA pathB (show d) diff
-            (if overlapping then "" else " unrelated -> ignoring")
+         info $
+            printf "%s - %s, %s, difference %f%s\n" pathA pathB (show d) diff
+               (if overlapping then "" else " unrelated -> ignoring")
          forM_ (Option.outputOverlap opt) $ \format ->
             writeImage (Option.quality opt)
                (printf format
@@ -1409,14 +1415,15 @@ process args = do
 
    let (poss, dps) =
           absolutePositionsFromPairDisplacements (length rotated) displacements
-   putStrLn "\nabsolute positions"
-   mapM_ print poss
+   info "\nabsolute positions"
+   info $ unlines $ map show poss
 
-   putStrLn "\ncompare position differences with pair displacements"
-   zipWithM_
-      (\(dpx,dpy) (dx,dy) ->
-         printf "(%f,%f) (%i,%i)\n" dpx dpy dx dy)
-      dps (map snd displacements)
+   info "\ncompare position differences with pair displacements"
+   info $ unlines $
+      zipWith
+         (\(dpx,dpy) (dx,dy) ->
+            printf "(%f,%f) (%i,%i)" dpx dpy dx dy)
+         dps (map snd displacements)
    let (errdx,errdy) =
           mapPair (maximum,maximum) $ unzip $
           zipWith
@@ -1424,11 +1431,14 @@ process args = do
                 (abs $ dpx - fromIntegral dx, abs $ dpy - fromIntegral dy))
              dps (map snd displacements)
 
-   putStrLn ""
-   printf "maximum horizontal error: %f\n" errdx
-   printf "maximum vertical error: %f\n" errdy
+   info $
+      "\n"
+      ++
+      printf "maximum horizontal error: %f\n" errdx
+      ++
+      printf "maximum vertical error: %f\n" errdy
 
-   putStrLn "\ncompose all parts"
+   notice "\ncompose all parts"
    let picRots =
           map (mapFst (\angle -> (cos angle, sin angle)) . snd) picAngles
        bboxes =
@@ -1456,8 +1466,10 @@ process args = do
        canvasWidth  = ceiling (canvasRight-canvasLeft)
        canvasHeight = ceiling (canvasBottom-canvasTop)
        canvasShape = Z :. canvasHeight :. canvasWidth
-   printf "canvas %f-%f, %f-%f\n" canvasLeft canvasRight canvasTop canvasBottom
-   printf "canvas size %d, %d\n" canvasWidth canvasHeight
+   info $
+      printf "canvas %f - %f, %f - %f\n"
+         canvasLeft canvasRight canvasTop canvasBottom
+   info $ printf "canvas size %d, %d\n" canvasWidth canvasHeight
    forM_ (Option.outputHard opt) $ \path ->
       writeImage (Option.quality opt) path $
       finalizeCanvas $
@@ -1467,7 +1479,7 @@ process args = do
          (emptyCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
          (zip floatPoss picRots)
 
-   putStrLn "\ndistance maps"
+   notice "\ndistance maps"
    let geometries =
           zipWith
              (\(mx,my) (rot, pic) ->
@@ -1527,7 +1539,7 @@ process args = do
             distanceMapRun canvasShape thisGeom otherGeoms allPoints
 
    forM_ (Option.output opt) $ \path -> do
-     putStrLn "\nweighted composition"
+     notice "\nweighted composition"
      writeImage (Option.quality opt) path $
       finalizeWeightedCanvas $
       foldl
