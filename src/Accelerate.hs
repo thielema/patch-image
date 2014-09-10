@@ -764,6 +764,67 @@ optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
    in  \minimumOverlap a b -> A.indexArray (run minimumOverlap a b) Z
 
 
+{-
+Like 'optimalOverlapBigFine'
+but computes precise distances between many point pairs in a second step
+using many parts in the overlapping area.
+These point correspondences
+can be used to compute corrections to rotation angles.
+-}
+optimalOverlapBigMulti ::
+   DIM2 -> DIM2 -> Int -> Float -> Channel Z Float -> Channel Z Float ->
+   [((Int, Int), (Int, Int), Float)]
+optimalOverlapBigMulti
+      padExtent (Z:.heightFocus:.widthFocus) numCorrs =
+
+   let overlapCoarse = optimalOverlapBig padExtent
+       allOverlapsFine = allOverlaps (Z :. 2*heightFocus :. 2*widthFocus)
+       overlapFine =
+          Run.with CUDA.run1 $
+          \minimumOverlap a b anchorA@(leftA, topA) anchorB@(leftB, topB)
+                extent@(width,height) ->
+             let addCoarsePos =
+                    Exp.modify ((atom,atom), atom) $
+                    \((xm,ym), score) ->
+                       let xc = div (width+xm) 2
+                           yc = div (height+ym) 2
+                       in  ((leftA+xc,    topA+yc),
+                            (leftB+xc-xm, topB+yc-ym),
+                            score)
+             in  A.map addCoarsePos $ argmaximum $
+                 allOverlapsFine minimumOverlap
+                    (clip anchorA extent a)
+                    (clip anchorB extent b)
+
+   in  \minimumOverlap a b ->
+          let (Z :. heighta :. widtha) = A.arrayShape a
+              (Z :. heightb :. widthb) = A.arrayShape b
+              (coarsedx,coarsedy) = fst $ overlapCoarse minimumOverlap a b
+              leftOverlap = max 0 coarsedx
+              topOverlap  = max 0 coarsedy
+              rightOverlap  = min widtha  (widthb  + coarsedx)
+              bottomOverlap = min heighta (heightb + coarsedy)
+              widthOverlap  = rightOverlap - leftOverlap
+              heightOverlap = bottomOverlap - topOverlap
+              rightLine  = max leftOverlap $ rightOverlap - widthFocus
+              bottomLine = max topOverlap  $ bottomOverlap - heightFocus
+
+          in  map
+                 (\(x,y) ->
+                    flip A.indexArray Z $
+                    overlapFine minimumOverlap a b
+                       (x, y) (x-coarsedx, y-coarsedy)
+                       (min widthFocus  widthOverlap,
+                        min heightFocus heightOverlap)) $
+              zip
+                 (map round $ tail $ init $
+                  linearScale (numCorrs+1)
+                     (fromIntegral leftOverlap, fromIntegral rightLine :: Double))
+                 (map round $ tail $ init $
+                  linearScale (numCorrs+1)
+                     (fromIntegral topOverlap, fromIntegral bottomLine :: Double))
+
+
 overlapDifference ::
    (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
    (Exp Int, Exp Int) ->
