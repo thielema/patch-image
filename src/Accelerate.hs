@@ -839,18 +839,8 @@ layoutFromPairDisplacements ::
    ([((Double,Double), (Double,Double))],
     [(Double,Double)])
 layoutFromPairDisplacements numPics correspondences =
-   let {-
-       (ca, cb) = unzip correspondences
-       (is, ds) = unzip correspondences
-       (dxs, dys) = unzip ds
-       -}
-       {-
-       We fix the first image to position (0,0)
-       in order to make the solution unique.
-       To this end I drop the first column from matrix.
-       -}
-       matrix = Matrix.dropColumns 4 $ PackST.runSTMatrix $ do
-          mat <- PackST.newMatrix 0 (2 * length correspondences) numPics
+   let matrix = PackST.runSTMatrix $ do
+          mat <- PackST.newMatrix 0 (2 * length correspondences) (4*numPics)
           zipWithM_
              (\k ((ia,(xai,yai)),(ib,(xbi,ybi))) -> do
                 let xa = fromIntegral xai
@@ -859,10 +849,10 @@ layoutFromPairDisplacements numPics correspondences =
                 let yb = fromIntegral ybi
                 PackST.writeMatrix mat (k+0) (4*ia+0) (-1)
                 PackST.writeMatrix mat (k+1) (4*ia+1) (-1)
-                PackST.writeMatrix mat (k+0) (4*ia+2) xa
-                PackST.writeMatrix mat (k+0) (4*ia+3) (-ya)
-                PackST.writeMatrix mat (k+1) (4*ia+2) ya
-                PackST.writeMatrix mat (k+1) (4*ia+3) xa
+                PackST.writeMatrix mat (k+0) (4*ia+2) (-xa)
+                PackST.writeMatrix mat (k+0) (4*ia+3) ya
+                PackST.writeMatrix mat (k+1) (4*ia+2) (-ya)
+                PackST.writeMatrix mat (k+1) (4*ia+3) (-xa)
                 PackST.writeMatrix mat (k+0) (4*ib+0) 1
                 PackST.writeMatrix mat (k+1) (4*ib+1) 1
                 PackST.writeMatrix mat (k+0) (4*ib+2) xb
@@ -871,14 +861,20 @@ layoutFromPairDisplacements numPics correspondences =
                 PackST.writeMatrix mat (k+1) (4*ib+3) xb)
              [0,2..] correspondences
           return mat
-       ps =
-          matrix
-          <\>
-          Container.constant 0 (2 * length correspondences)
-   in  (map (\[dx,dy,rx,ry] -> ((dx,dy), (rx,ry))) $
+       {-
+       We fix the first image to position (0,0) and rotation (1,0)
+       in order to make the solution unique.
+       To this end I drop the first column from matrix.
+       -}
+       reducedMatrix = Matrix.dropColumns 4 matrix
+       rhs = Container.scale (-1) (Matrix.toColumns matrix !! 2)
+       ps = reducedMatrix <\> rhs
+   in  ((((0,0), (1,0)):) $
+        map (\[dx,dy,rx,ry] -> ((dx,dy), (rx,ry))) $
         ListHT.sliceVertical 4 $ Vector.toList ps,
         map (\[dx,dy] -> (dx,dy)) $
-        ListHT.sliceVertical 2 $ Vector.toList $ matrix <> ps)
+        ListHT.sliceVertical 2 $ Vector.toList $
+        Container.sub (reducedMatrix <> ps) rhs)
 
 
 overlap2 ::
