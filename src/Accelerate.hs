@@ -879,6 +879,32 @@ absolutePositionsFromPairDisplacements numPics displacements =
    in  (zip (0 : Vector.toList pxs) (0 : Vector.toList pys),
         zip (Vector.toList $ matrix <> pxs) (Vector.toList $ matrix <> pys))
 
+
+leastSquaresSelected ::
+   Matrix.Matrix Double -> [Maybe Double] ->
+   (Vector.Vector Double, Vector.Vector Double)
+leastSquaresSelected m mas =
+   let (lhsCols,rhsCols) =
+          ListHT.unzipEithers $
+          zipWith
+             (\col ma ->
+                case ma of
+                   Nothing -> Left col
+                   Just a -> Right $ Container.scale a col)
+             (Matrix.toColumns m) mas
+       lhs = Matrix.fromColumns lhsCols
+       rhs = foldl1 Container.add rhsCols
+       sol = lhs <\> Container.scale (-1) rhs
+   in  (Vector.fromList $ snd $
+        List.mapAccumL
+           (curry $ \x ->
+               case x of
+                  (as, Just a) -> (as, a)
+                  (a:as, Nothing) -> (as, a)
+                  ([], Nothing) -> error "too few elements in solution vector")
+           (Vector.toList sol) mas,
+        Container.add (lhs <> sol) rhs)
+
 {-
 Approximate rotation from point correspondences.
 Here (dx, dy) is the displacement with respect to the origin (0,0),
@@ -931,17 +957,15 @@ layoutFromPairDisplacements numPics correspondences =
        {-
        We fix the first image to position (0,0) and rotation (1,0)
        in order to make the solution unique.
-       To this end I drop the first column from matrix.
        -}
-       reducedMatrix = Matrix.dropColumns 4 matrix
-       rhs = Container.scale (-1) (Matrix.toColumns matrix !! 2)
-       ps = reducedMatrix <\> rhs
-   in  ((((0,0), (1,0)):) $
-        map (\[dx,dy,rx,ry] -> ((dx,dy), (rx,ry))) $
-        ListHT.sliceVertical 4 $ Vector.toList ps,
+       (solution, projection) =
+          leastSquaresSelected matrix
+             (take (4*numPics) $
+              map Just [0,0,1,0] ++ repeat Nothing)
+   in  (map (\[dx,dy,rx,ry] -> ((dx,dy), (rx,ry))) $
+        ListHT.sliceVertical 4 $ Vector.toList solution,
         map (\[dx,dy] -> (dx,dy)) $
-        ListHT.sliceVertical 2 $ Vector.toList $
-        Container.sub (reducedMatrix <> ps) rhs)
+        ListHT.sliceVertical 2 $ Vector.toList projection)
 
 
 overlap2 ::
