@@ -900,7 +900,13 @@ layoutFromPairDisplacements ::
    ([((Double,Double), (Double,Double))],
     [(Double,Double)])
 layoutFromPairDisplacements numPics correspondences =
-   let matrix = PackST.runSTMatrix $ do
+   let weight =
+          let xs =
+                 concatMap
+                    (\((_ia,(xai,yai)),(_ib,(xbi,ybi))) -> [xai, yai, xbi, ybi])
+                    correspondences
+          in  fromIntegral $ maximum xs - minimum xs
+       matrix = PackST.runSTMatrix $ do
           mat <- PackST.newMatrix 0 (2 * length correspondences) (4*numPics)
           zipWithM_
              (\k ((ia,(xai,yai)),(ib,(xbi,ybi))) -> do
@@ -908,14 +914,14 @@ layoutFromPairDisplacements numPics correspondences =
                 let xb = fromIntegral xbi
                 let ya = fromIntegral yai
                 let yb = fromIntegral ybi
-                PackST.writeMatrix mat (k+0) (4*ia+0) (-1)
-                PackST.writeMatrix mat (k+1) (4*ia+1) (-1)
+                PackST.writeMatrix mat (k+0) (4*ia+0) (-weight)
+                PackST.writeMatrix mat (k+1) (4*ia+1) (-weight)
                 PackST.writeMatrix mat (k+0) (4*ia+2) (-xa)
                 PackST.writeMatrix mat (k+0) (4*ia+3) ya
                 PackST.writeMatrix mat (k+1) (4*ia+2) (-ya)
                 PackST.writeMatrix mat (k+1) (4*ia+3) (-xa)
-                PackST.writeMatrix mat (k+0) (4*ib+0) 1
-                PackST.writeMatrix mat (k+1) (4*ib+1) 1
+                PackST.writeMatrix mat (k+0) (4*ib+0) weight
+                PackST.writeMatrix mat (k+1) (4*ib+1) weight
                 PackST.writeMatrix mat (k+0) (4*ib+2) xb
                 PackST.writeMatrix mat (k+0) (4*ib+3) (-yb)
                 PackST.writeMatrix mat (k+1) (4*ib+2) yb
