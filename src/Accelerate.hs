@@ -820,23 +820,24 @@ optimalOverlapBigMulti
                (widthOverlap, heightOverlap))
                  = overlappingArea (A.arrayShape a) (A.arrayShape b) coarsed
 
-              rightLine  = max leftOverlap $ rightOverlap - widthFocus
-              bottomLine = max topOverlap  $ bottomOverlap - heightFocus
+              widthFocusClip = min widthOverlap widthFocus
+              heightFocusClip = min heightOverlap heightFocus
 
           in  map
                  (\(x,y) ->
                     flip A.indexArray Z $
                     overlapFine minimumOverlap a b
                        (x, y) (x-coarsedx, y-coarsedy)
-                       (min widthFocus  widthOverlap,
-                        min heightFocus heightOverlap)) $
+                       (widthFocusClip, heightFocusClip)) $
               zip
                  (map round $ tail $ init $
                   linearScale (numCorrs+1)
-                     (fromIntegral leftOverlap, fromIntegral rightLine :: Double))
+                     (fromIntegral leftOverlap :: Double,
+                      fromIntegral $ rightOverlap - widthFocusClip))
                  (map round $ tail $ init $
                   linearScale (numCorrs+1)
-                     (fromIntegral topOverlap, fromIntegral bottomLine :: Double))
+                     (fromIntegral topOverlap :: Double,
+                      fromIntegral $ bottomOverlap - heightFocusClip))
 
 
 overlapDifference ::
