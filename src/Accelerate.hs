@@ -977,7 +977,7 @@ layoutFromPairDisplacements numPics correspondences =
           leastSquaresSelected matrix
              (take (4*numPics) $
               map Just [0,0,1,0] ++ repeat Nothing)
-   in  (map (\[dx,dy,rx,ry] -> ((dx,dy), (rx,ry))) $
+   in  (map (\[dx,dy,rx,ry] -> ((weight*dx,weight*dy), (rx,ry))) $
         ListHT.sliceVertical 4 $ Vector.toList solution,
         map (\[dx,dy] -> (dx,dy)) $
         ListHT.sliceVertical 2 $ Vector.toList projection)
