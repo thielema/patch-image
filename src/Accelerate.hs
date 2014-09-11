@@ -1577,9 +1577,8 @@ process args = do
              picRots
        floatPoss =
           zipWith
-             (\((l,_), (t,_)) (mx,my) -> (mx-l, my-t))
-             bboxes
-             (map (mapPair (realToFrac, realToFrac)) poss)
+             (\((l,_), (t,_)) (mx,my) -> (realToFrac mx - l, realToFrac my - t))
+             bboxes poss
        ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
           mapPair
              (mapPair (minimum, maximum) . unzip,
@@ -1592,6 +1591,10 @@ process args = do
        canvasWidth  = ceiling (canvasRight-canvasLeft)
        canvasHeight = ceiling (canvasBottom-canvasTop)
        canvasShape = Z :. canvasHeight :. canvasWidth
+       movRotPics =
+          zipWith
+             (\(mx,my) (rot, pic) -> ((mx-canvasLeft, my-canvasTop), rot, pic))
+             floatPoss picRots
    info $
       printf "canvas %f - %f, %f - %f\n"
          canvasLeft canvasRight canvasTop canvasBottom
@@ -1600,17 +1603,15 @@ process args = do
       writeImage (Option.quality opt) path $
       finalizeCanvas $
       foldl
-         (\canvas ((mx,my), (rot, pic)) ->
-            updateCanvas rot (mx-canvasLeft, my-canvasTop) pic canvas)
+         (\canvas (mov, rot, pic) -> updateCanvas rot mov pic canvas)
          (emptyCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
-         (zip floatPoss picRots)
+         movRotPics
 
    notice "\ndistance maps"
    let geometries =
-          zipWith
-             (\(mx,my) (rot, pic) ->
+          map
+             (\(mov, rot, pic) ->
                 let Z:.height:.width:._chans = A.arrayShape pic
-                    mov = (mx-canvasLeft, my-canvasTop)
                     trans = Point2 . rotateStretchMovePoint rot mov
                     widthf  = fromIntegral width
                     heightf = fromIntegral height
@@ -1624,7 +1625,7 @@ process args = do
                        [(corner00, corner10), (corner10, corner11),
                         (corner11, corner01), (corner01, corner00)]
                 in  ((rot, mov, (width,height)), corners, edges))
-             floatPoss picRots
+             movRotPics
 
    let geometryRelations =
           flip map (removeEach geometries) $
