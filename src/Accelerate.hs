@@ -723,6 +723,22 @@ clip (left,top) (width,height) arr =
        \(z :. y :. x) -> z :. y+top :. x+left)
       arr
 
+
+overlappingArea ::
+   (Ord a, Num a) =>
+   (Z :. a :. a) ->
+   (Z :. a :. a) ->
+   (a, a) -> ((a, a), (a, a), (a, a))
+overlappingArea (Z :. heighta :. widtha) (Z :. heightb :. widthb) (dx, dy) =
+   let left = max 0 dx
+       top  = max 0 dy
+       right  = min widtha  (widthb  + dx)
+       bottom = min heighta (heightb + dy)
+       width  = right - left
+       height = bottom - top
+   in  ((left, top), (right, bottom), (width, height))
+
+
 {-
 Like 'optimalOverlapBig'
 but computes precise distance in a second step
@@ -733,22 +749,21 @@ optimalOverlapBigFine ::
 optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
-             let (Z :. heighta :. widtha) = A.unlift $ A.shape a
-                 (Z :. heightb :. widthb) = A.unlift $ A.shape b
+             let extenta@(Z :. heighta :. widtha) = A.unlift $ A.shape a
+                 extentb@(Z :. heightb :. widthb) = A.unlift $ A.shape b
                  yk = divUp (heighta+heightb) $ A.lift heightPad
                  xk = divUp (widtha +widthb)  $ A.lift widthPad
                  factors = A.lift Z :. yk :. xk
-                 (coarsedx,coarsedy) =
+                 coarsed@(coarsedx,coarsedy) =
                     mapPair ((xk*), (yk*)) $
                     Exp.unliftPair $ A.fst $ A.the $ argmaximum $
                     allOverlaps padExtent minimumOverlap
                        (shrink factors a) (shrink factors b)
-                 leftOverlap = max 0 coarsedx
-                 topOverlap  = max 0 coarsedy
-                 rightOverlap  = min widtha  (widthb  + coarsedx)
-                 bottomOverlap = min heighta (heightb + coarsedy)
-                 widthOverlap  = rightOverlap - leftOverlap
-                 heightOverlap = bottomOverlap - topOverlap
+
+                 ((leftOverlap, topOverlap), _,
+                  (widthOverlap, heightOverlap))
+                    = overlappingArea extenta extentb coarsed
+
                  widthFocus  = min widthOverlap $ A.lift $ div widthPad 2
                  heightFocus = min heightOverlap $ A.lift $ div heightPad 2
                  extentFocus = (widthFocus,heightFocus)
@@ -797,15 +812,14 @@ optimalOverlapBigMulti
                     (clip anchorB extent b)
 
    in  \minimumOverlap a b ->
-          let (Z :. heighta :. widtha) = A.arrayShape a
-              (Z :. heightb :. widthb) = A.arrayShape b
-              (coarsedx,coarsedy) = fst $ overlapCoarse minimumOverlap a b
-              leftOverlap = max 0 coarsedx
-              topOverlap  = max 0 coarsedy
-              rightOverlap  = min widtha  (widthb  + coarsedx)
-              bottomOverlap = min heighta (heightb + coarsedy)
-              widthOverlap  = rightOverlap - leftOverlap
-              heightOverlap = bottomOverlap - topOverlap
+          let coarsed@(coarsedx,coarsedy) =
+                 fst $ overlapCoarse minimumOverlap a b
+
+              ((leftOverlap, topOverlap),
+               (rightOverlap, bottomOverlap),
+               (widthOverlap, heightOverlap))
+                 = overlappingArea (A.arrayShape a) (A.arrayShape b) coarsed
+
               rightLine  = max leftOverlap $ rightOverlap - widthFocus
               bottomLine = max topOverlap  $ bottomOverlap - heightFocus
 
