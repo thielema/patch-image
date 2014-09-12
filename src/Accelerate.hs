@@ -907,7 +907,7 @@ absolutePositionsFromPairDisplacements numPics displacements =
 
 leastSquaresSelected ::
    Matrix.Matrix Double -> [Maybe Double] ->
-   (Vector.Vector Double, Vector.Vector Double)
+   ([Double], [Double])
 leastSquaresSelected m mas =
    let (lhsCols,rhsCols) =
           ListHT.unzipEithers $
@@ -920,7 +920,7 @@ leastSquaresSelected m mas =
        lhs = Matrix.fromColumns lhsCols
        rhs = foldl1 Container.add rhsCols
        sol = lhs <\> Container.scale (-1) rhs
-   in  (Vector.fromList $ snd $
+   in  (snd $
         List.mapAccumL
            (curry $ \x ->
                case x of
@@ -928,6 +928,7 @@ leastSquaresSelected m mas =
                   (a:as, Nothing) -> (as, a)
                   ([], Nothing) -> error "too few elements in solution vector")
            (Vector.toList sol) mas,
+        Vector.toList $
         Container.add (lhs <> sol) rhs)
 
 {-
@@ -988,9 +989,9 @@ layoutFromPairDisplacements numPics correspondences =
              (take (4*numPics) $
               map Just [0,0,1,0] ++ repeat Nothing)
    in  (map (\[dx,dy,rx,ry] -> ((weight*dx,weight*dy), (rx,ry))) $
-        ListHT.sliceVertical 4 $ Vector.toList solution,
-        map (\[dx,dy] -> (dx,dy)) $
-        ListHT.sliceVertical 2 $ Vector.toList projection)
+        ListHT.sliceVertical 4 solution,
+        map (\[x,y] -> (x,y)) $
+        ListHT.sliceVertical 2 projection)
 
 
 overlap2 ::
