@@ -302,17 +302,24 @@ rotateStretchMove rot mov sh arr =
            (replicateChannel chansDst coords))
 
 
+rotateLeftTop ::
+   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   (Exp a, Exp a) -> Acc (Channel ix a) ->
+   ((Acc (A.Scalar a), Acc (A.Scalar a)), Acc (Channel ix a))
+rotateLeftTop rot arr =
+   let (chans :. height :. width) = unliftDim2 $ A.shape arr
+       ((left, right), (top, bottom)) =
+          boundingBoxOfRotated rot (A.fromIntegral width, A.fromIntegral height)
+   in  ((A.unit left, A.unit top),
+        snd $
+        rotateStretchMove rot (-left,-top)
+           (chans :. A.ceiling (bottom-top) :. A.ceiling (right-left)) arr)
+
 rotate ::
    (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
    (Exp a, Exp a) ->
    Acc (Channel ix a) -> Acc (Channel ix a)
-rotate rot arr =
-   let (chans :. height :. width) = unliftDim2 $ A.shape arr
-       ((left, right), (top, bottom)) =
-          boundingBoxOfRotated rot (A.fromIntegral width, A.fromIntegral height)
-   in  snd $
-       rotateStretchMove rot (-left,-top)
-          (chans :. A.ceiling (bottom-top) :. A.ceiling (right-left)) arr
+rotate rot arr = snd $ rotateLeftTop rot arr
 
 
 brightnessPlane ::
@@ -404,16 +411,18 @@ rotateManifest =
 
 
 prepareOverlapMatching ::
-   Int -> (Float, Array DIM3 Word8) -> Channel Z Float
+   Int -> (Float, Array DIM3 Word8) -> ((Float,Float), Channel Z Float)
 prepareOverlapMatching =
    let rot =
           Run.with CUDA.run1 $ \radius orient arr ->
-             rotate orient $
+             rotateLeftTop orient $
              (if True
                 then highpass radius
                 else removeDCOffset) $
              brightnessPlane $ separateChannels $ imageFloatFromByte arr
-   in  \radius (angle, arr) -> rot radius (cos angle, sin angle) arr
+   in  \radius (angle, arr) ->
+          mapFst (mapPair (Acc.the, Acc.the)) $
+          rot radius (cos angle, sin angle) arr
 
 
 ceilingPow2Exp :: Exp Int -> Exp Int
@@ -872,7 +881,7 @@ overlapDifferenceRun =
 
 
 absolutePositionsFromPairDisplacements ::
-   Int -> [((Int, Int), (Int, Int))] ->
+   Int -> [((Int, Int), (Float, Float))] ->
    ([(Double,Double)], [(Double,Double)])
 absolutePositionsFromPairDisplacements numPics displacements =
    let (is, ds) = unzip displacements
@@ -890,8 +899,8 @@ absolutePositionsFromPairDisplacements numPics displacements =
                 PackST.writeMatrix mat k ib 1)
              [0..] is
           return mat
-       pxs = matrix <\> Vector.fromList (map fromIntegral dxs)
-       pys = matrix <\> Vector.fromList (map fromIntegral dys)
+       pxs = matrix <\> Vector.fromList (map realToFrac dxs)
+       pys = matrix <\> Vector.fromList (map realToFrac dys)
    in  (zip (0 : Vector.toList pxs) (0 : Vector.toList pys),
         zip (Vector.toList $ matrix <> pxs) (Vector.toList $ matrix <> pys))
 
@@ -938,7 +947,7 @@ Maybe, dx and dy should be scaled down.
 Otherwise they are weighted much more than the rotation.
 -}
 layoutFromPairDisplacements ::
-   Int -> [((Int, (Int, Int)), (Int, (Int, Int)))] ->
+   Int -> [((Int, (Float, Float)), (Int, (Float, Float)))] ->
    ([((Double,Double), (Double,Double))],
     [(Double,Double)])
 layoutFromPairDisplacements numPics correspondences =
@@ -947,15 +956,15 @@ layoutFromPairDisplacements numPics correspondences =
                  concatMap
                     (\((_ia,(xai,yai)),(_ib,(xbi,ybi))) -> [xai, yai, xbi, ybi])
                     correspondences
-          in  fromIntegral $ maximum xs - minimum xs
+          in  realToFrac $ maximum xs - minimum xs
        matrix = PackST.runSTMatrix $ do
           mat <- PackST.newMatrix 0 (2 * length correspondences) (4*numPics)
           zipWithM_
              (\k ((ia,(xai,yai)),(ib,(xbi,ybi))) -> do
-                let xa = fromIntegral xai
-                let xb = fromIntegral xbi
-                let ya = fromIntegral yai
-                let yb = fromIntegral ybi
+                let xa = realToFrac xai
+                let xb = realToFrac xbi
+                let ya = realToFrac yai
+                let yb = realToFrac ybi
                 PackST.writeMatrix mat (k+0) (4*ia+0) (-weight)
                 PackST.writeMatrix mat (k+1) (4*ia+1) (-weight)
                 PackST.writeMatrix mat (k+0) (4*ia+2) (-xa)
@@ -1481,7 +1490,7 @@ process args = do
 
    when True $ do
       notice "write fft"
-      let (_,pic0) : (_,pic1) : _ = rotated
+      let pic0 : pic1 : _ = map (snd.snd) rotated
           size = (Z:.512:.1024 :: DIM2)
       writeGrey (Option.quality opt) "/tmp/padded.jpeg" $
          CUDA.run1
@@ -1507,7 +1516,7 @@ process args = do
                 let (rotHeights, rotWidths) =
                        unzip $
                        map (\(_chans:.height:.width) -> (height, width)) $
-                       map (A.arrayShape . snd) rotated
+                       map (A.arrayShape . snd . snd) rotated
                     maxSum2 sizes =
                        case List.sortBy (flip compare) sizes of
                           size0 : size1 : _ -> size0+size1
@@ -1520,16 +1529,19 @@ process args = do
 
    displacements <-
       fmap catMaybes $
-      forM pairs $ \((ia,(pathA,picA)), (ib,(pathB,picB))) -> do
+      forM pairs $ \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
          forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when False $
             writeGrey (Option.quality opt)
                (printf "/tmp/%s-%s-score.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
                allOverlapsShared (Option.minimumOverlap opt) picA picB
 
-         let d = fst $ optimalOverlapShared (Option.minimumOverlap opt) picA picB
-         let diff = overlapDifferenceRun d picA picB
+         let doffset@(dox,doy) =
+                fst $ optimalOverlapShared (Option.minimumOverlap opt) picA picB
+         let diff = overlapDifferenceRun doffset picA picB
          let overlapping = diff < Option.maximumDifference opt
+         let d = (fromIntegral dox + fst leftTopA - fst leftTopB,
+                  fromIntegral doy + snd leftTopA - snd leftTopB)
          info $
             printf "%s - %s, %s, difference %f%s\n" pathA pathB (show d) diff
                (if overlapping then "" else " unrelated -> ignoring")
@@ -1537,7 +1549,7 @@ process args = do
             writeImage (Option.quality opt)
                (printf format
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-               composeOverlap d (snd $ picAngles!!ia, snd $ picAngles!!ib)
+               composeOverlap doffset (snd $ picAngles!!ia, snd $ picAngles!!ib)
          return $ toMaybe overlapping ((ia,ib), d)
 
    let (poss, dps) =
@@ -1549,13 +1561,13 @@ process args = do
    info $ unlines $
       zipWith
          (\(dpx,dpy) (dx,dy) ->
-            printf "(%f,%f) (%i,%i)" dpx dpy dx dy)
+            printf "(%f,%f) (%f,%f)" dpx dpy dx dy)
          dps (map snd displacements)
    let (errdx,errdy) =
           mapPair (maximum,maximum) $ unzip $
           zipWith
              (\(dpx,dpy) (dx,dy) ->
-                (abs $ dpx - fromIntegral dx, abs $ dpy - fromIntegral dy))
+                (abs $ dpx - realToFrac dx, abs $ dpy - realToFrac dy))
              dps (map snd displacements)
 
    info $
@@ -1576,10 +1588,7 @@ process args = do
                       boundingBoxOfRotated rot
                          (fromIntegral width, fromIntegral height))
              picRots
-       floatPoss =
-          zipWith
-             (\((l,_), (t,_)) (mx,my) -> (realToFrac mx - l, realToFrac my - t))
-             bboxes poss
+       floatPoss = map (mapPair (realToFrac, realToFrac)) poss
        ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
           mapPair
              (mapPair (minimum, maximum) . unzip,
