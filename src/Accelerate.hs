@@ -9,6 +9,7 @@ import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate.Arithmetic.LinearAlgebra as LinAlg
 import qualified Data.Array.Accelerate.Utility.Lift.Run as Run
+import qualified Data.Array.Accelerate.Utility.Lift.Acc as Acc
 import qualified Data.Array.Accelerate.Utility.Lift.Exp as Exp
 import qualified Data.Array.Accelerate.Utility.Arrange as Arrange
 import qualified Data.Array.Accelerate.Utility.Loop as Loop
@@ -384,7 +385,7 @@ scoreRotation =
           Run.with CUDA.run1 $ \orient arr ->
              A.sum $ A.map (^(2::Int)) $ differentiate $ rowHistogram $
              rotate orient $ separateChannels $ imageFloatFromByte arr
-   in  \angle arr -> A.indexArray (rot (cos angle, sin angle) arr) Z
+   in  \angle arr -> Acc.the $ rot (cos angle, sin angle) arr
 
 findOptimalRotation :: [Float] -> Array DIM3 Word8 -> Float
 findOptimalRotation angles pic =
@@ -669,7 +670,7 @@ optimalOverlap padExtent =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
           argmaximum $ allOverlaps padExtent minimumOverlap a b
-   in  \overlap a b -> A.indexArray (run overlap a b) Z
+   in  \overlap a b -> Acc.the $ run overlap a b
 
 
 shrink ::
@@ -708,7 +709,7 @@ optimalOverlapBig padExtent@(Z:.heightPad:.widthPad) =
              in  A.map scalePos $ argmaximum $
                  allOverlaps padExtent minimumOverlap
                     (shrink factors a) (shrink factors b)
-   in  \minimumOverlap a b -> A.indexArray (run minimumOverlap a b) Z
+   in  \minimumOverlap a b -> Acc.the $ run minimumOverlap a b
 
 
 clip ::
@@ -776,7 +777,7 @@ optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
                  allOverlaps padExtent minimumOverlap
                     (clip (leftFocus,topFocus) extentFocus a)
                     (clip (leftFocus-coarsedx,topFocus-coarsedy) extentFocus b)
-   in  \minimumOverlap a b -> A.indexArray (run minimumOverlap a b) Z
+   in  \minimumOverlap a b -> Acc.the $ run minimumOverlap a b
 
 
 {-
@@ -825,7 +826,7 @@ optimalOverlapBigMulti
 
           in  map
                  (\(x,y) ->
-                    flip A.indexArray Z $
+                    Acc.the $
                     overlapFine minimumOverlap a b
                        (x, y) (x-coarsedx, y-coarsedy)
                        (widthFocusClip, heightFocusClip)) $
@@ -867,7 +868,7 @@ overlapDifferenceRun ::
    Channel Z Float -> Channel Z Float -> Float
 overlapDifferenceRun =
    let diff = Run.with CUDA.run1 overlapDifference
-   in  \d a b -> A.indexArray (diff d a b) Z
+   in  \d a b -> Acc.the $ diff d a b
 
 
 absolutePositionsFromPairDisplacements ::
