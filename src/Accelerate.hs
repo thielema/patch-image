@@ -1581,14 +1581,11 @@ process args = do
    notice "\ncompose all parts"
    let picRots =
           map (mapFst (\angle -> (cos angle, sin angle)) . snd) picAngles
-       bboxes =
-          map
-             (\(rot, pic) ->
-                case A.arrayShape pic of
-                   Z:.height:.width:._chans ->
-                      boundingBoxOfRotated rot
-                         (fromIntegral width, fromIntegral height))
-             picRots
+       bbox (rot, pic) =
+          case A.arrayShape pic of
+             Z:.height:.width:._chans ->
+                boundingBoxOfRotated rot
+                   (fromIntegral width, fromIntegral height)
        floatPoss = map (mapPair (realToFrac, realToFrac)) poss
        ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
           mapPair
@@ -1596,9 +1593,9 @@ process args = do
               mapPair (minimum, maximum) . unzip) $
           unzip $
           zipWith
-             (\(mx,my) bbox ->
-                mapPair (mapPair ((mx+), (mx+)), mapPair ((my+), (my+))) bbox)
-             floatPoss bboxes
+             (\(mx,my) ->
+                mapPair (mapPair ((mx+), (mx+)), mapPair ((my+), (my+))) . bbox)
+             floatPoss picRots
        canvasWidth  = ceiling (canvasRight-canvasLeft)
        canvasHeight = ceiling (canvasBottom-canvasTop)
        canvasShape = Z :. canvasHeight :. canvasWidth
