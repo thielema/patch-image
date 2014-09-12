@@ -1461,12 +1461,12 @@ finalizeWeightedCanvas =
 
 processOverlap ::
    Option.Args ->
-   [(a1, (a0, Channel Z e0))] ->
-   [(a2, (Float, Array DIM3 Word8))] ->
+   [DIM2] ->
+   [(Float, Array DIM3 Word8)] ->
    [((Int, (FilePath, ((Float, Float), Channel Z Float))),
      (Int, (FilePath, ((Float, Float), Channel Z Float))))] ->
    IO ([(Float, Float)], [((Float, Float), Array DIM3 Word8)])
-processOverlap args rotated picAngles pairs = do
+processOverlap args shapes picAngles pairs = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
@@ -1478,7 +1478,7 @@ processOverlap args rotated picAngles pairs = do
                 let (rotHeights, rotWidths) =
                        unzip $
                        map (\(_chans:.height:.width) -> (height, width)) $
-                       map (A.arrayShape . snd . snd) rotated
+                       shapes
                     maxSum2 sizes =
                        case List.sortBy (flip compare) sizes of
                           size0 : size1 : _ -> size0+size1
@@ -1511,11 +1511,11 @@ processOverlap args rotated picAngles pairs = do
             writeImage (Option.quality opt)
                (printf format
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-               composeOverlap doffset (snd $ picAngles!!ia, snd $ picAngles!!ib)
+               composeOverlap doffset (picAngles!!ia, picAngles!!ib)
          return $ toMaybe overlapping ((ia,ib), d)
 
    let (poss, dps) =
-          absolutePositionsFromPairDisplacements (length rotated) displacements
+          absolutePositionsFromPairDisplacements (length shapes) displacements
    info "\nabsolute positions"
    info $ unlines $ map show poss
 
@@ -1540,7 +1540,7 @@ processOverlap args rotated picAngles pairs = do
       printf "maximum vertical error: %f\n" errdy
 
    let picRots =
-          map (mapFst (\angle -> (cos angle, sin angle)) . snd) picAngles
+          map (mapFst (\angle -> (cos angle, sin angle))) picAngles
        floatPoss = map (mapPair (realToFrac, realToFrac)) poss
 
    return (floatPoss, picRots)
@@ -1571,6 +1571,7 @@ process args = do
    notice "\nfind relative placements"
    let rotated =
           map (mapSnd (prepareOverlapMatching (Option.smooth opt))) picAngles
+   let prepared = map (snd . snd) rotated
    let pairs = do
           (a:as) <- tails $ zip [0..] rotated
           b <- as
@@ -1578,7 +1579,7 @@ process args = do
 
    when False $ do
       notice "write fft"
-      let pic0 : pic1 : _ = map (snd.snd) rotated
+      let pic0 : pic1 : _ = prepared
           size = (Z:.512:.1024 :: DIM2)
       writeGrey (Option.quality opt) "/tmp/padded.jpeg" $
          CUDA.run1
@@ -1597,7 +1598,7 @@ process args = do
          convolvePadded size (A.use pic0) (A.use pic1)
 
    (floatPoss, picRots) <-
-      processOverlap args rotated picAngles pairs
+      processOverlap args (map A.arrayShape prepared) (map snd picAngles) pairs
 
    notice "\ncompose all parts"
    let bbox (rot, pic) =
