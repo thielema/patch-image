@@ -1461,12 +1461,11 @@ finalizeWeightedCanvas =
 
 processOverlap ::
    Option.Args ->
-   [DIM2] ->
    [(Float, Array DIM3 Word8)] ->
    [((Int, (FilePath, ((Float, Float), Channel Z Float))),
      (Int, (FilePath, ((Float, Float), Channel Z Float))))] ->
    IO ([(Float, Float)], [((Float, Float), Array DIM3 Word8)])
-processOverlap args shapes picAngles pairs = do
+processOverlap args picAngles pairs = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
@@ -1477,8 +1476,8 @@ processOverlap args shapes picAngles pairs = do
              Nothing ->
                 let (rotHeights, rotWidths) =
                        unzip $
-                       map (\(_chans:.height:.width) -> (height, width)) $
-                       shapes
+                       map (\(Z:.height:.width:._chans) -> (height, width)) $
+                       map (A.arrayShape . snd) picAngles
                     maxSum2 sizes =
                        case List.sortBy (flip compare) sizes of
                           size0 : size1 : _ -> size0+size1
@@ -1515,7 +1514,8 @@ processOverlap args shapes picAngles pairs = do
          return $ toMaybe overlapping ((ia,ib), d)
 
    let (poss, dps) =
-          absolutePositionsFromPairDisplacements (length shapes) displacements
+          absolutePositionsFromPairDisplacements
+             (length picAngles) displacements
    info "\nabsolute positions"
    info $ unlines $ map show poss
 
@@ -1597,8 +1597,7 @@ process args = do
          CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
          convolvePadded size (A.use pic0) (A.use pic1)
 
-   (floatPoss, picRots) <-
-      processOverlap args (map A.arrayShape prepared) (map snd picAngles) pairs
+   (floatPoss, picRots) <- processOverlap args (map snd picAngles) pairs
 
    notice "\ncompose all parts"
    let bbox (rot, pic) =
