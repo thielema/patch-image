@@ -36,6 +36,8 @@ import qualified Graphics.Gnuplot.LineSpecification as LineSpec
 import qualified Graphics.Gnuplot.Plot.TwoDimensional as Plot2D
 import qualified Graphics.Gnuplot.Graph.TwoDimensional as Graph2D
 
+import qualified Data.Complex as HComplex
+
 import qualified Codec.Picture as Pic
 
 import qualified Data.Vector.Storable as SV
@@ -949,7 +951,7 @@ Otherwise they are weighted much more than the rotation.
 -}
 layoutFromPairDisplacements ::
    Int -> [((Int, (Float, Float)), (Int, (Float, Float)))] ->
-   ([((Double,Double), (Double,Double))],
+   ([((Double,Double), HComplex.Complex Double)],
     [(Double,Double)])
 layoutFromPairDisplacements numPics correspondences =
    let weight =
@@ -988,7 +990,7 @@ layoutFromPairDisplacements numPics correspondences =
           leastSquaresSelected matrix
              (take (4*numPics) $
               map Just [0,0,1,0] ++ repeat Nothing)
-   in  (map (\[dx,dy,rx,ry] -> ((weight*dx,weight*dy), (rx,ry))) $
+   in  (map (\[dx,dy,rx,ry] -> ((weight*dx,weight*dy), rx HComplex.:+ ry)) $
         ListHT.sliceVertical 4 solution,
         map (\[x,y] -> (x,y)) $
         ListHT.sliceVertical 2 projection)
@@ -1546,6 +1548,77 @@ processOverlap args picAngles pairs = do
    return (floatPoss, picRots)
 
 
+pairFromComplex :: (RealFloat a) => Complex a -> (a,a)
+pairFromComplex z = (HComplex.realPart z, HComplex.imagPart z)
+
+mapComplex :: (a -> b) -> Complex a -> Complex b
+mapComplex f (r HComplex.:+ i)  =  f r HComplex.:+ f i
+
+
+processOverlapRotate ::
+   Option.Args ->
+   [(Float, Array DIM3 Word8)] ->
+   [((Int, (FilePath, ((Float, Float), Channel Z Float))),
+     (Int, (FilePath, ((Float, Float), Channel Z Float))))] ->
+   IO ([(Float, Float)], [((Float, Float), Array DIM3 Word8)])
+processOverlapRotate args picAngles pairs = do
+   let opt = Option.option args
+   let info = CmdLine.info (Option.verbosity opt)
+
+   let padSize = Option.padSize opt
+   let focusSize = 64
+   let optimalOverlapShared =
+          optimalOverlapBigMulti
+             (Z :. padSize :. padSize)
+             (Z :. focusSize :. focusSize)
+             5
+
+   displacements <-
+      fmap concat $
+      forM pairs $ \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
+         let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
+         let correspondences =
+                map
+                   (\(pa,pb,score) ->
+                      (((ia, add pa leftTopA), (ib, add pb leftTopB)), score)) $
+                optimalOverlapShared (Option.minimumOverlap opt) picA picB
+         info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
+         info $ printf "%s - %s" pathA pathB
+         forM_ correspondences $ \(((_ia,pa@(xa,ya)),(_ib,pb@(xb,yb))), score) ->
+            info $
+               printf "%s ~ %s, (%f,%f), %f"
+                  (show pa) (show pb) (xb-xa) (yb-ya) score
+         return $ map fst correspondences
+
+   let (posRots, dps) =
+          layoutFromPairDisplacements (length picAngles) displacements
+   info "\nabsolute positions and rotations: place, rotation (magnitude, phase)"
+   info $ unlines $
+      map
+         (\(d,r) ->
+            printf "%s, %s (%7.5f, %6.2f)" (show d) (show r)
+               (HComplex.magnitude r) (HComplex.phase r * 180/pi))
+         posRots
+
+   info "\ncompare position differences with pair displacements"
+   info $ unlines $
+      zipWith
+         (\(dpx,dpy) ((_ia,pa),(_ib,pb)) ->
+            printf "(%f,%f) %s ~ %s" dpx dpy (show pa) (show pb))
+         dps displacements
+
+   let picRots =
+          zipWith
+             (\(angle,pic) rot ->
+                (pairFromComplex $
+                    HComplex.cis angle * mapComplex realToFrac rot,
+                 pic))
+             picAngles (map snd posRots)
+       floatPoss = map (mapPair (realToFrac, realToFrac) . fst) posRots
+
+   return (floatPoss, picRots)
+
+
 process :: Option.Args -> IO ()
 process args = do
    let paths = Option.inputs args
@@ -1597,7 +1670,9 @@ process args = do
          CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
          convolvePadded size (A.use pic0) (A.use pic1)
 
-   (floatPoss, picRots) <- processOverlap args (map snd picAngles) pairs
+   (floatPoss, picRots) <-
+      (if True then processOverlapRotate else processOverlap)
+         args (map snd picAngles) pairs
 
    notice "\ncompose all parts"
    let bbox (rot, pic) =
