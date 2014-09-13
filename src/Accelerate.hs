@@ -1141,13 +1141,23 @@ intersections ::
 intersections segments0 segments1 =
    catMaybes $ liftM2 Line.intersect segments0 segments1
 
+
+projectPerp ::
+   (Eq a, Fractional a) =>
+   Point2 a -> (Point2 a, Point2 a) -> (a, Point2 a)
+projectPerp (Point2 (xc,yc)) (Point2 (xa,ya), Point2 (xb,yb)) =
+   let dx = xb-xa
+       dy = yb-ya
+       r = ((xc-xa)*dx + (yc-ya)*dy) / (dx*dx + dy*dy)
+   in  (r, Point2 (xa + r*dx, ya + r*dy))
+
 project ::
    (A.Elt a, A.IsFloating a) =>
    Point2 (Exp a) ->
    (Point2 (Exp a), Point2 (Exp a)) ->
    (Exp Bool, Point2 (Exp a))
-project x (a, b) =
-   let (r, _, _, y) = Line.distanceAux a b x
+project x ab =
+   let (r, y) = projectPerp x ab
    in  (0<=*r &&* r<=*1, y)
 
 distanceMapEdges ::
