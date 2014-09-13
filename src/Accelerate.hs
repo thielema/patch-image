@@ -1271,6 +1271,10 @@ but it seems to fail with current accelerate version.
 breakFusion :: (A.Arrays a) => Acc a -> Acc a
 breakFusion = id A.>-> id
 
+array1FromList :: (A.Elt a) => [a] -> Array DIM1 a
+array1FromList xs = A.fromList (Z :. length xs) xs
+
+
 containedAnywhere ::
    (A.Elt a, A.IsFloating a) =>
    Acc (Array DIM1 ((a,a), (a,a), (Int,Int))) ->
@@ -1323,8 +1327,7 @@ distanceMapContainedRun =
              in  imageByteFromFloat $ A.map (scale*) $
                  distanceMapContained sh this others
    in  \sh this others ->
-          distances sh this
-             (A.fromList (Z :. length others) others)
+          distances sh this $ array1FromList others
 
 
 pixelCoordinates ::
@@ -1359,8 +1362,7 @@ distanceMapPointsRun =
              in  imageByteFromFloat $ A.map (scale*) $
                  distanceMapPoints (pixelCoordinates sh) points
    in  \sh points ->
-          distances sh $
-             A.fromList (Z :. length points) points
+          distances sh $ array1FromList points
 
 
 distanceMap ::
@@ -1392,8 +1394,8 @@ distanceMapRun =
                  distanceMap sh this others points
    in  \sh this others points ->
           distances sh this
-             (A.fromList (Z :. length others) others)
-             (A.fromList (Z :. length points) points)
+             (array1FromList others)
+             (array1FromList points)
 
 
 distanceMapGamma ::
@@ -1451,8 +1453,9 @@ updateWeightedCanvasMerged =
                      separateChannels $ imageFloatFromByte pic)
                     (weightSum,canvas)
    in  \this others points pic canvas ->
-          update this (A.fromList (Z :. length others) others)
-             (A.fromList (Z :. length points) points)
+          update this
+             (array1FromList others)
+             (array1FromList points)
              pic canvas
 
 updateWeightedCanvas ::
@@ -1478,8 +1481,8 @@ updateWeightedCanvas =
    in  \gamma this others points pic (weightSum,canvas) ->
           update this pic
              (distances gamma (A.arrayShape weightSum) this
-                 (A.fromList (Z :. length others) others)
-                 (A.fromList (Z :. length points) points))
+                 (array1FromList others)
+                 (array1FromList points))
              (weightSum,canvas)
 
 -- launch timeout
@@ -1501,8 +1504,8 @@ updateWeightedCanvasSplit =
    in  \this@(rot, mov, _) others points pic (weightSum,canvas) ->
           update
              (distances (A.arrayShape weightSum) this
-                 (A.fromList (Z :. length others) others)
-                 (A.fromList (Z :. length points) points),
+                 (array1FromList others)
+                 (array1FromList points),
               rotated (A.arrayShape canvas) rot mov pic)
              (weightSum,canvas)
 
