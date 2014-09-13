@@ -38,13 +38,13 @@ data Option =
       maximumAbsoluteAngle :: Float,
       numberAngleSteps :: Int,
       smooth :: Int,
+      padSize :: Int,
       minimumOverlap :: Float,
       maximumDifference :: Float,
       finetuneRotate :: Bool,
       numberStamps :: Int,
       stampSize :: Int,
-      distanceGamma :: Float,
-      padSize :: Int
+      distanceGamma :: Float
    }
 
 defltOption :: Option
@@ -59,13 +59,13 @@ defltOption =
       maximumAbsoluteAngle = 1,
       numberAngleSteps = 40,
       smooth = 20,
+      padSize = 1024,
       minimumOverlap = 1/4,
       maximumDifference = 0.2,
       finetuneRotate = False,
       numberStamps = 5,
       stampSize = 64,
-      distanceGamma = 2,
-      padSize = 1024
+      distanceGamma = 2
    }
 
 
@@ -133,13 +133,6 @@ optionDescription desc =
       (printf "JPEG compression quality for output, default: %d"
          (quality defltOption)) :
 
-   Opt.Option [] ["smooth"]
-      (flip ReqArg "NATURAL" $ \str flags ->
-         fmap (\x -> flags{smooth = x}) $
-         parseNumber "smooth radius" (0<=) "non-negative" str)
-      (printf "Smooth radius for DC elimination, default: %d"
-         (smooth defltOption)) :
-
    Opt.Option [] ["maximum-absolute-angle"] -- "max-abs-angle"
       (flip ReqArg "DEGREE" $ \str flags ->
          fmap (\x -> flags{maximumAbsoluteAngle = x}) $
@@ -153,6 +146,20 @@ optionDescription desc =
          parseNumber "number of angle steps" (0<=) "non-negative" str)
       (printf "Number of steps for test rotations, default: %d"
          (numberAngleSteps defltOption)) :
+
+   Opt.Option [] ["smooth"]
+      (flip ReqArg "NATURAL" $ \str flags ->
+         fmap (\x -> flags{smooth = x}) $
+         parseNumber "smooth radius" (0<=) "non-negative" str)
+      (printf "Smooth radius for DC elimination, default: %d"
+         (smooth defltOption)) :
+
+   Opt.Option [] ["pad-size"]
+      (flip ReqArg "NATURAL" $ \str flags ->
+         fmap (\x -> flags{padSize = x}) $
+         parseNumber "pad size" (0<=) "non-negative" str)
+      (printf "Pad size for matching convolution, default: %d"
+         (padSize defltOption)) :
 
    Opt.Option [] ["minimum-overlap"]
       (flip ReqArg "FRACTION" $ \str flags ->
@@ -192,13 +199,6 @@ optionDescription desc =
          parseNumber "gamma exponent" (0<) "positive" str)
       (printf "Distance exponent, default: %f"
          (distanceGamma defltOption)) :
-
-   Opt.Option [] ["pad-size"]
-      (flip ReqArg "NATURAL" $ \str flags ->
-         fmap (\x -> flags{padSize = x}) $
-         parseNumber "pad size" (0<=) "non-negative" str)
-      (printf "Pad size for matching convolution, default: %d"
-         (padSize defltOption)) :
 
    []
 
