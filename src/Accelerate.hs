@@ -53,7 +53,7 @@ import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import qualified Data.Bits as Bit
 import Control.Monad.HT (void)
-import Control.Monad (liftM2, zipWithM_, when)
+import Control.Monad (liftM2, zipWithM_, when, guard)
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (catMaybes)
 import Data.List.HT (removeEach, mapAdjacent, tails)
@@ -1135,11 +1135,25 @@ maskedMaximum = A.fold1 (maybePlus max)
 
 
 
+intersect ::
+   (Ord a, Fractional a) => Line.L2 a -> Line.L2 a -> Maybe (Point2 a)
+intersect
+      (Line.Segment (Point2 (xa,ya)) (Point2 (xb,yb)))
+      (Line.Segment (Point2 (xc,yc)) (Point2 (xd,yd))) = do
+   let denom = (xb-xa)*(yd-yc)-(xd-xc)*(yb-ya)
+       r     = ((xd-xc)*(ya-yc)-(xa-xc)*(yd-yc)) / denom
+       s     = ((xb-xa)*(ya-yc)-(xa-xc)*(yb-ya)) / denom
+   guard (denom/=0)
+   guard (0<=r && r<=1)
+   guard (0<=s && s<=1)
+   return (Point2 (xa + r*(xb-xa), ya + r*(yb-ya)))
+
 intersections ::
    (Fractional a, Ord a) =>
    [Line.L2 a] -> [Line.L2 a] -> [Point2 a]
 intersections segments0 segments1 =
-   catMaybes $ liftM2 Line.intersect segments0 segments1
+   catMaybes $ liftM2 intersect segments0 segments1
+
 
 
 projectPerp ::
