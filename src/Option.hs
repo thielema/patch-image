@@ -4,7 +4,7 @@ import Option.Utility (exitFailureMsg, parseNumber, fmapOptDescr)
 
 import qualified System.Console.GetOpt as Opt
 import qualified System.Environment as Env
-import System.Console.GetOpt (getOpt, usageInfo, ArgDescr(NoArg, ReqArg))
+import System.Console.GetOpt (ArgDescr(NoArg, ReqArg), getOpt, usageInfo)
 
 import qualified System.Exit as Exit
 
