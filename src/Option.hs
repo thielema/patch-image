@@ -147,7 +147,7 @@ optionDescription desc =
       (printf "Maximum absolute angle for test rotations, default: %f"
          (maximumAbsoluteAngle defltOption)) :
 
-   Opt.Option [] ["number-of-angles"] -- "num-angles"
+   Opt.Option [] ["number-angles"] -- "num-angles"
       (flip ReqArg "NATURAL" $ \str flags ->
          fmap (\x -> flags{numberAngleSteps = x}) $
          parseNumber "number of angle steps" (0<=) "non-negative" str)
