@@ -1599,12 +1599,12 @@ processOverlapRotate args picAngles pairs = do
    let info = CmdLine.info (Option.verbosity opt)
 
    let padSize = Option.padSize opt
-   let stampSize = 64
+   let stampSize = Option.stampSize opt
    let optimalOverlapShared =
           optimalOverlapBigMulti
              (Z :. padSize :. padSize)
              (Z :. stampSize :. stampSize)
-             5
+             (Option.numberStamps opt)
              (Option.maximumDifference opt)
              (Option.minimumOverlap opt)
 
@@ -1706,8 +1706,10 @@ process args = do
          convolvePadded size (A.use pic0) (A.use pic1)
 
    (floatPoss, picRots) <-
-      (if True then processOverlapRotate else processOverlap)
-         args (map snd picAngles) pairs
+      (if Option.finetuneRotate opt
+         then processOverlapRotate
+         else processOverlap)
+            args (map snd picAngles) pairs
 
    notice "\ncompose all parts"
    let bbox (rot, pic) =

@@ -40,6 +40,9 @@ data Option =
       smooth :: Int,
       minimumOverlap :: Float,
       maximumDifference :: Float,
+      finetuneRotate :: Bool,
+      numberStamps :: Int,
+      stampSize :: Int,
       distanceGamma :: Float,
       padSize :: Int
    }
@@ -58,6 +61,9 @@ defltOption =
       smooth = 20,
       minimumOverlap = 1/4,
       maximumDifference = 0.2,
+      finetuneRotate = False,
+      numberStamps = 5,
+      stampSize = 64,
       distanceGamma = 2,
       padSize = 1024
    }
@@ -161,6 +167,24 @@ optionDescription desc =
          parseNumber "maximum difference" (\x -> 0<=x && x<=1) "between 0 and 1" str)
       (printf "Maximum average difference between overlapping parts, default: %f"
          (maximumDifference defltOption)) :
+
+   Opt.Option [] ["finetune-rotate"]
+      (NoArg $ \flags -> return $ flags{finetuneRotate = True})
+      (printf "Fine-tune rotation together with overlapping, default: disabled") :
+
+   Opt.Option [] ["number-stamps"]
+      (flip ReqArg "NATURAL" $ \str flags ->
+         fmap (\x -> flags{numberStamps = x}) $
+         parseNumber "number of stamps" (0<) "positive" str)
+      (printf "Number of stamps in an overlap area, default: %d"
+         (numberStamps defltOption)) :
+
+   Opt.Option [] ["stamp-size"]
+      (flip ReqArg "NATURAL" $ \str flags ->
+         fmap (\x -> flags{stampSize = x}) $
+         parseNumber "stamp size" (0<) "positive" str)
+      (printf "Size of a stamp, default: %d"
+         (stampSize defltOption)) :
 
    Opt.Option [] ["distance-gamma"]
       (flip ReqArg "FRACTION" $ \str flags ->
