@@ -21,6 +21,10 @@ Source-Repository head
   Type:        darcs
   Location:    http://code.haskell.org/~thielema/patch-image/
 
+Flag buildDraft
+  description: Build draft program
+  default:     False
+
 Executable patch-image
   Main-Is: Accelerate.hs
   Other-Modules:
@@ -51,10 +55,13 @@ Executable patch-image-draft
   Main-Is: Draft.hs
   Hs-Source-Dirs: src
 
-  Build-Depends:
-    JuicyPixels >=2.0 && <3.2,
-    GeomAlgLib >=0.2 && <0.3,
-    utility-ht >=0.0.1 && <0.1,
-    base >=4 && <5
-
   GHC-Options: -Wall -fwarn-tabs -fwarn-incomplete-record-updates
+
+  If flag(buildDraft)
+    Build-Depends:
+      JuicyPixels >=2.0 && <3.2,
+      GeomAlgLib >=0.2 && <0.3,
+      utility-ht >=0.0.1 && <0.1,
+      base >=4 && <5
+  Else
+    Buildable: False
