@@ -701,19 +701,24 @@ shrink (_:.yk:.xk) arr =
 divUp :: (Integral a) => a -> a -> a
 divUp a b = - div (-a) b
 
+shrinkFactors :: DIM2 -> Exp DIM2 -> Exp DIM2 -> ExpDIM2 Z
+shrinkFactors (Z:.heightPad:.widthPad) shapeA shapeB =
+   let (Z :. heighta :. widtha) = A.unlift shapeA
+       (Z :. heightb :. widthb) = A.unlift shapeB
+       yk = divUp (heighta+heightb) $ A.lift heightPad
+       xk = divUp (widtha +widthb)  $ A.lift widthPad
+   in  A.lift Z :. yk :. xk
+
 {-
 Reduce image sizes below the padExtent before matching images.
 -}
 optimalOverlapBig ::
    DIM2 -> Float -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
-optimalOverlapBig padExtent@(Z:.heightPad:.widthPad) =
+optimalOverlapBig padExtent =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
-             let (Z :. heighta :. widtha) = A.unlift $ A.shape a
-                 (Z :. heightb :. widthb) = A.unlift $ A.shape b
-                 yk = divUp (heighta+heightb) $ A.lift heightPad
-                 xk = divUp (widtha +widthb)  $ A.lift widthPad
-                 factors = A.lift Z :. yk :. xk
+             let factors@(_z:.yk:.xk) =
+                    shrinkFactors padExtent (A.shape a) (A.shape b)
                  scalePos =
                     Exp.modify ((atom,atom), atom) $
                     \((xm,ym), score) -> ((xm*xk, ym*yk), score)
@@ -761,11 +766,9 @@ optimalOverlapBigFine ::
 optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
-             let extenta@(Z :. heighta :. widtha) = A.unlift $ A.shape a
-                 extentb@(Z :. heightb :. widthb) = A.unlift $ A.shape b
-                 yk = divUp (heighta+heightb) $ A.lift heightPad
-                 xk = divUp (widtha +widthb)  $ A.lift widthPad
-                 factors = A.lift Z :. yk :. xk
+             let shapeA = A.shape a
+                 shapeB = A.shape b
+                 factors@(_z:.yk:.xk) = shrinkFactors padExtent shapeA shapeB
                  coarsed@(coarsedx,coarsedy) =
                     mapPair ((xk*), (yk*)) $
                     Exp.unliftPair $ A.fst $ A.the $ argmaximum $
@@ -774,7 +777,8 @@ optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
 
                  ((leftOverlap, topOverlap), _,
                   (widthOverlap, heightOverlap))
-                    = overlappingArea extenta extentb coarsed
+                    = overlappingArea
+                         (A.unlift shapeA) (A.unlift shapeB) coarsed
 
                  widthFocus  = min widthOverlap $ A.lift $ div widthPad 2
                  heightFocus = min heightOverlap $ A.lift $ div heightPad 2
