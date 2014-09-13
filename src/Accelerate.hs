@@ -1749,7 +1749,7 @@ process args = do
          \((thisGeom, otherGeoms, allPoints), (path, _)) -> do
 
       let stem = FilePath.takeBaseName path
-      when True $ do
+      when False $ do
          writeGrey (Option.quality opt)
             (printf "/tmp/%s-distance-box.jpeg" stem) $
             distanceMapBoxRun canvasShape thisGeom
