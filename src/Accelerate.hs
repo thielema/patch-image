@@ -805,12 +805,22 @@ These point correspondences
 can be used to compute corrections to rotation angles.
 -}
 optimalOverlapBigMulti ::
-   DIM2 -> DIM2 -> Int -> Float -> Channel Z Float -> Channel Z Float ->
+   DIM2 -> DIM2 -> Int ->
+   Float -> Float -> Channel Z Float -> Channel Z Float ->
    [((Int, Int), (Int, Int), Float)]
-optimalOverlapBigMulti
-      padExtent (Z:.heightFocus:.widthFocus) numCorrs =
+optimalOverlapBigMulti padExtent (Z:.heightFocus:.widthFocus) numCorrs =
+   let overlapShrunk =
+          Run.with CUDA.run1 $
+          \minimumOverlap factors a b ->
+             argmaximum $
+             allOverlaps padExtent minimumOverlap
+                (shrink factors a) (shrink factors b)
+       diffShrunk =
+          Run.with CUDA.run1 $
+          \shrunkd factors a b ->
+             overlapDifference shrunkd
+                (shrink factors a) (shrink factors b)
 
-   let overlapCoarse = optimalOverlapBig padExtent
        allOverlapsFine = allOverlaps (Z :. 2*heightFocus :. 2*widthFocus)
        overlapFine =
           Run.with CUDA.run1 $
@@ -829,9 +839,18 @@ optimalOverlapBigMulti
                     (clip anchorA extent a)
                     (clip anchorB extent b)
 
-   in  \minimumOverlap a b ->
-          let coarsed@(coarsedx,coarsedy) =
-                 fst $ overlapCoarse minimumOverlap a b
+   in  \maximumDiff minimumOverlap a b ->
+          let factors@(Z:.yk:.xk) =
+                 shrinkFactors padExtent (A.arrayShape a) (A.arrayShape b)
+
+              ((shrunkdx, shrunkdy), _score) =
+                 Acc.the $ overlapShrunk minimumOverlap factors a b
+
+              coarsedx = shrunkdx * xk
+              coarsedy = shrunkdy * yk
+              coarsed = (coarsedx,coarsedy)
+
+              diff = Acc.the $ diffShrunk (shrunkdx, shrunkdy) factors a b
 
               ((leftOverlap, topOverlap),
                (rightOverlap, bottomOverlap),
@@ -841,7 +860,8 @@ optimalOverlapBigMulti
               widthFocusClip = min widthOverlap widthFocus
               heightFocusClip = min heightOverlap heightFocus
 
-          in  map
+          in  (if diff < maximumDiff then id else const []) $
+              map
                  (\(x,y) ->
                     Acc.the $
                     overlapFine minimumOverlap a b
@@ -1584,7 +1604,9 @@ processOverlapRotate args picAngles pairs = do
           optimalOverlapBigMulti
              (Z :. padSize :. padSize)
              (Z :. focusSize :. focusSize)
-             5 (Option.minimumOverlap opt)
+             5
+             (Option.maximumDifference opt)
+             (Option.minimumOverlap opt)
 
    displacements <-
       fmap concat $
