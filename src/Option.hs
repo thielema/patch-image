@@ -212,11 +212,11 @@ description desc =
       (optionDescription desc)
    ++
 
-   Opt.Option [] ["angle"]
+   Opt.Option [] ["hint-angle"]
       (flip ReqArg "DEGREE" $ \str (image, args) ->
          fmap (\x -> (image{angle = Just x}, args)) $
          parseNumber "angle" (\w -> -1000<=w && w<=1000) "degree" str)
-      (printf "Fix angle of the next image, default: %s" $
+      (printf "Angle of the next image in first phase, default: %s" $
        maybe "automatic estimation" show (angle defltImage)) :
 
    []
