@@ -28,7 +28,7 @@ segments = map (uncurry Segment) . Polygon.edges
 
 intersections ::
    (Fractional a, Ord a) =>
-   [Line.L2 a] -> [Line.L2 a] -> [Point2 a]
+   [Line2 a] -> [Line2 a] -> [Point2 a]
 intersections segments0 segments1 =
    catMaybes $ liftM2 Line.intersect segments0 segments1
 
