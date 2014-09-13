@@ -808,7 +808,7 @@ optimalOverlapBigMulti ::
    DIM2 -> DIM2 -> Int ->
    Float -> Float -> Channel Z Float -> Channel Z Float ->
    [((Int, Int), (Int, Int), Float)]
-optimalOverlapBigMulti padExtent (Z:.heightFocus:.widthFocus) numCorrs =
+optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
    let overlapShrunk =
           Run.with CUDA.run1 $
           \minimumOverlap factors a b ->
@@ -821,7 +821,7 @@ optimalOverlapBigMulti padExtent (Z:.heightFocus:.widthFocus) numCorrs =
              overlapDifference shrunkd
                 (shrink factors a) (shrink factors b)
 
-       allOverlapsFine = allOverlaps (Z :. 2*heightFocus :. 2*widthFocus)
+       allOverlapsFine = allOverlaps (Z :. 2*heightStamp :. 2*widthStamp)
        overlapFine =
           Run.with CUDA.run1 $
           \minimumOverlap a b anchorA@(leftA, topA) anchorB@(leftB, topB)
@@ -857,8 +857,8 @@ optimalOverlapBigMulti padExtent (Z:.heightFocus:.widthFocus) numCorrs =
                (widthOverlap, heightOverlap))
                  = overlappingArea (A.arrayShape a) (A.arrayShape b) coarsed
 
-              widthFocusClip = min widthOverlap widthFocus
-              heightFocusClip = min heightOverlap heightFocus
+              widthStampClip = min widthOverlap widthStamp
+              heightStampClip = min heightOverlap heightStamp
 
           in  (if diff < maximumDiff then id else const []) $
               map
@@ -866,16 +866,16 @@ optimalOverlapBigMulti padExtent (Z:.heightFocus:.widthFocus) numCorrs =
                     Acc.the $
                     overlapFine minimumOverlap a b
                        (x, y) (x-coarsedx, y-coarsedy)
-                       (widthFocusClip, heightFocusClip)) $
+                       (widthStampClip, heightStampClip)) $
               zip
                  (map round $ tail $ init $
                   linearScale (numCorrs+1)
                      (fromIntegral leftOverlap :: Double,
-                      fromIntegral $ rightOverlap - widthFocusClip))
+                      fromIntegral $ rightOverlap - widthStampClip))
                  (map round $ tail $ init $
                   linearScale (numCorrs+1)
                      (fromIntegral topOverlap :: Double,
-                      fromIntegral $ bottomOverlap - heightFocusClip))
+                      fromIntegral $ bottomOverlap - heightStampClip))
 
 
 overlapDifference ::
@@ -1599,11 +1599,11 @@ processOverlapRotate args picAngles pairs = do
    let info = CmdLine.info (Option.verbosity opt)
 
    let padSize = Option.padSize opt
-   let focusSize = 64
+   let stampSize = 64
    let optimalOverlapShared =
           optimalOverlapBigMulti
              (Z :. padSize :. padSize)
-             (Z :. focusSize :. focusSize)
+             (Z :. stampSize :. stampSize)
              5
              (Option.maximumDifference opt)
              (Option.minimumOverlap opt)
