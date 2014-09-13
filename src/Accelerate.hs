@@ -1172,7 +1172,7 @@ distanceMapBox sh geom =
 
 -- cf. Data.Array.Accelerate.Arithmetic.Interpolation
 outerVector ::
-   (A.Shape ix, A.Slice ix, A.Elt a, A.Elt b, A.Elt c) =>
+   (A.Slice ix, A.Shape ix, A.Elt a, A.Elt b, A.Elt c) =>
    (Exp a -> Exp b -> Exp c) ->
    LinAlg.Scalar ix a -> LinAlg.Vector Z b -> LinAlg.Vector ix c
 outerVector f x y =
