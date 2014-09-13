@@ -27,8 +27,6 @@ import qualified Data.Packed.ST as PackST
 import qualified Numeric.Container as Container
 import Numeric.Container ((<\>), (<>))
 
-import Point2 (Point2(Point2))
-
 import qualified Graphics.Gnuplot.Advanced as GP
 import qualified Graphics.Gnuplot.LineSpecification as LineSpec
 
@@ -1138,16 +1136,14 @@ type Line2 a = (Point2 a, Point2 a)
 
 intersect ::
    (Ord a, Fractional a) => Line2 a -> Line2 a -> Maybe (Point2 a)
-intersect
-      (Point2 (xa,ya), Point2 (xb,yb))
-      (Point2 (xc,yc), Point2 (xd,yd)) = do
+intersect ((xa,ya), (xb,yb)) ((xc,yc), (xd,yd)) = do
    let denom = (xb-xa)*(yd-yc)-(xd-xc)*(yb-ya)
        r     = ((xd-xc)*(ya-yc)-(xa-xc)*(yd-yc)) / denom
        s     = ((xb-xa)*(ya-yc)-(xa-xc)*(yb-ya)) / denom
    guard (denom/=0)
    guard (0<=r && r<=1)
    guard (0<=s && s<=1)
-   return (Point2 (xa + r*(xb-xa), ya + r*(yb-ya)))
+   return (xa + r*(xb-xa), ya + r*(yb-ya))
 
 intersections ::
    (Fractional a, Ord a) =>
@@ -1156,15 +1152,16 @@ intersections segments0 segments1 =
    catMaybes $ liftM2 intersect segments0 segments1
 
 
+type Point2 a = (a,a)
 
 projectPerp ::
-   (Eq a, Fractional a) =>
+   (Fractional a) =>
    Point2 a -> (Point2 a, Point2 a) -> (a, Point2 a)
-projectPerp (Point2 (xc,yc)) (Point2 (xa,ya), Point2 (xb,yb)) =
+projectPerp (xc,yc) ((xa,ya), (xb,yb)) =
    let dx = xb-xa
        dy = yb-ya
        r = ((xc-xa)*dx + (yc-ya)*dy) / (dx*dx + dy*dy)
-   in  (r, Point2 (xa + r*dx, ya + r*dy))
+   in  (r, (xa + r*dx, ya + r*dy))
 
 project ::
    (A.Elt a, A.IsFloating a) =>
@@ -1176,8 +1173,8 @@ project x ab =
    in  (0<=*r &&* r<=*1, y)
 
 
-distance :: (Eq a, Floating a) => Point2 a -> Point2 a -> a
-distance (Point2 (xa,ya)) (Point2 (xb,yb)) =
+distance :: (Floating a) => Point2 a -> Point2 a -> a
+distance (xa,ya) (xb,yb) =
    sqrt $ (xa-xb)^(2::Int) + (ya-yb)^(2::Int)
 
 
@@ -1189,8 +1186,7 @@ distanceMapEdges sh edges =
    maskedMinimum $
    outerVector
       (Exp.modify2 (atom,atom) ((atom, atom), (atom, atom)) $ \p (q0, q1) ->
-         let pp = Point2 p
-         in  mapSnd (distance pp) $ project pp (Point2 q0, Point2 q1))
+         mapSnd (distance p) $ project p (q0, q1))
       (pixelCoordinates sh)
       edges
 
@@ -1346,8 +1342,7 @@ distanceMapPoints ::
 distanceMapPoints a b =
    A.fold1 min $
    outerVector
-      (Exp.modify2 (atom,atom) (atom,atom) $
-       \pa pb -> distance (Point2 pa) (Point2 pb))
+      (Exp.modify2 (atom,atom) (atom,atom) distance)
       a b
 
 distanceMapPointsRun ::
@@ -1365,8 +1360,7 @@ distanceMapPointsRun =
                  distanceMapPoints (pixelCoordinates sh) points
    in  \sh points ->
           distances sh $
-             A.fromList (Z :. length points) $
-             map (\(Point2 p) -> p) points
+             A.fromList (Z :. length points) points
 
 
 distanceMap ::
@@ -1399,7 +1393,7 @@ distanceMapRun =
    in  \sh this others points ->
           distances sh this
              (A.fromList (Z :. length others) others)
-             (A.fromList (Z :. length points) $ map (\(Point2 p) -> p) points)
+             (A.fromList (Z :. length points) points)
 
 
 distanceMapGamma ::
@@ -1458,7 +1452,7 @@ updateWeightedCanvasMerged =
                     (weightSum,canvas)
    in  \this others points pic canvas ->
           update this (A.fromList (Z :. length others) others)
-             (A.fromList (Z :. length points) $ map (\(Point2 p) -> p) points)
+             (A.fromList (Z :. length points) points)
              pic canvas
 
 updateWeightedCanvas ::
@@ -1485,7 +1479,7 @@ updateWeightedCanvas =
           update this pic
              (distances gamma (A.arrayShape weightSum) this
                  (A.fromList (Z :. length others) others)
-                 (A.fromList (Z :. length points) $ map (\(Point2 p) -> p) points))
+                 (A.fromList (Z :. length points) points))
              (weightSum,canvas)
 
 -- launch timeout
@@ -1508,8 +1502,7 @@ updateWeightedCanvasSplit =
           update
              (distances (A.arrayShape weightSum) this
                  (A.fromList (Z :. length others) others)
-                 (A.fromList (Z :. length points) $
-                  map (\(Point2 p) -> p) points),
+                 (A.fromList (Z :. length points) points),
               rotated (A.arrayShape canvas) rot mov pic)
              (weightSum,canvas)
 
@@ -1781,7 +1774,7 @@ process args = do
           map
              (\(mov, rot, pic) ->
                 let Z:.height:.width:._chans = A.arrayShape pic
-                    trans = Point2 . rotateStretchMovePoint rot mov
+                    trans = rotateStretchMovePoint rot mov
                     widthf  = fromIntegral width
                     heightf = fromIntegral height
                     corner00 = trans (0,0)
@@ -1801,7 +1794,7 @@ process args = do
                 let intPoints = intersections thisEdges $ concatMap thd3 others
                     overlappingCorners =
                        filter
-                          (\(Point2 c) ->
+                          (\c ->
                              any (\(rot, mov, (width,height)) ->
                                     inBoxPlain (width,height) $
                                     mapPair (round, round) $
