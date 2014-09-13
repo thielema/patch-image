@@ -754,7 +754,7 @@ overlappingArea (Z :. heighta :. widtha) (Z :. heightb :. widthb) (dx, dy) =
 {-
 Like 'optimalOverlapBig'
 but computes precise distance in a second step
-using a part in the overlapping area..
+using a part in the overlapping area.
 -}
 optimalOverlapBigFine ::
    DIM2 -> Float -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
@@ -882,6 +882,7 @@ overlapDifferenceRun =
    in  \d a b -> Acc.the $ diff d a b
 
 
+-- we cannot use leastSquaresSelected here, because the right-hand side is not zero
 absolutePositionsFromPairDisplacements ::
    Int -> [((Int, Int), (Float, Float))] ->
    ([(Double,Double)], [(Double,Double)])
@@ -1208,7 +1209,7 @@ distanceMapBoxRun =
           distanceMapBox sh geom
 
 
--- maybe move to Utility
+-- maybe move to Accelerate.Utility
 {- |
 We use it as a work-around.
 Fusion of 'fold1' and 'replicate' would be very welcome
