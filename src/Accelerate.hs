@@ -954,7 +954,12 @@ layoutFromPairDisplacements ::
    ([((Double,Double), HComplex.Complex Double)],
     [(Double,Double)])
 layoutFromPairDisplacements numPics correspondences =
-   let weight =
+   let {-
+       The weight will only influence the result
+       for under-constrained equation systems.
+       This is usually not the case.
+       -}
+       weight =
           let xs =
                  concatMap
                     (\((_ia,(xai,yai)),(_ib,(xbi,ybi))) -> [xai, yai, xbi, ybi])
