@@ -1365,6 +1365,21 @@ distanceMapPointsRun =
           distances sh $ array1FromList points
 
 
+{- |
+For every pixel
+it computes the distance to the closest point on the image part boundary
+which lies in any other image.
+The rationale is that we want to fade an image out,
+wherever is another image that can take over.
+Such a closest point can either be a perpendicular point
+at one of the image edges,
+or it can be an image corner
+or an intersection between this image border and another image border.
+The first kind of points is computed by 'distanceMapContained'
+and the second kind by 'distanceMapPoints'.
+We simply compute the distances to all special points
+and chose the minimal distance.
+-}
 distanceMap ::
    (A.Elt a, A.IsFloating a) =>
    Exp DIM2 ->
