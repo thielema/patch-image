@@ -27,7 +27,6 @@ import qualified Data.Packed.ST as PackST
 import qualified Numeric.Container as Container
 import Numeric.Container ((<\>), (<>))
 
-import qualified Line
 import Point2 (Point2(Point2))
 
 import qualified Graphics.Gnuplot.Advanced as GP
@@ -1135,11 +1134,13 @@ maskedMaximum = A.fold1 (maybePlus max)
 
 
 
+type Line2 a = (Point2 a, Point2 a)
+
 intersect ::
-   (Ord a, Fractional a) => Line.L2 a -> Line.L2 a -> Maybe (Point2 a)
+   (Ord a, Fractional a) => Line2 a -> Line2 a -> Maybe (Point2 a)
 intersect
-      (Line.Segment (Point2 (xa,ya)) (Point2 (xb,yb)))
-      (Line.Segment (Point2 (xc,yc)) (Point2 (xd,yd))) = do
+      (Point2 (xa,ya), Point2 (xb,yb))
+      (Point2 (xc,yc), Point2 (xd,yd)) = do
    let denom = (xb-xa)*(yd-yc)-(xd-xc)*(yb-ya)
        r     = ((xd-xc)*(ya-yc)-(xa-xc)*(yd-yc)) / denom
        s     = ((xb-xa)*(ya-yc)-(xa-xc)*(yb-ya)) / denom
@@ -1150,7 +1151,7 @@ intersect
 
 intersections ::
    (Fractional a, Ord a) =>
-   [Line.L2 a] -> [Line.L2 a] -> [Point2 a]
+   [Line2 a] -> [Line2 a] -> [Point2 a]
 intersections segments0 segments1 =
    catMaybes $ liftM2 intersect segments0 segments1
 
@@ -1789,7 +1790,6 @@ process args = do
                     corner11 = trans (widthf,heightf)
                     corners = [corner00, corner01, corner10, corner11]
                     edges =
-                       map (uncurry Line.Segment) $
                        [(corner00, corner10), (corner10, corner11),
                         (corner11, corner01), (corner01, corner00)]
                 in  ((rot, mov, (width,height)), corners, edges))
