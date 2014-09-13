@@ -701,6 +701,9 @@ shrink (_:.yk:.xk) arr =
 divUp :: (Integral a) => a -> a -> a
 divUp a b = - div (-a) b
 
+
+type GenDIM2 a = Z :. a :. a
+
 shrinkFactors :: DIM2 -> Exp DIM2 -> Exp DIM2 -> ExpDIM2 Z
 shrinkFactors (Z:.heightPad:.widthPad) shapeA shapeB =
    let (Z :. heighta :. widtha) = A.unlift shapeA
@@ -743,8 +746,8 @@ clip (left,top) (width,height) arr =
 
 overlappingArea ::
    (Ord a, Num a) =>
-   (Z :. a :. a) ->
-   (Z :. a :. a) ->
+   GenDIM2 a ->
+   GenDIM2 a ->
    (a, a) -> ((a, a), (a, a), (a, a))
 overlappingArea (Z :. heighta :. widtha) (Z :. heightb :. widthb) (dx, dy) =
    let left = max 0 dx
