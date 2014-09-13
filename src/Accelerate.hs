@@ -1480,7 +1480,9 @@ processOverlap args picAngles pairs = do
    let padSize = Option.padSize opt
    let (maybeAllOverlapsShared, optimalOverlapShared) =
           case Just $ Z :. padSize :. padSize of
-             Just padExtent -> (Nothing, optimalOverlapBigFine padExtent)
+             Just padExtent ->
+                (Nothing,
+                 optimalOverlapBigFine padExtent (Option.minimumOverlap opt))
              Nothing ->
                 let (rotHeights, rotWidths) =
                        unzip $
@@ -1493,8 +1495,8 @@ processOverlap args picAngles pairs = do
                     padWidth  = ceilingPow2 $ maxSum2 rotWidths
                     padHeight = ceilingPow2 $ maxSum2 rotHeights
                     padExtent = Z :. padHeight :. padWidth
-                in  (Just $ allOverlapsRun padExtent,
-                     optimalOverlap padExtent)
+                in  (Just $ allOverlapsRun padExtent (Option.minimumOverlap opt),
+                     optimalOverlap padExtent (Option.minimumOverlap opt))
 
    displacements <-
       fmap catMaybes $
@@ -1503,10 +1505,9 @@ processOverlap args picAngles pairs = do
             writeGrey (Option.quality opt)
                (printf "/tmp/%s-%s-score.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-               allOverlapsShared (Option.minimumOverlap opt) picA picB
+               allOverlapsShared picA picB
 
-         let doffset@(dox,doy) =
-                fst $ optimalOverlapShared (Option.minimumOverlap opt) picA picB
+         let doffset@(dox,doy) = fst $ optimalOverlapShared picA picB
          let diff = overlapDifferenceRun doffset picA picB
          let overlapping = diff < Option.maximumDifference opt
          let d = (fromIntegral dox + fst leftTopA - fst leftTopB,
@@ -1577,7 +1578,7 @@ processOverlapRotate args picAngles pairs = do
           optimalOverlapBigMulti
              (Z :. padSize :. padSize)
              (Z :. focusSize :. focusSize)
-             5
+             5 (Option.minimumOverlap opt)
 
    displacements <-
       fmap concat $
@@ -1587,7 +1588,7 @@ processOverlapRotate args picAngles pairs = do
                 map
                    (\(pa,pb,score) ->
                       (((ia, add pa leftTopA), (ib, add pb leftTopB)), score)) $
-                optimalOverlapShared (Option.minimumOverlap opt) picA picB
+                optimalOverlapShared picA picB
          info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
          info $ printf "%s - %s" pathA pathB
          forM_ correspondences $ \(((_ia,pa@(xa,ya)),(_ib,pb@(xb,yb))), score) ->
