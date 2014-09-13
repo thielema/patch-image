@@ -28,7 +28,7 @@ import qualified Numeric.Container as Container
 import Numeric.Container ((<\>), (<>))
 
 import qualified Line
-import Point2 (Point2(Point2), distance)
+import Point2 (Point2(Point2))
 
 import qualified Graphics.Gnuplot.Advanced as GP
 import qualified Graphics.Gnuplot.LineSpecification as LineSpec
@@ -1159,6 +1159,12 @@ project ::
 project x ab =
    let (r, y) = projectPerp x ab
    in  (0<=*r &&* r<=*1, y)
+
+
+distance :: (Eq a, Floating a) => Point2 a -> Point2 a -> a
+distance (Point2 (xa,ya)) (Point2 (xb,yb)) =
+   sqrt $ (xa-xb)^(2::Int) + (ya-yb)^(2::Int)
+
 
 distanceMapEdges ::
    (A.Elt a, A.IsFloating a) =>
