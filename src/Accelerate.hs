@@ -4,7 +4,7 @@ module Main where
 import qualified Option
 
 import qualified Data.Array.Accelerate.Math.FFT as FFT
-import qualified Data.Array.Accelerate.Math.Complex as Complex
+import qualified Data.Array.Accelerate.Data.Complex as Complex
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate.Arithmetic.LinearAlgebra as LinAlg
@@ -14,7 +14,7 @@ import qualified Data.Array.Accelerate.Utility.Lift.Exp as Exp
 import qualified Data.Array.Accelerate.Utility.Arrange as Arrange
 import qualified Data.Array.Accelerate.Utility.Loop as Loop
 import qualified Data.Array.Accelerate as A
-import Data.Array.Accelerate.Math.Complex (Complex((:+)), )
+import Data.Array.Accelerate.Data.Complex (Complex((:+)), )
 import Data.Array.Accelerate.Utility.Lift.Exp (atom)
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3,
@@ -507,7 +507,7 @@ convolvePaddedSimple sh@(Z :. height :. width) =
        inverse = FFT.fft2D' FFT.Inverse width height
    in  \ x y ->
           A.map Complex.real $ inverse $
-          A.zipWith (\xi yi -> xi * Complex.conj yi) (forward x) (forward y)
+          A.zipWith (\xi yi -> xi * Complex.conjugate yi) (forward x) (forward y)
 
 
 imagUnit :: (A.Elt a, A.IsNum a) => Exp (Complex a)
@@ -537,8 +537,8 @@ untangleRealSpectra spec =
    A.zipWith
       (\a b ->
          A.lift $
-            ((a + Complex.conj b) / 2,
-             (a - Complex.conj b) * (-imagUnit / 2)))
+            ((a + Complex.conjugate b) / 2,
+             (a - Complex.conjugate b) * (-imagUnit / 2)))
       spec $
    A.backpermute (A.shape spec)
       (Exp.modify (atom:.atom:.atom) $
@@ -563,7 +563,7 @@ convolvePadded sh@(Z :. height :. width) =
        inverse = FFT.fft2D' FFT.Inverse width height
    in  \ a b ->
           A.map Complex.real $ inverse $
-          A.map (Exp.modify (atom,atom) $ \(ai,bi) -> ai * Complex.conj bi) $
+          A.map (Exp.modify (atom,atom) $ \(ai,bi) -> ai * Complex.conjugate bi) $
           untangleRealSpectra $ forward $
           pad 0 (A.lift sh) $
           A.zipWith (Exp.modify2 atom atom (:+)) a b
