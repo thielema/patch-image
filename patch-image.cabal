@@ -60,9 +60,11 @@ Description:
   .
   * @--maximum-absolute-angle@:
     Maximum angle to test for.
+  .
   * @--number-angles@:
     Number of angles minus one
     to test between negative and positive maximum angle.
+  .
   * @--hint-angle@:
     If the search for horizontal structures
     does not yield satisfying results for an image part,
@@ -142,7 +144,7 @@ Description:
   .
   * @--output@:
     Path of the output JPEG image with the weighted collage.
-
+  .
   * @--output-hard@:
     Alternative output of a JPEG collage
     where the image parts are simply averaged.
