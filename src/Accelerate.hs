@@ -444,10 +444,10 @@ mulConj ::
    Exp (Complex a) -> Exp (Complex a) -> Exp (Complex a)
 mulConj x y = x * Complex.conjugate y
 
-convolveImpossible ::
+correlateImpossible ::
    (A.Elt a, A.IsFloating a) =>
    Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
-convolveImpossible x y =
+correlateImpossible x y =
    let (heightx, widthx) = A.unlift $ A.unindex2 $ A.shape x
        (heighty, widthy) = A.unlift $ A.unindex2 $ A.shape y
        width  = ceilingPow2Exp $ widthx  + widthy
@@ -502,10 +502,10 @@ highpass count arr =
   A.zipWith (-) arr $ lowpass count arr
 
 
-convolvePaddedSimple ::
+correlatePaddedSimple ::
    (A.Elt a, A.IsFloating a) =>
    DIM2 -> Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
-convolvePaddedSimple sh@(Z :. height :. width) =
+correlatePaddedSimple sh@(Z :. height :. width) =
    let forward =
           FFT.fft2D' FFT.Forward width height .
           A.map (A.lift . (:+ 0)) . pad 0 (A.lift sh)
@@ -553,17 +553,17 @@ untangleRealSpectra spec =
       spec
 
 {-
-This is more efficient than 'convolvePaddedSimple'
+This is more efficient than 'correlatePaddedSimple'
 since it needs only one forward Fourier transform,
-where 'convolvePaddedSimple' needs two of them.
+where 'correlatePaddedSimple' needs two of them.
 For the analysis part,
 perform two real-valued Fourier transforms using one complex-valued transform.
 Afterwards we untangle the superposed spectra.
 -}
-convolvePadded ::
+correlatePadded ::
    (A.Elt a, A.IsFloating a) =>
    DIM2 -> Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
-convolvePadded sh@(Z :. height :. width) =
+correlatePadded sh@(Z :. height :. width) =
    let forward = FFT.fft2D' FFT.Forward width height
        inverse = FFT.fft2D' FFT.Inverse width height
    in  \ a b ->
@@ -638,7 +638,7 @@ allOverlaps ::
    Acc (Channel Z Float) -> Acc (Channel Z Float) ->
    Acc (Channel Z ((Int, Int), Float))
 allOverlaps size@(Z :. height :. width) minOverlapPortion =
-   let convolve = convolvePadded size
+   let correlate = correlatePadded size
    in  \a b ->
           let (Z :. heighta :. widtha) = A.unlift $ A.shape a
               (Z :. heightb :. widthb) = A.unlift $ A.shape b
@@ -665,7 +665,7 @@ allOverlaps size@(Z :. height :. width) minOverlapPortion =
               attachDisplacements
                  (half $ A.lift width - widthb + widtha)
                  (half $ A.lift height - heightb + heighta) $
-              convolve a b
+              correlate a b
 
 
 allOverlapsRun ::
@@ -1750,7 +1750,7 @@ process args = do
          pic0
       writeGrey (Option.quality opt) "/tmp/convolution.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
-         convolvePadded size (A.use pic0) (A.use pic1)
+         correlatePadded size (A.use pic0) (A.use pic1)
 
    (floatPoss, picRots) <-
       (if Option.finetuneRotate opt
