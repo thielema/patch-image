@@ -439,6 +439,11 @@ pad a sh arr =
               ?
               (arr A.! A.index2 y x, a)
 
+mulConj ::
+   (A.Elt a, A.IsFloating a) =>
+   Exp (Complex a) -> Exp (Complex a) -> Exp (Complex a)
+mulConj x y = x * Complex.conjugate y
+
 convolveImpossible ::
    (A.Elt a, A.IsFloating a) =>
    Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
@@ -453,7 +458,7 @@ convolveImpossible x y =
           A.map (A.lift . (:+ 0)) $ pad 0 sh z
    in  A.map Complex.real $
        FFT.fft2D FFT.Inverse $ CUDA.run $
-       A.zipWith (*) (forward x) (forward y)
+       A.zipWith mulConj (forward x) (forward y)
 
 
 ceilingPow2 :: Int -> Int
@@ -507,7 +512,7 @@ convolvePaddedSimple sh@(Z :. height :. width) =
        inverse = FFT.fft2D' FFT.Inverse width height
    in  \ x y ->
           A.map Complex.real $ inverse $
-          A.zipWith (\xi yi -> xi * Complex.conjugate yi) (forward x) (forward y)
+          A.zipWith mulConj (forward x) (forward y)
 
 
 imagUnit :: (A.Elt a, A.IsNum a) => Exp (Complex a)
@@ -563,7 +568,7 @@ convolvePadded sh@(Z :. height :. width) =
        inverse = FFT.fft2D' FFT.Inverse width height
    in  \ a b ->
           A.map Complex.real $ inverse $
-          A.map (Exp.modify (atom,atom) $ \(ai,bi) -> ai * Complex.conjugate bi) $
+          A.map (Exp.modify (atom,atom) $ uncurry mulConj) $
           untangleRealSpectra $ forward $
           pad 0 (A.lift sh) $
           A.zipWith (Exp.modify2 atom atom (:+)) a b
