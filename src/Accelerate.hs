@@ -16,6 +16,7 @@ import qualified Data.Array.Accelerate.Utility.Loop as Loop
 import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Data.Complex (Complex((:+)), )
 import Data.Array.Accelerate.Utility.Lift.Exp (atom)
+import Data.Array.Accelerate.Utility.Ord (argmaximum)
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3,
            (:.)((:.)), Z(Z), Any(Any), All(All),
@@ -577,29 +578,29 @@ correlatePadded sh@(Z :. height :. width) =
 attachDisplacements ::
    (A.Elt a, A.IsScalar a) =>
    Exp Int -> Exp Int ->
-   Acc (Channel Z a) -> Acc (Channel Z ((Int, Int), a))
+   Acc (Channel Z a) -> Acc (Channel Z (a, (Int, Int)))
 attachDisplacements xsplit ysplit arr =
    let sh = A.shape arr
        (_z :. height :. width) = unliftDim2 sh
    in  A.generate sh $ \p ->
           let (_z:.y:.x) = unliftDim2 p
               wrap size split c = c<*split ? (c, c-size)
-          in  A.lift ((wrap width xsplit x, wrap height ysplit y), arr A.! p)
+          in  A.lift (arr A.! p, (wrap width xsplit x, wrap height ysplit y))
 
 weightOverlapScores ::
    (A.Elt a, A.IsFloating a, A.IsScalar a) =>
    Exp Int -> (Exp Int, Exp Int) -> (Exp Int, Exp Int) ->
-   Acc (Channel Z ((Int, Int), a)) ->
-   Acc (Channel Z ((Int, Int), a))
+   Acc (Channel Z (a, (Int, Int))) ->
+   Acc (Channel Z (a, (Int, Int)))
 weightOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
-       (Exp.modify ((atom,atom),atom) $ \(dp@(dy,dx),v) ->
+       (Exp.modify (atom,(atom,atom)) $ \(v, dp@(dy,dx)) ->
           let clipWidth  = min widtha  (widthb  + dx) - max 0 dx
               clipHeight = min heighta (heightb + dy) - max 0 dy
-          in  (dp,
-                 (clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
-                 ?
-                 (v / (A.fromIntegral clipWidth * A.fromIntegral clipHeight), 0)))
+          in  ((clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
+               ?
+               (v / (A.fromIntegral clipWidth * A.fromIntegral clipHeight), 0),
+               dp))
 
 {- |
 Set all scores to zero within a certain border.
@@ -609,34 +610,24 @@ that are actually digitalization artifacts.
 minimumOverlapScores ::
    (A.Elt a, A.IsFloating a, A.IsScalar a) =>
    Exp Int -> (Exp Int, Exp Int) -> (Exp Int, Exp Int) ->
-   Acc (Channel Z ((Int, Int), a)) ->
-   Acc (Channel Z ((Int, Int), a))
+   Acc (Channel Z (a, (Int, Int))) ->
+   Acc (Channel Z (a, (Int, Int)))
 minimumOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
-       (Exp.modify ((atom,atom),atom) $ \(dp@(dy,dx),v) ->
+       (Exp.modify (atom,(atom,atom)) $ \(v, dp@(dy,dx)) ->
           let clipWidth  = min widtha  (widthb  + dx) - max 0 dx
               clipHeight = min heighta (heightb + dy) - max 0 dy
-          in  (dp,
-                 (clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
-                 ?
-                 (v, 0)))
-
-argmax ::
-   (A.Elt a, A.Elt b, A.IsScalar b) =>
-   Exp (a, b) -> Exp (a, b) -> Exp (a, b)
-argmax x y  =  A.snd x <* A.snd y ? (y,x)
-
-argmaximum ::
-   (A.Elt a, A.Elt b, A.IsScalar b) =>
-   Acc (Channel Z (a, b)) -> Acc (A.Scalar (a, b))
-argmaximum = A.fold1All argmax
+          in  ((clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
+               ?
+               (v, 0),
+               dp))
 
 
 allOverlaps ::
    DIM2 ->
    Exp Float ->
    Acc (Channel Z Float) -> Acc (Channel Z Float) ->
-   Acc (Channel Z ((Int, Int), Float))
+   Acc (Channel Z (Float, (Int, Int)))
 allOverlaps size@(Z :. height :. width) minOverlapPortion =
    let correlate = correlatePadded size
    in  \a b ->
@@ -675,10 +666,10 @@ allOverlapsRun padExtent =
       imageByteFromFloat $
       -- A.map (2*) $
       A.map (0.0001*) $
-      A.map A.snd $ allOverlaps padExtent minOverlap picA picB
+      A.map A.fst $ allOverlaps padExtent minOverlap picA picB
 
 optimalOverlap ::
-   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
+   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> (Float, (Int, Int))
 optimalOverlap padExtent =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
@@ -717,7 +708,7 @@ shrinkFactors (Z:.heightPad:.widthPad)
 Reduce image sizes below the padExtent before matching images.
 -}
 optimalOverlapBig ::
-   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
+   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> (Float, (Int, Int))
 optimalOverlapBig padExtent =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
@@ -725,8 +716,8 @@ optimalOverlapBig padExtent =
                     shrinkFactors padExtent
                        (A.unlift $ A.shape a) (A.unlift $ A.shape b)
                  scalePos =
-                    Exp.modify ((atom,atom), atom) $
-                    \((xm,ym), score) -> ((xm*xk, ym*yk), score)
+                    Exp.modify (atom, (atom,atom)) $
+                    \(score, (xm,ym)) -> (score, (xm*xk, ym*yk))
              in  A.map scalePos $ argmaximum $
                  allOverlaps padExtent minimumOverlap
                     (shrink factors a) (shrink factors b)
@@ -767,7 +758,7 @@ but computes precise distance in a second step
 using a part in the overlapping area.
 -}
 optimalOverlapBigFine ::
-   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> ((Int, Int), Float)
+   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> (Float, (Int, Int))
 optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
@@ -776,7 +767,7 @@ optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
                  factors@(_z:.yk:.xk) = shrinkFactors padExtent shapeA shapeB
                  coarsed@(coarsedx,coarsedy) =
                     mapPair ((xk*), (yk*)) $
-                    Exp.unliftPair $ A.fst $ A.the $ argmaximum $
+                    Exp.unliftPair $ A.snd $ A.the $ argmaximum $
                     allOverlaps padExtent minimumOverlap
                        (shrink factors a) (shrink factors b)
 
@@ -790,8 +781,8 @@ optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
                  leftFocus = leftOverlap + div (widthOverlap-widthFocus) 2
                  topFocus  = topOverlap  + div (heightOverlap-heightFocus) 2
                  addCoarsePos =
-                    Exp.modify ((atom,atom), atom) $
-                    \((xm,ym), score) -> ((xm+coarsedx, ym+coarsedy), score)
+                    Exp.modify (atom, (atom,atom)) $
+                    \(score, (xm,ym)) -> (score, (xm+coarsedx, ym+coarsedy))
              in  A.map addCoarsePos $ argmaximum $
                  allOverlaps padExtent minimumOverlap
                     (clip (leftFocus,topFocus) extentFocus a)
@@ -809,7 +800,7 @@ can be used to compute corrections to rotation angles.
 optimalOverlapBigMulti ::
    DIM2 -> DIM2 -> Int ->
    Float -> Float -> Channel Z Float -> Channel Z Float ->
-   [((Int, Int), (Int, Int), Float)]
+   [(Float, (Int, Int), (Int, Int))]
 optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
    let overlapShrunk =
           Run.with CUDA.run1 $
@@ -829,13 +820,13 @@ optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
           \minimumOverlap a b anchorA@(leftA, topA) anchorB@(leftB, topB)
                 extent@(width,height) ->
              let addCoarsePos =
-                    Exp.modify ((atom,atom), atom) $
-                    \((xm,ym), score) ->
+                    Exp.modify (atom, (atom,atom)) $
+                    \(score, (xm,ym)) ->
                        let xc = div (width+xm) 2
                            yc = div (height+ym) 2
-                       in  ((leftA+xc,    topA+yc),
-                            (leftB+xc-xm, topB+yc-ym),
-                            score)
+                       in  (score,
+                            (leftA+xc,    topA+yc),
+                            (leftB+xc-xm, topB+yc-ym))
              in  A.map addCoarsePos $ argmaximum $
                  allOverlapsFine minimumOverlap
                     (clip anchorA extent a)
@@ -845,7 +836,7 @@ optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
           let factors@(Z:.yk:.xk) =
                  shrinkFactors padExtent (A.arrayShape a) (A.arrayShape b)
 
-              ((shrunkdx, shrunkdy), _score) =
+              (_score, (shrunkdx, shrunkdy)) =
                  Acc.the $ overlapShrunk minimumOverlap factors a b
 
               coarsedx = shrunkdx * xk
@@ -1580,7 +1571,7 @@ processOverlap args picAngles pairs = do
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
                allOverlapsShared picA picB
 
-         let doffset@(dox,doy) = fst $ optimalOverlapShared picA picB
+         let doffset@(dox,doy) = snd $ optimalOverlapShared picA picB
          let diff = overlapDifferenceRun doffset picA picB
          let overlapping = diff < Option.maximumDifference opt
          let d = (fromIntegral dox + fst leftTopA - fst leftTopB,
@@ -1661,16 +1652,16 @@ processOverlapRotate args picAngles pairs = do
          let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
          let correspondences =
                 map
-                   (\(pa,pb,score) ->
-                      (((ia, add pa leftTopA), (ib, add pb leftTopB)), score)) $
+                   (\(score,pa,pb) ->
+                      (score, ((ia, add pa leftTopA), (ib, add pb leftTopB)))) $
                 optimalOverlapShared picA picB
          info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
          info $ printf "%s - %s" pathA pathB
-         forM_ correspondences $ \(((_ia,pa@(xa,ya)),(_ib,pb@(xb,yb))), score) ->
+         forM_ correspondences $ \(score, ((_ia,pa@(xa,ya)),(_ib,pb@(xb,yb)))) ->
             info $
                printf "%s ~ %s, (%f,%f), %f"
                   (show pa) (show pb) (xb-xa) (yb-ya) score
-         return $ map fst correspondences
+         return $ map snd correspondences
 
    let (posRots, dps) =
           layoutFromPairDisplacements (length picAngles) displacements
