@@ -3,6 +3,7 @@ module Main where
 
 import qualified Option
 
+import qualified Data.Array.Accelerate.Fourier.Real as FourierReal
 import qualified Data.Array.Accelerate.Math.FFT as FFT
 import qualified Data.Array.Accelerate.Data.Complex as Complex
 import qualified Data.Array.Accelerate.CUDA as CUDA
@@ -516,43 +517,6 @@ correlatePaddedSimple sh@(Z :. height :. width) =
           A.zipWith mulConj (forward x) (forward y)
 
 
-imagUnit :: (A.Elt a, A.IsNum a) => Exp (Complex a)
-imagUnit = Exp.modify2 atom atom (:+) 0 1
-
-{- |
-Let f and g be two real valued images.
-The spectrum of f+i*g is spec f + i * spec g.
-Let 'flip' be the spectrum with negated indices modulo image size.
-It holds: flip (spec f) = conj (spec f).
-
-(a + conj b) / 2
-  = (spec (f+i*g) + conj (flip (spec (f+i*g)))) / 2
-  = (spec f + i*spec g + conj (flip (spec f)) + conj (flip (spec (i*g)))) / 2
-  = (2*spec f + i*spec g + conj (i*flip (spec g))) / 2
-  = (2*spec f + i*spec g - i * conj (flip (spec g))) / 2
-  = spec f
-
-(a - conj b) * (-i/2)
-  = (-i*a + conj (-i*b)) / 2
-  -> this swaps role of f and g in the proof above
--}
-untangleRealSpectra ::
-   (A.Elt a, A.IsFloating a) =>
-   Acc (Array DIM2 (Complex a)) -> Acc (Array DIM2 (Complex a, Complex a))
-untangleRealSpectra spec =
-   A.zipWith
-      (\a b ->
-         A.lift $
-            ((a + Complex.conjugate b) / 2,
-             (a - Complex.conjugate b) * (-imagUnit / 2)))
-      spec $
-   A.backpermute (A.shape spec)
-      (Exp.modify (atom:.atom:.atom) $
-       \(_z:.y:.x) ->
-          let (_z:.height:.width) = unliftDim2 $ A.shape spec
-          in  Z :. mod (-y) height :. mod (-x) width)
-      spec
-
 {-
 This is more efficient than 'correlatePaddedSimple'
 since it needs only one forward Fourier transform,
@@ -569,8 +533,8 @@ correlatePadded sh@(Z :. height :. width) =
        inverse = FFT.fft2D' FFT.Inverse width height
    in  \ a b ->
           A.map Complex.real $ inverse $
-          A.map (Exp.modify (atom,atom) $ uncurry mulConj) $
-          untangleRealSpectra $ forward $
+          A.map (A.uncurry mulConj) $
+          FourierReal.untangleSpectra2d $ forward $
           pad 0 (A.lift sh) $
           A.zipWith (Exp.modify2 atom atom (:+)) a b
 

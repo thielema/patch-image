@@ -208,6 +208,7 @@ Executable patch-image
   GHC-Prof-Options: -fprof-auto -rtsopts
 
   Build-Depends:
+    accelerate-fourier >=0.0 && <0.1,
     accelerate-arithmetic >=0.0 && <0.1,
     accelerate-utility >=0.0.1 && <0.1,
     accelerate-cuda >=0.15 && <0.16,
