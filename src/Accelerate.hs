@@ -16,7 +16,7 @@ import qualified Data.Array.Accelerate.Utility.Arrange as Arrange
 import qualified Data.Array.Accelerate.Utility.Loop as Loop
 import qualified Data.Array.Accelerate as A
 import Data.Array.Accelerate.Data.Complex (Complex((:+)), )
-import Data.Array.Accelerate.Utility.Lift.Exp (atom)
+import Data.Array.Accelerate.Utility.Lift.Exp (expr)
 import Data.Array.Accelerate.Utility.Ord (argmaximum)
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3,
@@ -115,13 +115,13 @@ imageByteFromFloat = A.map (fastRound . (255*) . max 0 . min 1)
 
 cycleLeftDim3 :: Exp DIM3 -> Exp DIM3
 cycleLeftDim3 =
-   Exp.modify (atom :. atom :. atom :. atom) $
+   Exp.modify (expr :. expr :. expr :. expr) $
        \(z :. chans :. height :. width) ->
           z :. height :. width :. chans
 
 cycleRightDim3 :: Exp DIM3 -> Exp DIM3
 cycleRightDim3 =
-   Exp.modify (atom :. atom :. atom :. atom) $
+   Exp.modify (expr :. expr :. expr :. expr) $
        \(z :. height :. width :. chans) ->
           z :. chans :. height :. width
 
@@ -536,7 +536,7 @@ correlatePadded sh@(Z :. height :. width) =
           A.map (A.uncurry mulConj) $
           FourierReal.untangleSpectra2d $ forward $
           pad 0 (A.lift sh) $
-          A.zipWith (Exp.modify2 atom atom (:+)) a b
+          A.zipWith (Exp.modify2 expr expr (:+)) a b
 
 
 attachDisplacements ::
@@ -558,7 +558,7 @@ weightOverlapScores ::
    Acc (Channel Z (a, (Int, Int)))
 weightOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
-       (Exp.modify (atom,(atom,atom)) $ \(v, dp@(dy,dx)) ->
+       (Exp.modify (expr,(expr,expr)) $ \(v, dp@(dy,dx)) ->
           let clipWidth  = min widtha  (widthb  + dx) - max 0 dx
               clipHeight = min heighta (heightb + dy) - max 0 dy
           in  ((clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
@@ -578,7 +578,7 @@ minimumOverlapScores ::
    Acc (Channel Z (a, (Int, Int)))
 minimumOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
-       (Exp.modify (atom,(atom,atom)) $ \(v, dp@(dy,dx)) ->
+       (Exp.modify (expr,(expr,expr)) $ \(v, dp@(dy,dx)) ->
           let clipWidth  = min widtha  (widthb  + dx) - max 0 dx
               clipHeight = min heighta (heightb + dy) - max 0 dy
           in  ((clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
@@ -650,7 +650,7 @@ shrink (_:.yk:.xk) arr =
        A.fold1 (+) $ A.fold1 (+) $
        A.backpermute
           (A.lift $ shape :. div height yk :. div width xk :. yk :. xk)
-          (Exp.modify (atom:.atom:.atom:.atom:.atom) $
+          (Exp.modify (expr:.expr:.expr:.expr:.expr) $
            \(z:.yi:.xi:.yj:.xj) -> z:.yi*yk+yj:.xi*xk+xj)
           arr
 
@@ -680,7 +680,7 @@ optimalOverlapBig padExtent =
                     shrinkFactors padExtent
                        (A.unlift $ A.shape a) (A.unlift $ A.shape b)
                  scalePos =
-                    Exp.modify (atom, (atom,atom)) $
+                    Exp.modify (expr, (expr,expr)) $
                     \(score, (xm,ym)) -> (score, (xm*xk, ym*yk))
              in  A.map scalePos $ argmaximum $
                  allOverlaps padExtent minimumOverlap
@@ -696,7 +696,7 @@ clip ::
 clip (left,top) (width,height) arr =
    A.backpermute
       (A.lift $ A.indexTail (A.indexTail (A.shape arr)) :. height :. width)
-      (Exp.modify (atom:.atom:.atom) $
+      (Exp.modify (expr:.expr:.expr) $
        \(z :. y :. x) -> z :. y+top :. x+left)
       arr
 
@@ -745,7 +745,7 @@ optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
                  leftFocus = leftOverlap + div (widthOverlap-widthFocus) 2
                  topFocus  = topOverlap  + div (heightOverlap-heightFocus) 2
                  addCoarsePos =
-                    Exp.modify (atom, (atom,atom)) $
+                    Exp.modify (expr, (expr,expr)) $
                     \(score, (xm,ym)) -> (score, (xm+coarsedx, ym+coarsedy))
              in  A.map addCoarsePos $ argmaximum $
                  allOverlaps padExtent minimumOverlap
@@ -784,7 +784,7 @@ optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
           \minimumOverlap a b anchorA@(leftA, topA) anchorB@(leftB, topB)
                 extent@(width,height) ->
              let addCoarsePos =
-                    Exp.modify (atom, (atom,atom)) $
+                    Exp.modify (expr, (expr,expr)) $
                     \(score, (xm,ym)) ->
                        let xc = div (width+xm) 2
                            yc = div (height+ym) 2
@@ -1142,10 +1142,10 @@ distanceMapEdges ::
    (A.Elt a, A.IsFloating a) =>
    Exp DIM2 -> Acc (Array DIM1 ((a,a),(a,a))) -> Acc (Channel Z a)
 distanceMapEdges sh edges =
-   A.map (Exp.modify (atom,atom) $ \(valid, dist) -> valid ? (dist, 0)) $
+   A.map (Exp.modify (expr,expr) $ \(valid, dist) -> valid ? (dist, 0)) $
    maskedMinimum $
    outerVector
-      (Exp.modify2 (atom,atom) ((atom, atom), (atom, atom)) $ \p (q0, q1) ->
+      (Exp.modify2 (expr,expr) ((expr, expr), (expr, expr)) $ \p (q0, q1) ->
          mapSnd (distance p) $ project p (q0, q1))
       (pixelCoordinates sh)
       edges
@@ -1163,7 +1163,7 @@ distanceMapBox ::
    Acc (Channel Z (Bool, (((a,(a,a)), (a,(a,a))), ((a,(a,a)), (a,(a,a))))))
 distanceMapBox sh geom =
    let (rot, mov, extent@(width,height)) =
-          Exp.unlift ((atom,atom),(atom,atom),(atom,atom)) geom
+          Exp.unlift ((expr,expr),(expr,expr),(expr,expr)) geom
        widthf  = A.fromIntegral width
        heightf = A.fromIntegral height
        back  = rotateStretchMoveBackPoint rot mov
@@ -1199,7 +1199,7 @@ separateDistanceMap ::
    Acc (Array DIM3 (Bool, a))
 separateDistanceMap arr =
    outerVector
-      (Exp.modify2 (atom, ((atom, atom), (atom, atom))) (atom,atom) $
+      (Exp.modify2 (expr, ((expr, expr), (expr, expr))) (expr,expr) $
        \(b,(horiz,vert)) (orient,side) ->
           (b, orient ? (side ? horiz, side ? vert)))
       arr
@@ -1214,7 +1214,7 @@ distanceMapBoxRun =
              (4/) $ A.fromIntegral $ uncurry min $
              Exp.unliftPair $ Exp.thd3 geom
       in  imageByteFromFloat $
-          A.map (Exp.modify (atom,atom) $
+          A.map (Exp.modify (expr,expr) $
                    \(valid, dist) -> valid ? (scale*dist, 0)) $
           maskedMinimum $
           A.map (Exp.mapSnd A.fst) $
@@ -1244,7 +1244,7 @@ containedAnywhere geoms arr =
    A.fold1 (||*) $
    breakFusion $
    outerVector
-      (Exp.modify2 (atom,atom) ((atom,atom),(atom,atom),(atom,atom)) $
+      (Exp.modify2 (expr,expr) ((expr,expr),(expr,expr),(expr,expr)) $
        \(xdst,ydst) (rot, mov, extent) ->
           let (xsrc,ysrc) = rotateStretchMoveBackPoint rot mov (xdst,ydst)
           in  inBox extent (fastRound xsrc, fastRound ysrc))
@@ -1264,11 +1264,11 @@ distanceMapContained sh this others =
        contained =
           containedAnywhere others $
           A.map (A.snd . A.snd) distMap
-   in  A.map (Exp.modify (atom,atom) $
+   in  A.map (Exp.modify (expr,expr) $
                 \(valid, dist) -> valid ? (dist, 0)) $
        maskedMinimum $
        A.zipWith
-          (Exp.modify2 atom (atom,(atom,atom)) $ \c (b,(dist,_)) ->
+          (Exp.modify2 expr (expr,(expr,expr)) $ \c (b,(dist,_)) ->
              (c&&*b, dist))
           contained distMap
 
@@ -1294,7 +1294,7 @@ pixelCoordinates ::
    (A.Elt a, A.IsFloating a) =>
    Exp DIM2 -> Acc (Channel Z (a,a))
 pixelCoordinates sh =
-   A.generate sh $ Exp.modify (atom:.atom:.atom) $ \(_z:.y:.x) ->
+   A.generate sh $ Exp.modify (expr:.expr:.expr) $ \(_z:.y:.x) ->
       (A.fromIntegral x, A.fromIntegral y)
 
 distanceMapPoints ::
@@ -1305,7 +1305,7 @@ distanceMapPoints ::
 distanceMapPoints a b =
    A.fold1 min $
    outerVector
-      (Exp.modify2 (atom,atom) (atom,atom) distance)
+      (Exp.modify2 (expr,expr) (expr,expr) distance)
       a b
 
 distanceMapPointsRun ::
@@ -1317,7 +1317,7 @@ distanceMapPointsRun =
           Run.with CUDA.run1 $
           \sh points ->
              let scale =
-                    case Exp.unlift (atom:.atom:.atom) sh of
+                    case Exp.unlift (expr:.expr:.expr) sh of
                        _z:.y:.x -> (4/) $ A.fromIntegral $ min x y
              in  imageByteFromFloat $ A.map (scale*) $
                  distanceMapPoints (pixelCoordinates sh) points
@@ -1363,7 +1363,7 @@ distanceMapRun =
           Run.with CUDA.run1 $
           \sh this others points ->
              let scale =
-                    case Exp.unlift (atom:.atom:.atom) sh of
+                    case Exp.unlift (expr:.expr:.expr) sh of
                        _z:.y:.x -> (4/) $ A.fromIntegral $ min x y
              in  imageByteFromFloat $ A.map (scale*) $
                  distanceMap sh this others points
@@ -1421,7 +1421,7 @@ updateWeightedCanvasMerged =
           Run.with CUDA.run1 $
           \this others points pic (weightSum,canvas) ->
              let (rot, mov, _) =
-                    Exp.unlift ((atom,atom), (atom,atom), atom) this
+                    Exp.unlift ((expr,expr), (expr,expr), expr) this
              in  addToWeightedCanvas
                     (distanceMap (A.shape weightSum) this others points,
                      snd $ rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
@@ -1447,7 +1447,7 @@ updateWeightedCanvas =
           Run.with CUDA.run1 $
           \this pic dist (weightSum,canvas) ->
              let (rot, mov, _) =
-                    Exp.unlift ((atom,atom), (atom,atom), atom) this
+                    Exp.unlift ((expr,expr), (expr,expr), expr) this
              in  addToWeightedCanvas
                     (dist,
                      snd $ rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
