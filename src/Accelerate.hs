@@ -728,7 +728,8 @@ using a part in the overlapping area.
 optimalOverlapBigFine ::
    DIM2 -> Float -> Channel Z Float -> Channel Z Float -> (Float, (Int, Int))
 optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
-   let run =
+   let overlaps = allOverlaps padExtent
+       run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
              let shapeA = A.unlift $ A.shape a
                  shapeB = A.unlift $ A.shape b
@@ -736,7 +737,7 @@ optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
                  coarsed@(coarsedx,coarsedy) =
                     mapPair ((xk*), (yk*)) $
                     Exp.unliftPair $ A.snd $ A.the $ argmaximum $
-                    allOverlaps padExtent minimumOverlap
+                    overlaps minimumOverlap
                        (shrink factors a) (shrink factors b)
 
                  ((leftOverlap, topOverlap), _,
@@ -752,7 +753,7 @@ optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
                     Exp.modify (expr, (expr,expr)) $
                     \(score, (xm,ym)) -> (score, (xm+coarsedx, ym+coarsedy))
              in  A.map addCoarsePos $ argmaximum $
-                 allOverlaps padExtent minimumOverlap
+                 overlaps minimumOverlap
                     (clip (leftFocus,topFocus) extentFocus a)
                     (clip (leftFocus-coarsedx,topFocus-coarsedy) extentFocus b)
    in  \minimumOverlap a b -> Acc.the $ run minimumOverlap a b
