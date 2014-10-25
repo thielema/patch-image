@@ -406,6 +406,9 @@ magnitudeSqr :: (A.Elt a, A.IsNum a) => Exp (Complex a) -> Exp a
 magnitudeSqr =
    Exp.modify (expr:+expr) $ \(r:+i) -> r*r+i*i
 
+complexFromReal :: (A.Elt a, A.IsNum a) => Exp a -> Exp (Complex a)
+complexFromReal = A.lift . (:+0)
+
 fourierTransformationRun :: Array DIM3 Word8 -> IO (Array DIM2 Word8)
 fourierTransformationRun pic = do
    let (shape@(Z:.height:.width):._) = A.arrayShape pic
@@ -425,7 +428,7 @@ fourierTransformationRun pic = do
                     (A.constant shape)) $
              A.map magnitudeSqr $
              CUFFT.transform plan $
-             A.map (A.lift . (:+0)) $
+             A.map complexFromReal $
              brightnessPlane $ separateChannels $
              imageFloatFromByte arr
    return $ trans pic
@@ -487,7 +490,7 @@ radonAngle (minAngle,maxAngle) pic = do
              Arrange.mapWithIndex (\ix s -> A.lift (s, A.unindex1 ix)) $
              scoreSlopes (A.constant minX, A.constant maxX) $
              CUFFT.transform plan $
-             A.map (A.lift . (:+0)) $
+             A.map complexFromReal $
              brightnessPlane $ separateChannels $
              imageFloatFromByte arr
    return $ angle $ fromIntegral $ Acc.the (trans pic) + minX
@@ -569,7 +572,7 @@ correlateImpossible x y =
        sh = A.index2 height width
        forward z =
           fft2DPlain CUFFT.forwardComplex $ CUDA.run $
-          A.map (A.lift . (:+ 0)) $ pad 0 sh z
+          A.map complexFromReal $ pad 0 sh z
    in  A.map Complex.real $
        fft2DPlain CUFFT.inverseComplex $ CUDA.run $
        A.zipWith mulConj (forward x) (forward y)
@@ -622,7 +625,7 @@ correlatePaddedSimple ::
 correlatePaddedSimple sh@(Z :. height :. width) =
    let forward =
           fft2D CUFFT.forwardComplex width height .
-          A.map (A.lift . (:+ 0)) . pad 0 (A.lift sh)
+          A.map complexFromReal . pad 0 (A.lift sh)
        inverse = fft2D CUFFT.inverseComplex width height
    in  \ x y ->
           A.map Complex.real $ inverse $
@@ -1823,9 +1826,7 @@ process args = do
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map Complex.real $
          fft2DPlain CUFFT.forwardComplex $
-         CUDA.run1
-            (A.map (A.lift . (:+ 0)) .
-             pad 0 (A.lift size)) $
+         CUDA.run1 (A.map complexFromReal . pad 0 (A.lift size)) $
          pic0
       writeGrey (Option.quality opt) "/tmp/convolution.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
