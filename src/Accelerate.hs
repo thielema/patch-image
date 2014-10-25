@@ -539,17 +539,21 @@ correlatePadded sh@(Z :. height :. width) =
           A.zipWith (Exp.modify2 expr expr (:+)) a b
 
 
+displacementMap ::
+   Exp Int -> Exp Int -> Exp DIM2 -> Acc (Channel Z (Int, Int))
+displacementMap xsplit ysplit sh =
+   let (_z :. height :. width) = unliftDim2 sh
+   in  A.generate sh $ \p ->
+          let (_z:.y:.x) = unliftDim2 p
+              wrap size split c = c<*split ? (c, c-size)
+          in  A.lift (wrap width xsplit x, wrap height ysplit y)
+
 attachDisplacements ::
    (A.Elt a, A.IsScalar a) =>
    Exp Int -> Exp Int ->
    Acc (Channel Z a) -> Acc (Channel Z (a, (Int, Int)))
 attachDisplacements xsplit ysplit arr =
-   let sh = A.shape arr
-       (_z :. height :. width) = unliftDim2 sh
-   in  A.generate sh $ \p ->
-          let (_z:.y:.x) = unliftDim2 p
-              wrap size split c = c<*split ? (c, c-size)
-          in  A.lift (arr A.! p, (wrap width xsplit x, wrap height ysplit y))
+   A.zip arr $ displacementMap xsplit ysplit (A.shape arr)
 
 weightOverlapScores ::
    (A.Elt a, A.IsFloating a, A.IsScalar a) =>
