@@ -401,7 +401,7 @@ findOptimalRotation angles pic =
    Key.maximum (flip scoreRotation pic . (* (pi/180))) angles
 
 
-magnitudeSqr :: Exp (Complex Float) -> Exp Float
+magnitudeSqr :: (A.Elt a, A.IsNum a) => Exp (Complex a) -> Exp a
 magnitudeSqr =
    Exp.modify (expr:+expr) $ \(r:+i) -> r*r+i*i
 
@@ -436,6 +436,60 @@ fourierTransformation opt path pic = do
    writeGrey (Option.quality opt)
       (printf "/tmp/%s-spectrum.jpeg" stem) spec
 
+{-
+Spectrum coefficients with high indices
+are disturbed by periodization artifacts.
+That is, we might fade out the picture at the borders
+or soften the disturbed spectrum coefficients.
+However, I do not know for a universally good solution,
+thus I leave it as it is.
+-}
+scoreSlopes ::
+   (A.Elt a, A.IsFloating a) =>
+   (Exp Int, Exp Int) ->
+   Acc (Channel Z (Complex a)) -> Acc (Array DIM1 a)
+scoreSlopes (minX, maxX) arr =
+   let shape = A.shape arr
+       (_z:.height:.width) = Exp.unlift (expr:.expr:.expr) shape
+       width2 = div width 2
+       height2 = div height 2
+       weighted =
+          A.zipWith (*) (A.map magnitudeSqr arr) $
+          A.map
+             (Exp.modify (expr,expr) $ \(k,j) ->
+                magnitudeSqr $ A.lift $
+                A.fromIntegral k :+ A.fromIntegral j) $
+          displacementMap width2 height2 shape
+   in  A.fold (+) 0 $
+       A.generate (A.lift (Z:.maxX-minX+1:.height2)) $
+       Exp.modify (expr:.expr:.expr) $ \(_z:.x:.y) ->
+          let (xi,frac) =
+                 splitFraction $
+                 A.fromIntegral (x + minX) *
+                    A.fromIntegral y / A.fromIntegral height2
+              z0 = weighted A.! A.lift (Z :. y :. mod xi width)
+              z1 = weighted A.! A.lift (Z :. y :. mod (xi+1) width)
+          in  linearIp (z0,z1) frac
+
+radonAngle :: (Float, Float) -> Array DIM3 Word8 -> IO Float
+radonAngle (minAngle,maxAngle) pic = do
+   let (shape@(Z :. height :. _width):._) = A.arrayShape pic
+   plan <- CUFFT.plan2D CUFFT.forwardComplex shape
+   let height2 = fromIntegral (div height 2)
+   let slope w = tan (w*pi/180) * height2
+   let minX = floor $ slope minAngle
+   let maxX = ceiling $ slope maxAngle
+   let angle s = atan (s/height2) * 180/pi
+   let trans =
+          Run.with CUDA.run1 $ \arr ->
+             A.map A.snd $ argmaximum $
+             Arrange.mapWithIndex (\ix s -> A.lift (s, A.unindex1 ix)) $
+             scoreSlopes (A.constant minX, A.constant maxX) $
+             CUFFT.transform plan $
+             A.map (A.lift . (:+0)) $
+             brightnessPlane $ separateChannels $
+             imageFloatFromByte arr
+   return $ angle $ fromIntegral $ Acc.the (trans pic) + minX
 
 
 rotateManifest :: Float -> Array DIM3 Word8 -> Array DIM3 Float
@@ -574,13 +628,15 @@ correlatePadded sh@(Z :. height :. width) =
           A.zipWith (Exp.modify2 expr expr (:+)) a b
 
 
+wrap :: Exp Int -> Exp Int -> Exp Int -> Exp Int
+wrap size split c = c<*split ? (c, c-size)
+
 displacementMap ::
    Exp Int -> Exp Int -> Exp DIM2 -> Acc (Channel Z (Int, Int))
 displacementMap xsplit ysplit sh =
    let (_z :. height :. width) = unliftDim2 sh
    in  A.generate sh $ \p ->
           let (_z:.y:.x) = unliftDim2 p
-              wrap size split c = c<*split ? (c, c-size)
           in  A.lift (wrap width xsplit x, wrap height ysplit y)
 
 attachDisplacements ::
@@ -1713,9 +1769,13 @@ process args = do
                    (-maxAngle, maxAngle)
          when False $ analyseRotations angles pic
          when False $ fourierTransformation opt path pic
-         let angle =
-                maybe (findOptimalRotation angles pic) id $
-                Option.angle imageOption
+         angle <-
+            case Option.angle imageOption of
+               Just angle -> return angle
+               Nothing ->
+                  if Option.radonTransform opt
+                    then radonAngle (-maxAngle, maxAngle) pic
+                    else return $ findOptimalRotation angles pic
          info $ printf "%s %f\176\n" path angle
          return (path, (angle*pi/180, pic))
 

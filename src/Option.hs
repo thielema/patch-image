@@ -37,6 +37,7 @@ data Option =
       quality :: Int,
       maximumAbsoluteAngle :: Float,
       numberAngleSteps :: Int,
+      radonTransform :: Bool,
       smooth :: Int,
       padSize :: Int,
       minimumOverlap :: Float,
@@ -58,6 +59,7 @@ defltOption =
       quality = 99,
       maximumAbsoluteAngle = 1,
       numberAngleSteps = 40,
+      radonTransform = False,
       smooth = 20,
       padSize = 1024,
       minimumOverlap = 1/4,
@@ -146,6 +148,10 @@ optionDescription desc =
          parseNumber "number of angle steps" (0<=) "non-negative" str)
       (printf "Number of steps for test rotations, default: %d"
          (numberAngleSteps defltOption)) :
+
+   Opt.Option [] ["radon"]
+      (NoArg $ \flags -> return $ flags{radonTransform = True})
+      (printf "Use Radon transform for estimating orientation, default: disabled") :
 
    Opt.Option [] ["smooth"]
       (flip ReqArg "NATURAL" $ \str flags ->
