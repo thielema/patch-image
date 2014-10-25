@@ -21,7 +21,7 @@ import Data.Array.Accelerate.Utility.Ord (argmaximum)
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3,
            (:.)((:.)), Z(Z), Any(Any), All(All),
-           (<*), (<=*), (>=*), (==*), (&&*), (||*), (?), )
+           (<*), (<=*), (>=*), (==*), (&&*), (||*), (?), (!), )
 
 import qualified Data.Packed.Matrix as Matrix
 import qualified Data.Packed.Vector as Vector
@@ -215,7 +215,7 @@ indexLimit arr (ix:.y:.x) =
    let (_ :. height :. width) = unliftDim2 $ A.shape arr
        xc = max 0 $ min (width -1) x
        yc = max 0 $ min (height-1) y
-   in  arr A.! A.lift (ix :. yc :. xc)
+   in  arr ! A.lift (ix :. yc :. xc)
 
 indexFrac ::
    (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
@@ -387,7 +387,7 @@ differentiate ::
 differentiate arr =
    let size = A.unindex1 $ A.shape arr
    in  A.generate (A.index1 (size-1)) $ \i ->
-          arr A.! (A.index1 $ A.unindex1 i + 1) - arr A.! i
+          arr ! (A.index1 $ A.unindex1 i + 1) - arr ! i
 
 scoreRotation :: Float -> Array DIM3 Word8 -> Float
 scoreRotation =
@@ -471,8 +471,8 @@ scoreSlopes (minX, maxX) arr =
                  splitFraction $
                  A.fromIntegral (x + minX) *
                     A.fromIntegral y / A.fromIntegral height2
-              z0 = weighted A.! A.lift (Z :. y :. mod xi width)
-              z1 = weighted A.! A.lift (Z :. y :. mod (xi+1) width)
+              z0 = weighted ! A.lift (Z :. y :. mod xi width)
+              z1 = weighted ! A.lift (Z :. y :. mod (xi+1) width)
           in  linearIp (z0,z1) frac
 
 radonAngle :: (Float, Float) -> Array DIM3 Word8 -> IO Float
@@ -532,7 +532,7 @@ pad a sh arr =
           let (y, x) = A.unlift $ A.unindex2 p
           in  (y<*height &&* x<*width)
               ?
-              (arr A.! A.index2 y x, a)
+              (arr ! A.index2 y x, a)
 
 mulConj ::
    (A.Elt a, A.IsFloating a) =>
@@ -602,7 +602,7 @@ clearDCCoefficient ::
 clearDCCoefficient arr =
    A.generate (A.shape arr) $ \p ->
       let (_z:.y:.x) = unliftDim2 p
-      in  x==*0 ||* y==*0 ? (0, arr A.! p)
+      in  x==*0 ||* y==*0 ? (0, arr!p)
 
 
 smooth3 :: (A.Elt a, A.IsFloating a) => A.Stencil3 a -> Exp a
@@ -1128,8 +1128,8 @@ overlap2 (dx,dy) (a,b) =
               inPicA = 0<=*xa &&* xa<*widtha &&* 0<=*ya &&* ya<*heighta
               inPicB = 0<=*xb &&* xb<*widthb &&* 0<=*yb &&* yb<*heightb
           in  inPicA ?
-                 (inPicB ? ((a A.! pa + b A.! pb)/2, a A.! pa),
-                  inPicB ? (b A.! pb, 0))
+                 (inPicB ? ((a!pa + b!pb)/2, a!pa),
+                  inPicB ? (b!pb, 0))
 
 composeOverlap ::
    (Int, Int) ->
