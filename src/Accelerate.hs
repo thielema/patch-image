@@ -5,7 +5,6 @@ import qualified Option
 
 import qualified Data.Array.Accelerate.Fourier.Real as FourierReal
 import qualified Data.Array.Accelerate.CUFFT.Single as CUFFT
-import qualified Data.Array.Accelerate.Math.FFT as FFT
 import qualified Data.Array.Accelerate.Data.Complex as Complex
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
@@ -61,6 +60,8 @@ import Data.Traversable (forM)
 import Data.Foldable (forM_, foldMap)
 import Data.Tuple.HT (mapPair, mapFst, mapSnd, fst3, thd3)
 import Data.Word (Word8)
+
+import System.IO.Unsafe (unsafePerformIO)
 
 
 readImage :: Verbosity -> FilePath -> IO (Array DIM3 Word8)
@@ -535,8 +536,30 @@ mulConj ::
    Exp (Complex a) -> Exp (Complex a) -> Exp (Complex a)
 mulConj x y = x * Complex.conjugate y
 
+
+fft2DGen ::
+   (A.Elt e, CUFFT.Real e) =>
+   CUFFT.Mode DIM2 e a b -> DIM2 -> CUFFT.Transform DIM2 a b
+fft2DGen mode sh =
+   CUFFT.transform $ unsafePerformIO $ CUFFT.plan2D mode sh
+
+fft2DPlain ::
+   (A.Elt a, CUFFT.Real a) =>
+   CUFFT.Mode DIM2 a (Complex a) (Complex a) ->
+   Channel Z (Complex a) -> Acc (Channel Z (Complex a))
+fft2DPlain mode arr =
+   A.use $ CUDA.run1 (fft2DGen mode $ A.arrayShape arr) arr
+
+fft2D ::
+   (A.Elt a, CUFFT.Real a) =>
+   CUFFT.Mode DIM2 a (Complex a) (Complex a) ->
+   Int -> Int ->
+   Acc (Channel Z (Complex a)) -> Acc (Channel Z (Complex a))
+fft2D mode width height = fft2DGen mode (Z:.height:.width)
+
+
 correlateImpossible ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.Elt a, CUFFT.Real a) =>
    Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
 correlateImpossible x y =
    let (heightx, widthx) = A.unlift $ A.unindex2 $ A.shape x
@@ -545,10 +568,10 @@ correlateImpossible x y =
        height = ceilingPow2Exp $ heightx + heighty
        sh = A.index2 height width
        forward z =
-          FFT.fft2D FFT.Forward $ CUDA.run $
+          fft2DPlain CUFFT.forwardComplex $ CUDA.run $
           A.map (A.lift . (:+ 0)) $ pad 0 sh z
    in  A.map Complex.real $
-       FFT.fft2D FFT.Inverse $ CUDA.run $
+       fft2DPlain CUFFT.inverseComplex $ CUDA.run $
        A.zipWith mulConj (forward x) (forward y)
 
 
@@ -594,13 +617,13 @@ highpass count arr =
 
 
 correlatePaddedSimple ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.Elt a, CUFFT.Real a) =>
    DIM2 -> Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
 correlatePaddedSimple sh@(Z :. height :. width) =
    let forward =
-          FFT.fft2D' FFT.Forward width height .
+          fft2D CUFFT.forwardComplex width height .
           A.map (A.lift . (:+ 0)) . pad 0 (A.lift sh)
-       inverse = FFT.fft2D' FFT.Inverse width height
+       inverse = fft2D CUFFT.inverseComplex width height
    in  \ x y ->
           A.map Complex.real $ inverse $
           A.zipWith mulConj (forward x) (forward y)
@@ -615,11 +638,11 @@ perform two real-valued Fourier transforms using one complex-valued transform.
 Afterwards we untangle the superposed spectra.
 -}
 correlatePadded ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.Elt a, CUFFT.Real a) =>
    DIM2 -> Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
 correlatePadded sh@(Z :. height :. width) =
-   let forward = FFT.fft2D' FFT.Forward width height
-       inverse = FFT.fft2D' FFT.Inverse width height
+   let forward = fft2D CUFFT.forwardComplex width height
+       inverse = fft2D CUFFT.inverseComplex width height
    in  \ a b ->
           A.map Complex.real $ inverse $
           A.map (A.uncurry mulConj) $
@@ -1799,7 +1822,7 @@ process args = do
          pic0
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map Complex.real $
-         FFT.fft2D FFT.Forward $
+         fft2DPlain CUFFT.forwardComplex $
          CUDA.run1
             (A.map (A.lift . (:+ 0)) .
              pad 0 (A.lift size)) $
