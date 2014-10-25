@@ -4,6 +4,7 @@ module Main where
 import qualified Option
 
 import qualified Data.Array.Accelerate.Fourier.Real as FourierReal
+import qualified Data.Array.Accelerate.CUFFT.Single as CUFFT
 import qualified Data.Array.Accelerate.Math.FFT as FFT
 import qualified Data.Array.Accelerate.Data.Complex as Complex
 import qualified Data.Array.Accelerate.CUDA as CUDA
@@ -400,6 +401,40 @@ findOptimalRotation angles pic =
    Key.maximum (flip scoreRotation pic . (* (pi/180))) angles
 
 
+magnitudeSqr :: Exp (Complex Float) -> Exp Float
+magnitudeSqr =
+   Exp.modify (expr:+expr) $ \(r:+i) -> r*r+i*i
+
+fourierTransformationRun :: Array DIM3 Word8 -> IO (Array DIM2 Word8)
+fourierTransformationRun pic = do
+   let (shape@(Z:.height:.width):._) = A.arrayShape pic
+   plan <- CUFFT.plan2D CUFFT.forwardComplex shape
+   let trans =
+          Run.with CUDA.run1 $ \arr ->
+             imageByteFromFloat $
+             A.map (1e-9*) $
+             A.zipWith (*)
+                (A.map
+                    (Exp.modify (expr,expr) $ \(k,j) ->
+                       magnitudeSqr $ A.lift $
+                       A.fromIntegral k :+ A.fromIntegral j) $
+                 displacementMap
+                    (A.constant (div width 2))
+                    (A.constant (div height 2))
+                    (A.constant shape)) $
+             A.map magnitudeSqr $
+             CUFFT.transform plan $
+             A.map (A.lift . (:+0)) $
+             brightnessPlane $ separateChannels $
+             imageFloatFromByte arr
+   return $ trans pic
+
+fourierTransformation :: Option.Option -> FilePath -> Array DIM3 Word8 -> IO ()
+fourierTransformation opt path pic = do
+   let stem = FilePath.takeBaseName path
+   spec <- fourierTransformationRun pic
+   writeGrey (Option.quality opt)
+      (printf "/tmp/%s-spectrum.jpeg" stem) spec
 
 
 
@@ -1677,6 +1712,7 @@ process args = do
                 linearScale (Option.numberAngleSteps opt)
                    (-maxAngle, maxAngle)
          when False $ analyseRotations angles pic
+         when False $ fourierTransformation opt path pic
          let angle =
                 maybe (findOptimalRotation angles pic) id $
                 Option.angle imageOption
