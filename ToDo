@@ -1,0 +1,131 @@
+Optionen:
+   --output=PATH
+   --output-hard=PATH
+   --output-overlap
+   --output-distancemap
+   --quality=PERCENT
+   --scale=FACTOR
+   --smooth=RADIUS
+   --minimum-overlap=SIZE
+   --maximum-difference=REAL
+   --pad-size=SIZE
+   --verbose
+   --help
+
+   --angle fix rotation angle for the next input file
+
+Abhängigkeit von gnuplot nicht nötig
+
+bisher nur JPEG unterstützt
+
+unterschiedliche horizontale und vertikale Auflösung
+   für diesen Fall könnte man allgemeine lineare Abbildung ansetzen
+
+finetune-rotate:
+   statt linearer Verteilung von kleinen Fenstern
+      könnte man Zufallsverteilung nehmen
+
+   wenn kleine Fenster nahezu konstante Werte enthalten,
+      dann schlägt Algorithmus evtl. fehl
+      Ich sollte vielleicht Fenster mit zu geringen Helligkeitsschwankungen ignorieren.
+
+soll man "matching" besser nur auf innerem Rechteck mit vollständig gültigen Daten berechnen?
+   Wie berechnet man (flächenmäßig) größtes einbeschriebenes Iso-Rechteck?
+
+falsche Formatschablonen in Output-Dateinamen führen zu Laufzeitfehler
+   Teste Format vorher auf richtiges Format :-)
+
+Als Sahnehäubchen könnte Programm noch selber die richtige Orientierung
+   in 90°-Schritten herausfinden.
+
+Punkte auf dem Bildrand haben Abstand null
+   das kann zu Division durch null führen
+   Besser pauschal eins addieren?
+
+Wie geht man mit 0/0 um?
+   Tritt an allen Stellen auf, an denen kein Bildteil zu sehen ist.
+   Anscheinend macht die GPU dort automatisch Null hin.
+   Müsste auch auftreten, wenn man nur nicht überlappende Bilder hat
+      "Ein einziges Bild" wäre davon ein Spezialfall.
+
+
+kann man bei der schnellen Fourier-Transformation ausnutzen,
+   wenn nur ein Teil der Daten ungleich null ist?
+
+Algorithmus mal mit Ausschnitten von Bildern testen
+
+man sieht bei mpb immer noch Schlitze an den Schnittstellen
+   das dürfte eigentlich dank Rotationsmaske nicht sein.
+   Ich muss mir mal Rotationsmasken ausgeben lassen und überprüfen.
+   Hm, die Small-Bilder sind teilweise schon gedreht und haben helle Keile am Rand.
+   Das erklärt alles.
+
+man müsste eigentlich einen Rahmen mit 1 Bildpunkt Breite abschneiden,
+   weil dieser Rand schon von der konstanten Randfortsetzung beeinträchtigt wird
+
+Umsortieren in "Bitplanes":
+   die Reihenfolge der Dimensionen sollte sein:
+      Z :. Kanal :. Höhe :. Breite
+   Dann kann man die gleiche Rotationsroutine
+      für Graustufen und für Farbbilder verwenden.
+   So lässt sich ein Bild aber schlecht mit einer Maske kombinieren.
+   Vielleicht sollte ich doch einen eigenen YUV-Elementtyp definieren?
+   Dann brauche auch aber auch Vektorskalierung und solche Sachen.
+
+
+Annahme:
+   alle Bilder nahezu in der selben Orientierung
+      so ist sichergestellt,
+         dass (leicht) verschiedene Auflösungen
+         in x- und y-Richtung nicht stören
+      180°-Grad-Drehungen kann man vorher rückgängig machen
+   alle Bilder gleich groß
+
+Zwei Phasen:
+   Anordnung der Bilder finden
+   Bilder überlagern
+
+
+Orientierung finden, 1. Ansatz:
+   Bild um maximal 1 Grad in 0.01-Grad-Schritten drehen
+   Von jeder Drehung horizontales und vertikales Histogramm berechnen
+   Nach dem Winkel suchen, wo im Histogramm die steilsten Flanken auftreten
+      Solche Flanken sollten wenigstens vom Bildrand erzeugt werden,
+      oder aber von Schrift.
+
+Orientierung finden, 2. Ansatz:
+   Für jeden Punkt über mehrere Ringe mitteln (Rotationsunabhängigkeit)
+   Für jeden Punkt entsteht so ein Merkmalsvektor von vielleicht 5x3 Werten
+   Diese Vektoren in ein quantisiertes Gitter eintragen.
+   Ist in einer Zelle nur ein Vektor, so ist der Punkt besonders markant.
+   Diese Punkte sollte man in anderen Bildern suchen.
+   Hat man eine Menge Punkte in den Bildern einander zugeordnet,
+      so kann man Drehung und Position herausfinden.
+
+Orientierung finden, 3. Ansatz:
+   Bild in kleinen Schritten drehen
+   den Benutzer die passende Drehung aussuchen lassen
+   oder schauen, wann es am besten zu anderem Bild passt
+
+Position finden:
+   Mit FFT zwei Bilder falten und Position mit höchster Korrelation nehmen
+
+Überlagern:
+   Es sollten Bilder linear interpoliert werden,
+      so dass es keine harten Schnittstellen gibt.
+   Die richtigen Wichtungsfaktoren für jedes Bild zu finden,
+      ist ganz schön knifflig.
+   Idee: Führe Aufgabe auf lineare Schnitte durch die Bilder zurück.
+      Beobachtung:
+         Intervalle, die andere Intervalle enthalten können wir weglassen.
+         D.h. aber, dass es nur die Situation
+            [          ]
+              [          ]
+                [          ]
+         geben kann.
+         Bei Schnitten durch Bilder können auf einzelnen Geraden
+         durchaus Intervalle komplett in anderen enthalten sein,
+         und man muss die Teilintervalle trotzdem beachten.
+         D.h. dass man die 2D-Aufgabe nicht auf 1D zurückführen kann,
+         und weil die Anordnung nichttrivialer Intervalle
+         immer die gleiche ist, lässt sich aus dem 1D-Fall auch nichts lernen.
