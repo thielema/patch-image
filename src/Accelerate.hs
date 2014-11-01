@@ -407,15 +407,12 @@ magnitudeSqr :: (A.Elt a, A.IsNum a) => Exp (Complex a) -> Exp a
 magnitudeSqr =
    Exp.modify (expr:+expr) $ \(r:+i) -> r*r+i*i
 
-complexFromReal :: (A.Elt a, A.IsNum a) => Exp a -> Exp (Complex a)
-complexFromReal = A.lift . (:+0)
-
 fourierTransformationRun :: Array DIM3 Word8 -> IO (Array DIM2 Word8)
 fourierTransformationRun pic = do
    let (shape@(Z:.height:.width):._) = A.arrayShape pic
    plan <-
       CUDAForeign.inDefaultContext $
-      CUFFT.plan2D CUFFT.forwardComplex shape
+      CUFFT.plan2D CUFFT.forwardReal shape
    let trans =
           Run.with CUDA.run1 $ \arr ->
              imageByteFromFloat $
@@ -431,7 +428,6 @@ fourierTransformationRun pic = do
                     (A.constant shape)) $
              A.map magnitudeSqr $
              CUFFT.transform plan $
-             A.map complexFromReal $
              brightnessPlane $ separateChannels $
              imageFloatFromByte arr
    return $ trans pic
@@ -483,7 +479,7 @@ radonAngle (minAngle,maxAngle) pic = do
    let (shape@(Z :. height :. _width):._) = A.arrayShape pic
    plan <-
       CUDAForeign.inDefaultContext $
-      CUFFT.plan2D CUFFT.forwardComplex shape
+      CUFFT.plan2D CUFFT.forwardReal shape
    let height2 = fromIntegral (div height 2)
    let slope w = tan (w*pi/180) * height2
    let minX = floor $ slope minAngle
@@ -495,7 +491,6 @@ radonAngle (minAngle,maxAngle) pic = do
              Arrange.mapWithIndex (\ix s -> A.lift (s, A.unindex1 ix)) $
              scoreSlopes (A.constant minX, A.constant maxX) $
              CUFFT.transform plan $
-             A.map complexFromReal $
              brightnessPlane $ separateChannels $
              imageFloatFromByte arr
    return $ angle $ fromIntegral $ Acc.the (trans pic) + minX
@@ -553,17 +548,17 @@ fft2DGen mode sh =
       CUDAForeign.inDefaultContext $ CUFFT.plan2D mode sh
 
 fft2DPlain ::
-   (A.Elt a, CUFFT.Real a) =>
-   CUFFT.Mode DIM2 a (Complex a) (Complex a) ->
-   Channel Z (Complex a) -> Acc (Channel Z (Complex a))
+   (A.Elt e, CUFFT.Real e, A.Elt a, A.Elt b) =>
+   CUFFT.Mode DIM2 e a b ->
+   Channel Z a -> Acc (Channel Z b)
 fft2DPlain mode arr =
    A.use $ CUDA.run1 (fft2DGen mode $ A.arrayShape arr) arr
 
 fft2D ::
-   (A.Elt a, CUFFT.Real a) =>
-   CUFFT.Mode DIM2 a (Complex a) (Complex a) ->
+   (A.Elt e, CUFFT.Real e, A.Elt a, A.Elt b) =>
+   CUFFT.Mode DIM2 e a b ->
    Int -> Int ->
-   Acc (Channel Z (Complex a)) -> Acc (Channel Z (Complex a))
+   Acc (Channel Z a) -> Acc (Channel Z b)
 fft2D mode width height = fft2DGen mode (Z:.height:.width)
 
 
@@ -576,11 +571,8 @@ correlateImpossible x y =
        width  = ceilingPow2Exp $ widthx  + widthy
        height = ceilingPow2Exp $ heightx + heighty
        sh = A.index2 height width
-       forward z =
-          fft2DPlain CUFFT.forwardComplex $ CUDA.run $
-          A.map complexFromReal $ pad 0 sh z
-   in  A.map Complex.real $
-       fft2DPlain CUFFT.inverseComplex $ CUDA.run $
+       forward z = fft2DPlain CUFFT.forwardReal $ CUDA.run $ pad 0 sh z
+   in  fft2DPlain CUFFT.inverseReal $ CUDA.run $
        A.zipWith mulConj (forward x) (forward y)
 
 
@@ -629,19 +621,17 @@ correlatePaddedSimple ::
    (A.Elt a, CUFFT.Real a) =>
    DIM2 -> Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
 correlatePaddedSimple sh@(Z :. height :. width) =
-   let forward =
-          fft2D CUFFT.forwardComplex width height .
-          A.map complexFromReal . pad 0 (A.lift sh)
-       inverse = fft2D CUFFT.inverseComplex width height
-   in  \ x y ->
-          A.map Complex.real $ inverse $
-          A.zipWith mulConj (forward x) (forward y)
+   let forward = fft2D CUFFT.forwardReal width height . pad 0 (A.lift sh)
+       inverse = fft2D CUFFT.inverseReal width height
+   in  \ x y -> inverse $ A.zipWith mulConj (forward x) (forward y)
 
 
 {-
 This is more efficient than 'correlatePaddedSimple'
-since it needs only one forward Fourier transform,
-where 'correlatePaddedSimple' needs two of them.
+since it needs only one complex forward Fourier transform,
+where 'correlatePaddedSimple' needs two real transforms.
+Especially for odd sizes
+two real transforms are slower than a complex transform.
 For the analysis part,
 perform two real-valued Fourier transforms using one complex-valued transform.
 Afterwards we untangle the superposed spectra.
@@ -651,10 +641,9 @@ correlatePadded ::
    DIM2 -> Acc (Channel Z a) -> Acc (Channel Z a) -> Acc (Channel Z a)
 correlatePadded sh@(Z :. height :. width) =
    let forward = fft2D CUFFT.forwardComplex width height
-       inverse = fft2D CUFFT.inverseComplex width height
+       inverse = fft2D CUFFT.inverseReal width height
    in  \ a b ->
-          A.map Complex.real $ inverse $
-          A.map (A.uncurry mulConj) $
+          inverse $ A.map (A.uncurry mulConj) $
           FourierReal.untangleSpectra2d $ forward $
           pad 0 (A.lift sh) $
           A.zipWith (Exp.modify2 expr expr (:+)) a b
@@ -1831,8 +1820,8 @@ process args = do
          pic0
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map Complex.real $
-         fft2DPlain CUFFT.forwardComplex $
-         CUDA.run1 (A.map complexFromReal . pad 0 (A.lift size)) $
+         fft2DPlain CUFFT.forwardReal $
+         CUDA.run1 (pad 0 (A.lift size)) $
          pic0
       writeGrey (Option.quality opt) "/tmp/convolution.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
