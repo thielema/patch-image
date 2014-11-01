@@ -6,6 +6,7 @@ import qualified Option
 import qualified Data.Array.Accelerate.Fourier.Real as FourierReal
 import qualified Data.Array.Accelerate.CUFFT.Single as CUFFT
 import qualified Data.Array.Accelerate.Data.Complex as Complex
+import qualified Data.Array.Accelerate.CUDA.Foreign as CUDAForeign
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate.Arithmetic.LinearAlgebra as LinAlg
@@ -412,7 +413,9 @@ complexFromReal = A.lift . (:+0)
 fourierTransformationRun :: Array DIM3 Word8 -> IO (Array DIM2 Word8)
 fourierTransformationRun pic = do
    let (shape@(Z:.height:.width):._) = A.arrayShape pic
-   plan <- CUFFT.plan2D CUFFT.forwardComplex shape
+   plan <-
+      CUDAForeign.inDefaultContext $
+      CUFFT.plan2D CUFFT.forwardComplex shape
    let trans =
           Run.with CUDA.run1 $ \arr ->
              imageByteFromFloat $
@@ -478,7 +481,9 @@ scoreSlopes (minX, maxX) arr =
 radonAngle :: (Float, Float) -> Array DIM3 Word8 -> IO Float
 radonAngle (minAngle,maxAngle) pic = do
    let (shape@(Z :. height :. _width):._) = A.arrayShape pic
-   plan <- CUFFT.plan2D CUFFT.forwardComplex shape
+   plan <-
+      CUDAForeign.inDefaultContext $
+      CUFFT.plan2D CUFFT.forwardComplex shape
    let height2 = fromIntegral (div height 2)
    let slope w = tan (w*pi/180) * height2
    let minX = floor $ slope minAngle
@@ -544,7 +549,8 @@ fft2DGen ::
    (A.Elt e, CUFFT.Real e) =>
    CUFFT.Mode DIM2 e a b -> DIM2 -> CUFFT.Transform DIM2 a b
 fft2DGen mode sh =
-   CUFFT.transform $ unsafePerformIO $ CUFFT.plan2D mode sh
+   CUFFT.transform $ unsafePerformIO $
+      CUDAForeign.inDefaultContext $ CUFFT.plan2D mode sh
 
 fft2DPlain ::
    (A.Elt a, CUFFT.Real a) =>
