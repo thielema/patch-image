@@ -1819,7 +1819,7 @@ process args = do
              pad 0 (A.lift size)) $
          pic0
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" $
-         CUDA.run $ imageByteFromFloat $ A.map Complex.real $
+         CUDA.run $ imageByteFromFloat $ A.map Complex.magnitude $
          fft2DPlain CUFFT.forwardReal $
          CUDA.run1 (pad 0 (A.lift size)) $
          pic0
