@@ -9,7 +9,7 @@ import qualified Data.Array.Accelerate.Data.Complex as Complex
 import qualified Data.Array.Accelerate.CUDA.Foreign as CUDAForeign
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
-import qualified Data.Array.Accelerate.Arithmetic.LinearAlgebra as LinAlg
+import qualified Data.Array.Accelerate.LinearAlgebra as LinAlg
 import qualified Data.Array.Accelerate.Utility.Lift.Run as Run
 import qualified Data.Array.Accelerate.Utility.Lift.Acc as Acc
 import qualified Data.Array.Accelerate.Utility.Lift.Exp as Exp

@@ -209,7 +209,7 @@ Executable patch-image
 
   Build-Depends:
     accelerate-fourier >=0.0 && <0.1,
-    accelerate-arithmetic >=0.0 && <0.1,
+    accelerate-arithmetic >=0.1 && <0.2,
     accelerate-utility >=0.1 && <0.2,
     accelerate-cufft >=0.0 && <0.1,
     accelerate-cuda >=0.15 && <0.16,
