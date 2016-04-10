@@ -1,3 +1,12 @@
+besserer Matching-Score
+   bei "Kaltes Herz" schlägt die Erkennung der optimalen relativen Verschiebung
+      zwischen Teil links oben und rechts unten fehl
+   Evtl. mit Wurzel der überlappenden Fläche wichten?
+
+automatische Erkennung von fehlerhaften Paaren:
+   Wenn bei Ausgleichsproblem großer Fehler bleibt,
+   dann schaue, welche Paare man bei der Ausgleichsrechnung am besten weglässt.
+
 bisher nur JPEG unterstützt
    JuicyPixel unterstützt auch TIFF und PNG
    aber wir müssten zusätzlich RGB u.ä. erlauben
