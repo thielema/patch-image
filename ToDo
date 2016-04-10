@@ -1,3 +1,7 @@
+bisher nur JPEG unterstützt
+   JuicyPixel unterstützt auch TIFF und PNG
+   aber wir müssten zusätzlich RGB u.ä. erlauben
+
 Optionen:
    --output=PATH
    --output-hard=PATH
@@ -15,8 +19,6 @@ Optionen:
    --angle fix rotation angle for the next input file
 
 Abhängigkeit von gnuplot nicht nötig
-
-bisher nur JPEG unterstützt
 
 unterschiedliche horizontale und vertikale Auflösung
    für diesen Fall könnte man allgemeine lineare Abbildung ansetzen
