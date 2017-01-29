@@ -43,6 +43,7 @@ import qualified Codec.Picture as Pic
 import qualified Data.Vector.Storable as SV
 
 import qualified System.FilePath as FilePath
+import qualified System.IO as IO
 
 import qualified Distribution.Simple.Utils as CmdLine
 import Distribution.Verbosity (Verbosity)
@@ -1775,6 +1776,9 @@ processOverlapRotate args picAngles pairs = do
 
 process :: Option.Args -> IO ()
 process args = do
+   IO.hSetBuffering IO.stdout IO.LineBuffering
+   IO.hSetBuffering IO.stderr IO.LineBuffering
+
    let paths = Option.inputs args
    let opt = Option.option args
    let notice = CmdLine.notice (Option.verbosity opt)
