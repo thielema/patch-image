@@ -3,6 +3,22 @@ module Main where
 
 import qualified Option
 
+import qualified Arithmetic as Arith
+import Arithmetic (
+   Point2,
+   rotateStretchMovePoint,
+   rotateStretchMoveBackPoint,
+   boundingBoxOfRotated,
+   linearIp,
+   cubicIp,
+   intersections,
+   projectPerp,
+   distance,
+   divUp,
+   pairFromComplex,
+   mapComplex,
+   )
+
 import qualified Data.Array.Accelerate.Fourier.Real as FourierReal
 import qualified Data.Array.Accelerate.CUFFT.Single as CUFFT
 import qualified Data.Array.Accelerate.Data.Complex as Complex
@@ -52,9 +68,8 @@ import Text.Printf (printf)
 import qualified Data.List.Key as Key
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
-import qualified Data.Bits as Bit
 import Control.Monad.HT (void)
-import Control.Monad (liftM2, zipWithM_, when, guard)
+import Control.Monad (liftM2, zipWithM_, when)
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (catMaybes)
 import Data.List.HT (removeEach, mapAdjacent, tails)
@@ -152,46 +167,6 @@ floatArray :: Acc (Array sh Float) -> Acc (Array sh Float)
 floatArray = id
 
 
-rotatePoint :: (Num a) => (a,a) -> (a,a) -> (a,a)
-rotatePoint (c,s) (x,y) = (c*x-s*y, s*x+c*y)
-
-rotateStretchMovePoint ::
-   (Fractional a) =>
-   (a, a) -> (a, a) ->
-   (a, a) -> (a, a)
-rotateStretchMovePoint rot (mx,my) p =
-   mapPair ((mx+), (my+)) $ rotatePoint rot p
-
-rotateStretchMoveBackPoint ::
-   (Fractional a) =>
-   (a, a) -> (a, a) ->
-   (a, a) -> (a, a)
-rotateStretchMoveBackPoint (rx,ry) (mx,my) =
-   let corr = recip $ rx*rx + ry*ry
-       rot = (corr*rx, -corr*ry)
-   in  \(x,y) -> rotatePoint rot (x - mx, y - my)
-
-
-boundingBoxOfRotated :: (Num a, Ord a) => (a,a) -> (a,a) -> ((a,a), (a,a))
-boundingBoxOfRotated rot (w,h) =
-   let (xs,ys) =
-          unzip $
-          rotatePoint rot (0,0) :
-          rotatePoint rot (w,0) :
-          rotatePoint rot (0,h) :
-          rotatePoint rot (w,h) :
-          []
-   in  ((minimum xs, maximum xs), (minimum ys, maximum ys))
-
-linearIp :: (Num a) => (a,a) -> a -> a
-linearIp (x0,x1) t = (1-t) * x0 + t * x1
-
-cubicIp :: (Fractional a) => (a,a,a,a) -> a -> a
-cubicIp (xm1, x0, x1, x2) t =
-   let lipm12 = linearIp (xm1,x2) t
-       lip01  = linearIp (x0, x1) t
-   in  lip01 + (t*(t-1)/2) * (lipm12 + (x0+x1) - 3 * lip01)
-
 splitFraction :: (A.Elt a, A.IsFloating a) => Exp a -> (Exp Int, Exp a)
 splitFraction x =
    let i = A.floor x
@@ -251,14 +226,6 @@ rotateStretchMoveCoords rot mov (width,height) =
    in  A.generate (A.lift $ Z:.height:.width) $ \p ->
           let (_z :. ydst :. xdst) = unliftDim2 p
           in  A.lift $ trans (A.fromIntegral xdst, A.fromIntegral ydst)
-
-inBoxPlain ::
-   (Ord a, Num a) =>
-   (a, a) ->
-   (a, a) ->
-   Bool
-inBoxPlain (width,height) (x,y) =
-   0<=x && x<width && 0<=y && y<height
 
 inBox ::
    (A.Elt a, A.IsNum a, A.IsScalar a) =>
@@ -520,8 +487,8 @@ prepareOverlapMatching =
           rot radius (cos angle, sin angle) arr
 
 
-ceilingPow2Exp :: Exp Int -> Exp Int
-ceilingPow2Exp n =
+ceilingPow2 :: Exp Int -> Exp Int
+ceilingPow2 n =
    A.setBit 0 $ A.ceiling $ logBase 2 (fromIntegral n :: Exp Double)
 
 pad ::
@@ -569,17 +536,13 @@ correlateImpossible ::
 correlateImpossible x y =
    let (heightx, widthx) = A.unlift $ A.unindex2 $ A.shape x
        (heighty, widthy) = A.unlift $ A.unindex2 $ A.shape y
-       width  = ceilingPow2Exp $ widthx  + widthy
-       height = ceilingPow2Exp $ heightx + heighty
+       width  = ceilingPow2 $ widthx  + widthy
+       height = ceilingPow2 $ heightx + heighty
        sh = A.index2 height width
        forward z = fft2DPlain CUFFT.forwardReal $ CUDA.run $ pad 0 sh z
    in  fft2DPlain CUFFT.inverseReal $ CUDA.run $
        A.zipWith mulConj (forward x) (forward y)
 
-
-ceilingPow2 :: Int -> Int
-ceilingPow2 n =
-   Bit.setBit 0 $ ceiling $ logBase 2 (fromIntegral n :: Double)
 
 removeDCOffset ::
    (A.Elt a, A.IsFloating a) => Acc (Channel Z a) -> Acc (Channel Z a)
@@ -770,10 +733,6 @@ shrink (_:.yk:.xk) arr =
           (Exp.modify (expr:.expr:.expr:.expr:.expr) $
            \(z:.yi:.xi:.yj:.xj) -> z:.yi*yk+yj:.xi*xk+xj)
           arr
-
--- cf. numeric-prelude
-divUp :: (Integral a) => a -> a -> a
-divUp a b = - div (-a) b
 
 
 type GenDIM2 a = Z :. a :. a
@@ -1209,38 +1168,6 @@ maskedMaximum ::
 maskedMaximum = A.fold1 (maybePlus max)
 
 
-
-type Line2 a = (Point2 a, Point2 a)
-
-intersect ::
-   (Ord a, Fractional a) => Line2 a -> Line2 a -> Maybe (Point2 a)
-intersect ((xa,ya), (xb,yb)) ((xc,yc), (xd,yd)) = do
-   let denom = (xb-xa)*(yd-yc)-(xd-xc)*(yb-ya)
-       r     = ((xd-xc)*(ya-yc)-(xa-xc)*(yd-yc)) / denom
-       s     = ((xb-xa)*(ya-yc)-(xa-xc)*(yb-ya)) / denom
-   guard (denom/=0)
-   guard (0<=r && r<=1)
-   guard (0<=s && s<=1)
-   return (xa + r*(xb-xa), ya + r*(yb-ya))
-
-intersections ::
-   (Fractional a, Ord a) =>
-   [Line2 a] -> [Line2 a] -> [Point2 a]
-intersections segments0 segments1 =
-   catMaybes $ liftM2 intersect segments0 segments1
-
-
-type Point2 a = (a,a)
-
-projectPerp ::
-   (Fractional a) =>
-   Point2 a -> (Point2 a, Point2 a) -> (a, Point2 a)
-projectPerp (xc,yc) ((xa,ya), (xb,yb)) =
-   let dx = xb-xa
-       dy = yb-ya
-       r = ((xc-xa)*dx + (yc-ya)*dy) / (dx*dx + dy*dy)
-   in  (r, (xa + r*dx, ya + r*dy))
-
 project ::
    (A.Elt a, A.IsFloating a) =>
    Point2 (Exp a) ->
@@ -1249,11 +1176,6 @@ project ::
 project x ab =
    let (r, y) = projectPerp x ab
    in  (0<=*r &&* r<=*1, y)
-
-
-distance :: (Floating a) => Point2 a -> Point2 a -> a
-distance (xa,ya) (xb,yb) =
-   sqrt $ (xa-xb)^(2::Int) + (ya-yb)^(2::Int)
 
 
 distanceMapEdges ::
@@ -1638,8 +1560,8 @@ processOverlap args picAngles pairs = do
                        case List.sortBy (flip compare) sizes of
                           size0 : size1 : _ -> size0+size1
                           _ -> error "less than one picture - there should be no pairs"
-                    padWidth  = ceilingPow2 $ maxSum2 rotWidths
-                    padHeight = ceilingPow2 $ maxSum2 rotHeights
+                    padWidth  = Arith.ceilingPow2 $ maxSum2 rotWidths
+                    padHeight = Arith.ceilingPow2 $ maxSum2 rotHeights
                     padExtent = Z :. padHeight :. padWidth
                 in  (Just $ allOverlapsRun padExtent (Option.minimumOverlap opt),
                      optimalOverlap padExtent (Option.minimumOverlap opt))
@@ -1699,13 +1621,6 @@ processOverlap args picAngles pairs = do
        floatPoss = map (mapPair (realToFrac, realToFrac)) poss
 
    return (floatPoss, picRots)
-
-
-pairFromComplex :: (RealFloat a) => Complex a -> (a,a)
-pairFromComplex z = (HComplex.realPart z, HComplex.imagPart z)
-
-mapComplex :: (a -> b) -> Complex a -> Complex b
-mapComplex f (r HComplex.:+ i)  =  f r HComplex.:+ f i
 
 
 processOverlapRotate ::
@@ -1898,7 +1813,7 @@ process args = do
                        filter
                           (\c ->
                              any (\(rot, mov, (width,height)) ->
-                                    inBoxPlain (width,height) $
+                                    Arith.inBox (width,height) $
                                     mapPair (round, round) $
                                     rotateStretchMoveBackPoint rot mov c) $
                              map fst3 others)
