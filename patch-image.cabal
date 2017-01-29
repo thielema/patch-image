@@ -198,8 +198,9 @@ Flag cuda
   Manual:      True
 
 Flag buildDraft
-  description: Build draft program
-  default:     False
+  Description: Build draft program
+  Default:     False
+  Manual:      True
 
 Executable patch-image
   Main-Is: Accelerate.hs
