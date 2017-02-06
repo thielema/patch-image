@@ -40,7 +40,11 @@ rotateStretchMoveBackPoint (rx,ry) (mx,my) =
 
 
 boundingBoxOfRotated :: (Num a, Ord a) => (a,a) -> (a,a) -> ((a,a), (a,a))
-boundingBoxOfRotated rot (w,h) =
+boundingBoxOfRotated = boundingBoxOfRotatedGen (min,max)
+
+boundingBoxOfRotatedGen ::
+   (Num a) => (a -> a -> a, a -> a -> a) -> (a,a) -> (a,a) -> ((a,a), (a,a))
+boundingBoxOfRotatedGen (mini,maxi) rot (w,h) =
    let (xs,ys) =
           unzip $
           rotatePoint rot (0,0) :
@@ -48,7 +52,7 @@ boundingBoxOfRotated rot (w,h) =
           rotatePoint rot (0,h) :
           rotatePoint rot (w,h) :
           []
-   in  ((minimum xs, maximum xs), (minimum ys, maximum ys))
+   in  ((foldl1 mini xs, foldl1 maxi xs), (foldl1 mini ys, foldl1 maxi ys))
 
 linearIp :: (Num a) => (a,a) -> a -> a
 linearIp (x0,x1) t = (1-t) * x0 + t * x1
