@@ -303,6 +303,45 @@ runRotate = do
    return $ \ angle img -> rot ((cos angle, sin angle), img)
 
 
+brightnessPlane ::
+   (Symb.C array, Shape.C size) =>
+   array (Size, size) a -> array size a
+brightnessPlane = ShapeDep.backpermute Expr.snd (Expr.compose . (,) Expr.zero)
+
+rowHistogram ::
+   (Symb.C array, Shape.C size, MultiValue.Additive a) =>
+   array (Size, (size, Size)) a -> array size a
+rowHistogram = Symb.fold1 Expr.add . brightnessPlane
+
+
+tailArr :: (Symb.C array) => array Size a -> array Size a
+tailArr = ShapeDep.backpermute (Expr.max 0 . flip Expr.sub 1) (Expr.add 1)
+
+differentiate ::
+   (Symb.C array, MultiValue.Additive a) => array Size a -> array Size a
+differentiate xs = Symb.zipWith Expr.sub (tailArr xs) xs
+
+sqr :: MultiValue.PseudoRing a => Exp a -> Exp a
+sqr = Expr.liftM $ \x -> MultiValue.mul x x
+
+scoreHistogram ::
+   (Symb.C array, MultiValue.PseudoRing a) => array Size a -> array () a
+scoreHistogram = Symb.fold1All Expr.add . Symb.map sqr . differentiate
+
+
+runScoreRotation :: IO (Float -> ColorImage -> IO Float)
+runScoreRotation = do
+   rot <-
+      PhysP.render $
+      SymbP.withExp
+         (\rot ->
+            rowHistogram . rotate rot . separateChannels . imageFloatFromByte)
+         (arr fst) (PhysP.feed $ arr snd)
+   score <- PhysP.the $ scoreHistogram (PhysP.feed $ arr id)
+   return $ \ angle img -> score =<< rot ((cos angle, sin angle), img)
+
+
+
 rotateTest :: IO ()
 rotateTest = do
    rot <- runRotate
@@ -312,5 +351,12 @@ rotateTest = do
       putStrLn path
       writeImage 100 path =<< rot (fromInteger k * pi/6) img
 
+scoreTest :: IO ()
+scoreTest = do
+   score <- runScoreRotation
+   img <- readImage Verbosity.normal "/tmp/bild/artikel0005.jpeg"
+   forM_ [-10..10] $ \k -> do
+      print =<< score (fromInteger k * 2*pi/(360*10)) img
+
 main :: IO ()
-main = rotateTest
+main = scoreTest
