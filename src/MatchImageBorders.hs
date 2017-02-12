@@ -11,15 +11,45 @@ We do not recalculate the average if a pixel is removed from the priority queue.
 module MatchImageBorders where
 
 import qualified Data.PQueue.Prio.Max as PQ
+import qualified Data.Set as Set
 import Data.PQueue.Prio.Max (MaxPQueue)
+import Data.Set (Set)
 
 import Data.Array.IOCArray (IOCArray)
-import Data.Array.MArray (readArray, writeArray, freeze)
+import Data.Array.MArray (readArray, writeArray, freeze, thaw)
 import Data.Array.CArray (CArray)
-import Data.Array.IArray (amap, bounds, inRange, (!))
+import Data.Array.IArray (Ix, amap, bounds, range, inRange, (!), (//))
+
+import Data.Traversable (forM)
+import Data.Tuple.HT (mapSnd)
+import Data.Maybe (mapMaybe, listToMaybe)
 import Data.Word (Word8)
 
 import Control.Monad (filterM)
+import Control.Applicative ((<$>))
+
+
+findBorder :: (Ix i, Enum i, Ix j, Enum j) => CArray (i,j) Bool -> Set (i,j)
+findBorder mask =
+   let ((yl,xl), (yu,xu)) = bounds mask
+       revRange (l,u) = [u, pred u .. l]
+       findLeft y =
+         listToMaybe $ dropWhile (\x -> not $ mask!(y,x)) $ range (xl,xu)
+       findRight y =
+         listToMaybe $ dropWhile (\x -> not $ mask!(y,x)) $ revRange (xl,xu)
+       findTop x =
+         listToMaybe $ dropWhile (\y -> not $ mask!(y,x)) $ range (yl,yu)
+       findBottom x =
+         listToMaybe $ dropWhile (\y -> not $ mask!(y,x)) $ revRange (yl,yu)
+   in  Set.fromList $
+         mapMaybe (\y -> (,) y <$> findLeft y) (range (yl,yu)) ++
+         mapMaybe (\y -> (,) y <$> findRight y) (range (yl,yu)) ++
+         mapMaybe (\x -> flip (,) x <$> findTop x) (range (xl,xu)) ++
+         mapMaybe (\x -> flip (,) x <$> findBottom x) (range (xl,xu))
+
+pqueueFromBorder :: (Ix ix) => CArray ix Float -> Set ix -> MaxPQueue Float ix
+pqueueFromBorder weights =
+   PQ.fromList . map (\pos -> (weights!pos, pos)) . Set.toList
 
 
 type Location = Word8
@@ -28,6 +58,26 @@ locOutside, locBorder, locInside :: Location
 locOutside = 0
 locBorder = 1
 locInside = 2
+
+prepareLocations :: (Ix ix) => CArray ix Bool -> Set ix -> CArray ix Location
+prepareLocations mask border =
+   amap (\b -> if b then locInside else locOutside) mask
+   //
+   map (flip (,) locBorder) (Set.toList border)
+
+prepareShaping ::
+   (Ix i, Enum i, Ix j, Enum j) =>
+   [(CArray (i,j) Bool, CArray (i,j) Float)] ->
+   IO ([IOCArray (i,j) Location],
+       MaxPQueue Float ((IOCArray (i,j) Location, CArray (i,j) Float), (i,j)))
+prepareShaping maskWeightss =
+   fmap (mapSnd PQ.unions . unzip) $
+   forM maskWeightss $ \(mask, weights) -> do
+      let border = findBorder mask
+      locations <- thaw $ prepareLocations mask border
+      return
+         (locations,
+          fmap ((,) (locations, weights)) $ pqueueFromBorder weights border)
 
 shapeParts ::
    [IOCArray (Int, Int) Location] ->
