@@ -14,6 +14,7 @@ import Data.Array.Knead.Expression (Exp)
 
 import qualified LLVM.Extra.Multi.Value.Memory as MultiMem
 import qualified LLVM.Extra.Multi.Value as MultiValue
+import qualified LLVM.Core as LLVM
 import LLVM.Extra.Multi.Value (atom)
 
 import qualified Codec.Picture as Pic
@@ -26,10 +27,11 @@ import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
 import Control.Arrow (arr)
+import Control.Monad (liftM2)
 import Data.Foldable (forM_)
 import Data.Tuple.HT (swap)
 import Data.Int (Int64)
-import Data.Word (Word8)
+import Data.Word (Word8, Word32)
 
 
 
@@ -254,6 +256,31 @@ rotateStretchMoveCoords rot mov =
    .
    Symb.id
 
+inRange :: (MultiValue.Comparison a) => Exp a -> Exp a -> Exp Bool
+inRange =
+   Expr.liftM2 $ \ size x -> do
+      lower <- MultiValue.cmp LLVM.CmpLE MultiValue.zero x
+      upper <- MultiValue.cmp LLVM.CmpLT x size
+      MultiValue.and lower upper
+
+inBox ::
+   (MultiValue.Comparison a) =>
+   (Exp a, Exp a) ->
+   (Exp a, Exp a) ->
+   Exp Bool
+inBox (width,height) (x,y) =
+   Expr.liftM2 MultiValue.and (inRange width x) (inRange height y)
+
+validCoords ::
+   (MultiValue.NativeFloating a ar,
+    MultiValue.Field a, MultiValue.Real a,
+    MultiValue.RationalConstant a) =>
+   (Exp Size, Exp Size) ->
+   SymbPlane (a, a) -> SymbPlane MaskBool
+validCoords (width,height) =
+   Symb.map $ Expr.modify (atom,atom) $ \(x,y) ->
+      maskFromBool $ inBox (width,height) (fastRound x, fastRound y)
+
 {- |
 @rotateStretchMove rot mov@
 first rotate and stretches the image according to 'rot'
@@ -268,9 +295,12 @@ rotateStretchMove ::
    Exp (a, a) ->
    Exp (Size, Size) ->
    SymbChannel sh a ->
-   SymbChannel sh a
+   (SymbPlane MaskBool, SymbChannel sh a)
 rotateStretchMove rot mov sh img =
-   gatherFrac img (rotateStretchMoveCoords rot mov sh)
+   let coords = rotateStretchMoveCoords rot mov sh
+       (heightSrc, widthSrc) =
+         Expr.decompose (atom,atom) $ Expr.snd $ Symb.shape img
+   in  (validCoords (widthSrc, heightSrc) coords, gatherFrac img coords)
 
 rotate ::
    (Shape.C sh,
@@ -286,7 +316,8 @@ rotate rot img =
        ((left, right), (top, bottom)) =
          Arith.boundingBoxOfRotatedGen (Expr.min, Expr.max)
             (Expr.unzip rot) (fromInt width, fromInt height)
-   in  rotateStretchMove rot (Expr.zip (-left) (-top))
+   in  snd $
+       rotateStretchMove rot (Expr.zip (-left) (-top))
          (Expr.zip (ceilingToInt (bottom-top)) (ceilingToInt (right-left)))
          img
 
@@ -339,6 +370,100 @@ runScoreRotation = do
          (arr fst) (PhysP.feed $ arr snd)
    score <- PhysP.the $ scoreHistogram (PhysP.feed $ arr id)
    return $ \ angle img -> score =<< rot ((cos angle, sin angle), img)
+
+
+
+emptyCanvas ::
+   (Shape.C sh, MultiMem.C sh, MultiMem.Struct sh ~ shs, LLVM.IsSized shs,
+    SV.Storable sh) =>
+   IO ((sh, (Size, Size)) -> IO (Plane Word32, Channel sh Float))
+emptyCanvas = do
+   emptyCounts <- PhysP.render $ SymbP.fill (arr id) 0
+   emptyImage <- PhysP.render $ SymbP.fill (arr id) 0
+   return $ \sh@(_depth, size) ->
+      liftM2 (,) (emptyCounts size) (emptyImage sh)
+
+
+type MaskBool = Word8
+
+maskFromBool :: Exp Bool -> Exp MaskBool
+maskFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.zext
+
+intFromBool :: Exp MaskBool -> Exp Word32
+intFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.ext
+
+runAddToCanvas ::
+   (Shape.C sh, MultiMem.C sh, MultiMem.Struct sh ~ shs, LLVM.IsSized shs,
+    SV.Storable sh,
+    MultiMem.C a, MultiValue.PseudoRing a, SV.Storable a,
+    MultiValue.NativeFloating a ar) =>
+   IO ((Plane MaskBool, Channel sh a) ->
+       (Plane Word32, Channel sh a) ->
+       IO (Plane Word32, Channel sh a))
+runAddToCanvas = do
+   addCounts <-
+      PhysP.render $
+      Symb.zipWith Expr.add
+         (Symb.map intFromBool $ PhysP.feed (arr fst)) (PhysP.feed (arr snd))
+   addCanvas <-
+      PhysP.render $
+      let mask = PhysP.feed (arr fst)
+          pic = PhysP.feed (arr (fst.snd))
+          canvas = PhysP.feed (arr (snd.snd))
+      in  Symb.zipWith Expr.add canvas $ Symb.zipWith Expr.mul pic $
+          replicateChannel pic (Symb.map (fromInt . intFromBool) mask)
+   return $ \(mask, pic) (count, canvas) ->
+      liftM2 (,)
+         (addCounts (mask, count))
+         (addCanvas (mask, (pic, canvas)))
+
+addToCanvas ::
+   (Shape.C sh, MultiValue.PseudoRing a, MultiValue.NativeFloating a ar) =>
+   (SymbPlane MaskBool, SymbChannel sh a) ->
+   (SymbPlane Word32, SymbChannel sh a) ->
+   (SymbPlane Word32, SymbChannel sh a)
+addToCanvas (mask, pic) (count, canvas) =
+   (Symb.zipWith Expr.add (Symb.map intFromBool mask) count,
+    Symb.zipWith Expr.add canvas $ Symb.zipWith Expr.mul pic $
+      replicateChannel pic (Symb.map (fromInt . intFromBool) mask))
+
+updateCanvas ::
+   IO ((Float,Float) -> (Float,Float) -> ColorImage ->
+       (Plane Word32, Channel Size Float) ->
+       IO (Plane Word32, Channel Size Float))
+updateCanvas = do
+   let update select =
+         PhysP.render $
+         SymbP.withExp3
+            (\rotMov pic count canvas ->
+               let (rot,mov) = Expr.unzip rotMov
+               in  select $
+                   addToCanvas
+                     (rotateStretchMove rot mov (Expr.snd $ Symb.shape canvas) $
+                      separateChannels $ imageFloatFromByte pic)
+                     (count,canvas))
+            (arr fst) (PhysP.feed $ arr (fst.snd))
+            (PhysP.feed $ arr (fst.snd.snd))
+            (PhysP.feed $ arr (snd.snd.snd))
+
+   updateCounts <- update fst
+   updateImage <- update snd
+
+   return $ \rot mov pic (count,canvas) ->
+      liftM2 (,)
+         (updateCounts ((rot,mov), (pic, (count,canvas))))
+         (updateImage ((rot,mov), (pic, (count,canvas))))
+
+
+finalizeCanvas ::
+   IO ((Plane Word32, Channel Size Float) -> IO ColorImage)
+finalizeCanvas =
+   PhysP.render $
+      let count = PhysP.feed (arr fst)
+          canvas = PhysP.feed (arr snd)
+      in  imageByteFromFloat $ interleaveChannels $
+          ShapeDep.backpermute2 const id Expr.snd
+             (/) canvas (Symb.map fromInt count)
 
 
 
