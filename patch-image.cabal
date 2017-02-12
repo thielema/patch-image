@@ -210,6 +210,7 @@ Flag buildDraft
 Executable patch-image-llvm
   Main-Is: Knead.hs
   Other-Modules:
+    MatchImageBorders
     Arithmetic
   Hs-Source-Dirs: src
 
