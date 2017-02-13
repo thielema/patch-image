@@ -184,16 +184,18 @@ ceilingToInt = Expr.liftM MultiValue.truncateToInt
 
 limitIndices ::
    (Symb.C array, Shape.C sh) =>
-   array () (Size,Size) ->
+   Exp (Size,Size) ->
    array sh (Size,Size) ->
    array sh (Size,Size)
-limitIndices =
-   ShapeDep.backpermute2 (flip const) (const Expr.unit) id
-      (Expr.modify2 (atom, atom) (atom, atom) $
-         \(height, width) (y,x) ->
-            let xc = Expr.max 0 $ Expr.min (width -1) x
-                yc = Expr.max 0 $ Expr.min (height-1) y
-            in  (yc, xc))
+limitIndices sh =
+   Symb.map
+      (case Expr.unzip sh of
+         (height, width) ->
+            Expr.modify (atom, atom) $
+               \(y,x) ->
+                  let xc = Expr.max 0 $ Expr.min (width -1) x
+                      yc = Expr.max 0 $ Expr.min (height-1) y
+                  in  (yc, xc))
 
 shiftIndicesHoriz, shiftIndicesVert ::
    (Symb.C array, Shape.C sh) =>
@@ -237,7 +239,7 @@ gatherFrac vec src poss =
             poss
        possFrac = Symb.map Expr.fst possSplit
        possInt = Symb.map Expr.snd possSplit
-       gather = flip Symb.gather src . limitIndices (ShapeDep.shape src)
+       gather = flip Symb.gather src . limitIndices (Symb.shape src)
        interpolateHoriz possIntShifted =
          Symb.zipWith (Arith.cubicIpVec vec . Expr.unzip4)
             (Symb.zip4
