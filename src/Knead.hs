@@ -28,7 +28,6 @@ import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
 import Control.Arrow (arr)
-import Control.Monad (liftM2)
 import Data.Foldable (forM_)
 import Data.Tuple.HT (mapTriple, fst3, swap)
 import Data.Int (Int64)
@@ -316,11 +315,13 @@ rotateStretchMove ::
    Exp (a, a) ->
    Exp (Size, Size) ->
    SymbPlane v ->
-   (SymbPlane MaskBool, SymbPlane v)
+   SymbPlane (MaskBool, v)
 rotateStretchMove vec rot mov sh img =
    let coords = rotateStretchMoveCoords rot mov sh
        (heightSrc, widthSrc) = Expr.unzip $ Symb.shape img
-   in  (validCoords (widthSrc, heightSrc) coords, gatherFrac vec img coords)
+   in  Symb.zip
+         (validCoords (widthSrc, heightSrc) coords)
+         (gatherFrac vec img coords)
 
 rotate ::
    (SV.Storable a, MultiMem.C a,
@@ -336,7 +337,7 @@ rotate vec rot img =
        ((left, right), (top, bottom)) =
          Arith.boundingBoxOfRotatedGen (Expr.min, Expr.max)
             (Expr.unzip rot) (fromInt width, fromInt height)
-   in  snd $
+   in  Symb.map Expr.snd $
        rotateStretchMove vec rot (Expr.zip (-left) (-top))
          (Expr.zip (ceilingToInt (bottom-top)) (ceilingToInt (right-left)))
          img
@@ -393,12 +394,8 @@ runScoreRotation = do
 
 
 
-emptyCanvas ::
-   IO ((Size, Size) -> IO (Plane Word32, ColorImage Float))
-emptyCanvas = do
-   emptyCounts <- PhysP.render $ SymbP.fill (arr id) 0
-   emptyImage <- PhysP.render $ SymbP.fill (arr id) $ return (0,0,0)
-   return $ \sh -> liftM2 (,) (emptyCounts sh) (emptyImage sh)
+emptyCanvas :: IO ((Size, Size) -> IO (Plane (Word32, YUV Float)))
+emptyCanvas = PhysP.render $ SymbP.fill (arr id) $ return (0, (0,0,0))
 
 
 type MaskBool = Word8
@@ -412,51 +409,46 @@ intFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.ext
 addToCanvas ::
    (MultiValue.PseudoRing a, MultiValue.NativeFloating a ar) =>
    VecExp a v ->
-   (SymbPlane MaskBool, SymbPlane v) ->
-   (SymbPlane Word32, SymbPlane v) ->
-   (SymbPlane Word32, SymbPlane v)
-addToCanvas vec (mask, pic) (count, canvas) =
-   (Symb.zipWith Expr.add (Symb.map intFromBool mask) count,
-    Symb.zipWith (Arith.vecAdd vec) canvas $
-    Symb.zipWith (flip $ Arith.vecScale vec) pic $
-      Symb.map (fromInt . intFromBool) mask)
+   SymbPlane (MaskBool, v) ->
+   SymbPlane (Word32, v) ->
+   SymbPlane (Word32, v)
+addToCanvas vec =
+   Symb.zipWith
+      (Expr.modify2 (atom,atom) (atom,atom) $ \(mask, pic) (count, canvas) ->
+         (Expr.add (intFromBool mask) count,
+          Arith.vecAdd vec canvas $
+          Arith.vecScale vec (fromInt $ intFromBool mask) pic))
 
 updateCanvas ::
    IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
-       (Plane Word32, ColorImage Float) ->
-       IO (Plane Word32, ColorImage Float))
+       Plane (Word32, YUV Float) ->
+       IO (Plane (Word32, YUV Float)))
 updateCanvas = do
-   let update select =
-         PhysP.render $
-         SymbP.withExp3
-            (\rotMov pic count canvas ->
-               let (rot,mov) = Expr.unzip rotMov
-               in  select $
-                   addToCanvas vecYUV
-                     (rotateStretchMove vecYUV rot mov (Symb.shape canvas) $
-                      colorImageFloatFromByte pic)
-                     (count,canvas))
-            (arr fst) (PhysP.feed $ arr (fst.snd))
-            (PhysP.feed $ arr (fst.snd.snd))
-            (PhysP.feed $ arr (snd.snd.snd))
+   update <-
+      PhysP.render $
+      SymbP.withExp2
+         (\rotMov pic countCanvas ->
+            let (rot,mov) = Expr.unzip rotMov
+            in  addToCanvas vecYUV
+                  (rotateStretchMove vecYUV rot mov (Symb.shape countCanvas) $
+                   colorImageFloatFromByte pic)
+                  countCanvas)
+         (arr fst)
+         (PhysP.feed $ arr (fst.snd))
+         (PhysP.feed $ arr (snd.snd))
 
-   updateCounts <- update fst
-   updateImage <- update snd
-
-   return $ \rot mov pic (count,canvas) ->
-      liftM2 (,)
-         (updateCounts ((rot,mov), (pic, (count,canvas))))
-         (updateImage ((rot,mov), (pic, (count,canvas))))
+   return $ \rot mov pic countCanvas ->
+      update ((rot,mov), (pic, countCanvas))
 
 
-finalizeCanvas :: IO ((Plane Word32, ColorImage Float) -> IO ColorImage8)
+finalizeCanvas :: IO ((Plane (Word32, YUV Float)) -> IO ColorImage8)
 finalizeCanvas =
    PhysP.render $
-      let count = PhysP.feed (arr fst)
-          canvas = PhysP.feed (arr snd)
-      in  colorImageByteFromFloat $
-          Symb.zipWith (Arith.vecScale vecYUV)
-            (Symb.map (recip . fromInt) count) canvas 
+      colorImageByteFromFloat $
+      Symb.map
+         (Expr.modify (atom,atom) $ \(count, pixel) ->
+            Arith.vecScale vecYUV (recip $ fromInt count) pixel)
+         (PhysP.feed (arr id))
 
 
 
