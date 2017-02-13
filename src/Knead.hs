@@ -20,6 +20,7 @@ import LLVM.Extra.Multi.Value (atom)
 import qualified Codec.Picture as Pic
 
 import qualified Data.Vector.Storable as SV
+import Foreign.ForeignPtr (ForeignPtr, castForeignPtr)
 
 import qualified Distribution.Simple.Utils as CmdLine
 import qualified Distribution.Verbosity as Verbosity
@@ -29,7 +30,7 @@ import Text.Printf (printf)
 import Control.Arrow (arr)
 import Control.Monad (liftM2)
 import Data.Foldable (forM_)
-import Data.Tuple.HT (swap)
+import Data.Tuple.HT (mapTriple, fst3, swap)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
 
@@ -40,10 +41,13 @@ type Channel sh = Phys.Array (sh, (Size, Size))
 type Plane = Phys.Array (Size, Size)
 type SymbChannel sh = Symb.Array (sh, (Size, Size))
 type SymbPlane = Symb.Array (Size, Size)
-type ColorImage = Phys.Array ((Size, Size), Size) Word8
+type ColorImage a = Phys.Array (Size, Size) (YUV a)
+type ColorImage8 = ColorImage Word8
+
+type YUV a = (a,a,a)
 
 
-readImage :: Verbosity -> FilePath -> IO ColorImage
+readImage :: Verbosity -> FilePath -> IO ColorImage8
 readImage verbosity path = do
    epic <- Pic.readImage path
    case epic of
@@ -59,32 +63,35 @@ readImage verbosity path = do
                      (SV.length dat)
                return $
                   Phys.Array
-                     ((fromIntegral $ Pic.imageHeight pic,
-                       fromIntegral $ Pic.imageWidth pic), 3)
-                     (fst $ SV.unsafeToForeignPtr0 dat)
+                     (fromIntegral $ Pic.imageHeight pic,
+                      fromIntegral $ Pic.imageWidth pic)
+                     (castForeignPtr $ fst $ SV.unsafeToForeignPtr0 dat)
             _ -> ioError $ userError "unsupported image type"
 
 
 vectorStorableFrom ::
-   (Shape.C sh, SV.Storable a) => Phys.Array sh a -> SV.Vector a
-vectorStorableFrom img =
+   (Shape.C sh, SV.Storable a) =>
+   (ForeignPtr c -> ForeignPtr a) ->
+   Phys.Array sh c -> SV.Vector a
+vectorStorableFrom castArray img =
    SV.unsafeFromForeignPtr0
-      (Phys.buffer img) (fromIntegral $ Shape.size $ Phys.shape img)
+      (castArray $ Phys.buffer img) (fromIntegral $ Shape.size $ Phys.shape img)
 
 imageFromArray ::
-   (Shape.C sh, Pic.PixelBaseComponent a ~ c, SV.Storable c) =>
-   (sh -> (Size, Size)) -> Phys.Array sh c -> Pic.Image a
-imageFromArray getSize img =
-   let (height, width) = getSize $ Phys.shape img
+   (Pic.PixelBaseComponent c ~ a, SV.Storable a) =>
+   (ForeignPtr b -> ForeignPtr a) -> Phys.Array (Size,Size) b -> Pic.Image c
+imageFromArray castArray img =
+   let (height, width) = Phys.shape img
    in Pic.Image {
          Pic.imageWidth = fromIntegral width,
          Pic.imageHeight = fromIntegral height,
-         Pic.imageData = vectorStorableFrom img
+         Pic.imageData = vectorStorableFrom castArray img
       }
 
-writeImage :: Int -> FilePath -> ColorImage -> IO ()
+writeImage :: Int -> FilePath -> ColorImage8 -> IO ()
 writeImage quality path img =
-   Pic.saveJpgImage quality path $ Pic.ImageYCbCr8 $ imageFromArray fst img
+   Pic.saveJpgImage quality path $ Pic.ImageYCbCr8 $
+      imageFromArray castForeignPtr img
 
 writeGrey :: Int -> FilePath -> Plane Word8 -> IO ()
 writeGrey quality path img =
@@ -96,14 +103,28 @@ fromInt ::
    Exp i -> Exp a
 fromInt = Expr.liftM MultiValue.fromIntegral
 
+floatFromByte ::
+   (MultiValue.NativeFloating a ar,
+    MultiValue.PseudoRing a, MultiValue.Real a,
+    MultiValue.RationalConstant a) =>
+   Exp Word8 -> Exp a
+floatFromByte = (* Expr.fromRational' (recip 255)) . fromInt
+
+byteFromFloat ::
+   (MultiValue.NativeFloating a ar,
+    MultiValue.Field a, MultiValue.Real a,
+    MultiValue.RationalConstant a) =>
+   Exp a -> Exp Word8
+byteFromFloat = fastRound . (255*) . Expr.max 0 . Expr.min 1
+
+
 imageFloatFromByte ::
    (Symb.C array, Shape.C sh,
     MultiValue.NativeFloating a ar,
     MultiValue.PseudoRing a, MultiValue.Real a,
     MultiValue.RationalConstant a) =>
    array sh Word8 -> array sh a
-imageFloatFromByte =
-   Symb.map ((* Expr.fromRational' (recip 255)) . fromInt)
+imageFloatFromByte = Symb.map floatFromByte
 
 imageByteFromFloat ::
    (Symb.C array, Shape.C sh,
@@ -111,26 +132,28 @@ imageByteFromFloat ::
     MultiValue.Field a, MultiValue.Real a,
     MultiValue.RationalConstant a) =>
    array sh a -> array sh Word8
-imageByteFromFloat = Symb.map (fastRound . (255*) . Expr.max 0 . Expr.min 1)
+imageByteFromFloat = Symb.map byteFromFloat
 
 
-cycleLeftDim3 :: Exp (Size, (Size,Size)) -> Exp ((Size,Size), Size)
-cycleLeftDim3 = Expr.swap
+colorImageFloatFromByte ::
+   (Symb.C array, Shape.C sh,
+    MultiValue.NativeFloating a ar,
+    MultiValue.PseudoRing a, MultiValue.Real a,
+    MultiValue.RationalConstant a) =>
+   array sh (YUV Word8) -> array sh (YUV a)
+colorImageFloatFromByte =
+   Symb.map $ Expr.modify (atom,atom,atom) $
+      mapTriple (floatFromByte, floatFromByte, floatFromByte)
 
-cycleRightDim3 :: Exp ((Size,Size), Size) -> Exp (Size, (Size,Size))
-cycleRightDim3 = Expr.swap
-
-separateChannels ::
-   (Symb.C array) =>
-   array ((Size,Size), Size) a -> array (Size, (Size,Size)) a
-separateChannels =
-   ShapeDep.backpermute cycleRightDim3 cycleLeftDim3
-
-interleaveChannels ::
-   (Symb.C array) =>
-   array (Size, (Size,Size)) a -> array ((Size,Size), Size) a
-interleaveChannels =
-   ShapeDep.backpermute cycleLeftDim3 cycleRightDim3
+colorImageByteFromFloat ::
+   (Symb.C array, Shape.C sh,
+    MultiValue.NativeFloating a ar,
+    MultiValue.Field a, MultiValue.Real a,
+    MultiValue.RationalConstant a) =>
+   array sh (YUV a) -> array sh (YUV Word8)
+colorImageByteFromFloat =
+   Symb.map $ Expr.modify (atom,atom,atom) $
+      mapTriple (byteFromFloat, byteFromFloat, byteFromFloat)
 
 
 fastRound ::
@@ -181,33 +204,30 @@ shiftIndicesHoriz dx = Symb.map (Expr.mapSnd (dx+))
 shiftIndicesVert  dy = Symb.map (Expr.mapFst (dy+))
 
 
-replicateChannel ::
-   (Symb.C array, Shape.C size, MultiValue.C sh, Shape.C sh) =>
-   array (sh, size) b -> array size a -> array (sh, size) a
-replicateChannel =
-   flip $
-   ShapeDep.backpermuteExtra
-      (Expr.modify2 atom (atom, atom) $ \chanSh (sh, _) -> (sh, chanSh))
-      Expr.snd
+type VecExp a v = Arith.Vec (Exp a) (Exp v)
 
-
-addChannelIndices ::
-   (Symb.C array, Shape.C sh, Shape.Index sh ~ ix, Shape.C size) =>
-   array (sh, size) b -> array size a -> array (sh, size) (ix, a)
-addChannelIndices shape =
-   Symb.mapWithIndex (\x a -> Expr.zip (Expr.fst x) a)
-   .   
-   replicateChannel shape
+vecYUV :: (MultiValue.PseudoRing a) => VecExp a (YUV a)
+vecYUV =
+   Arith.Vec {
+      Arith.vecAdd =
+         Expr.modify2 (atom,atom,atom) (atom,atom,atom) $
+            \(ay,au,av) (by,bu,bv) ->
+               (Expr.add ay by, Expr.add au bu, Expr.add av bv),
+      Arith.vecScale =
+         Expr.modify2 atom (atom,atom,atom) $
+            \a (by,bu,bv) -> (Expr.mul a by, Expr.mul a bu, Expr.mul a bv)
+   }
 
 gatherFrac ::
-   (Shape.C sh, MultiValue.C sh,
-    MultiValue.NativeFloating a ar,
+   (MultiValue.NativeFloating a ar,
     MultiValue.Real a, MultiValue.Field a,
-    MultiValue.RationalConstant a) =>
-   SymbChannel sh a ->
+    MultiValue.RationalConstant a,
+    MultiValue.C v) =>
+   VecExp a v ->
+   SymbPlane v ->
    SymbPlane (a,a) ->
-   SymbChannel sh a
-gatherFrac src poss =
+   SymbPlane v
+gatherFrac vec src poss =
    let possSplit =
          Symb.map
             (Expr.modify (atom, atom) $ \(y,x) ->
@@ -217,25 +237,23 @@ gatherFrac src poss =
             poss
        possFrac = Symb.map Expr.fst possSplit
        possInt = Symb.map Expr.snd possSplit
-       gather =
-         flip Symb.gather src . addChannelIndices src .
-         limitIndices (Symb.map Expr.snd $ ShapeDep.shape src)
+       gather = flip Symb.gather src . limitIndices (ShapeDep.shape src)
        interpolateHoriz possIntShifted =
-         Symb.zipWith (Arith.cubicIp . Expr.unzip4)
+         Symb.zipWith (Arith.cubicIpVec vec . Expr.unzip4)
             (Symb.zip4
                (gather $ shiftIndicesHoriz (-1) possIntShifted)
                (gather $ shiftIndicesHoriz   0  possIntShifted)
                (gather $ shiftIndicesHoriz   1  possIntShifted)
                (gather $ shiftIndicesHoriz   2  possIntShifted))
-            (replicateChannel src $ Symb.map Expr.snd possFrac)
+            (Symb.map Expr.snd possFrac)
 
-   in  Symb.zipWith (Arith.cubicIp . Expr.unzip4)
+   in  Symb.zipWith (Arith.cubicIpVec vec . Expr.unzip4)
          (Symb.zip4
             (interpolateHoriz $ shiftIndicesVert (-1) possInt)
             (interpolateHoriz $ shiftIndicesVert   0  possInt)
             (interpolateHoriz $ shiftIndicesVert   1  possInt)
             (interpolateHoriz $ shiftIndicesVert   2  possInt))
-         (replicateChannel src $ Symb.map Expr.fst possFrac)
+         (Symb.map Expr.fst possFrac)
 
 
 rotateStretchMoveCoords ::
@@ -287,61 +305,61 @@ first rotate and stretches the image according to 'rot'
 and then moves the picture.
 -}
 rotateStretchMove ::
-   (Shape.C sh,
-    SV.Storable a, MultiMem.C a,
+   (SV.Storable a, MultiMem.C a,
     MultiValue.Real a, MultiValue.Field a,
-    MultiValue.RationalConstant a, MultiValue.NativeFloating a ar) =>
+    MultiValue.RationalConstant a, MultiValue.NativeFloating a ar,
+    MultiValue.C v) =>
+   VecExp a v ->
    Exp (a, a) ->
    Exp (a, a) ->
    Exp (Size, Size) ->
-   SymbChannel sh a ->
-   (SymbPlane MaskBool, SymbChannel sh a)
-rotateStretchMove rot mov sh img =
+   SymbPlane v ->
+   (SymbPlane MaskBool, SymbPlane v)
+rotateStretchMove vec rot mov sh img =
    let coords = rotateStretchMoveCoords rot mov sh
-       (heightSrc, widthSrc) =
-         Expr.decompose (atom,atom) $ Expr.snd $ Symb.shape img
-   in  (validCoords (widthSrc, heightSrc) coords, gatherFrac img coords)
+       (heightSrc, widthSrc) = Expr.unzip $ Symb.shape img
+   in  (validCoords (widthSrc, heightSrc) coords, gatherFrac vec img coords)
 
 rotate ::
-   (Shape.C sh,
-    SV.Storable a, MultiMem.C a,
+   (SV.Storable a, MultiMem.C a,
     MultiValue.Real a, MultiValue.Field a,
-    MultiValue.RationalConstant a, MultiValue.NativeFloating a ar) =>
+    MultiValue.RationalConstant a, MultiValue.NativeFloating a ar,
+    MultiValue.C v) =>
+   VecExp a v ->
    Exp (a, a) ->
-   SymbChannel sh a ->
-   SymbChannel sh a
-rotate rot img =
-   let (_chans, (height, width)) =
-         Expr.decompose (atom, (atom,atom)) $ Symb.shape img
+   SymbPlane v ->
+   SymbPlane v
+rotate vec rot img =
+   let (height, width) = Expr.unzip $ Symb.shape img
        ((left, right), (top, bottom)) =
          Arith.boundingBoxOfRotatedGen (Expr.min, Expr.max)
             (Expr.unzip rot) (fromInt width, fromInt height)
    in  snd $
-       rotateStretchMove rot (Expr.zip (-left) (-top))
+       rotateStretchMove vec rot (Expr.zip (-left) (-top))
          (Expr.zip (ceilingToInt (bottom-top)) (ceilingToInt (right-left)))
          img
 
 
-runRotate :: IO (Float -> ColorImage -> IO ColorImage)
+runRotate :: IO (Float -> ColorImage8 -> IO ColorImage8)
 runRotate = do
    rot <-
       PhysP.render $
       SymbP.withExp
          (\rot ->
-            imageByteFromFloat . interleaveChannels . rotate rot .
-            separateChannels . imageFloatFromByte)
+            colorImageByteFromFloat . rotate vecYUV rot .
+            colorImageFloatFromByte)
          (arr fst) (PhysP.feed $ arr snd)
    return $ \ angle img -> rot ((cos angle, sin angle), img)
 
 
 brightnessPlane ::
    (Symb.C array, Shape.C size) =>
-   array (Size, size) a -> array size a
-brightnessPlane = ShapeDep.backpermute Expr.snd (Expr.compose . (,) Expr.zero)
+   array size (YUV a) -> array size a
+brightnessPlane = Symb.map $ Expr.modify (atom,atom,atom) fst3
 
 rowHistogram ::
    (Symb.C array, Shape.C size, MultiValue.Additive a) =>
-   array (Size, (size, Size)) a -> array size a
+   array (size, Size) (YUV a) -> array size a
 rowHistogram = Symb.fold1 Expr.add . brightnessPlane
 
 
@@ -360,13 +378,13 @@ scoreHistogram ::
 scoreHistogram = Symb.fold1All Expr.add . Symb.map sqr . differentiate
 
 
-runScoreRotation :: IO (Float -> ColorImage -> IO Float)
+runScoreRotation :: IO (Float -> ColorImage8 -> IO Float)
 runScoreRotation = do
    rot <-
       PhysP.render $
       SymbP.withExp
          (\rot ->
-            rowHistogram . rotate rot . separateChannels . imageFloatFromByte)
+            rowHistogram . rotate vecYUV rot . colorImageFloatFromByte)
          (arr fst) (PhysP.feed $ arr snd)
    score <- PhysP.the $ scoreHistogram (PhysP.feed $ arr id)
    return $ \ angle img -> score =<< rot ((cos angle, sin angle), img)
@@ -374,14 +392,11 @@ runScoreRotation = do
 
 
 emptyCanvas ::
-   (Shape.C sh, MultiMem.C sh, MultiMem.Struct sh ~ shs, LLVM.IsSized shs,
-    SV.Storable sh) =>
-   IO ((sh, (Size, Size)) -> IO (Plane Word32, Channel sh Float))
+   IO ((Size, Size) -> IO (Plane Word32, ColorImage Float))
 emptyCanvas = do
    emptyCounts <- PhysP.render $ SymbP.fill (arr id) 0
-   emptyImage <- PhysP.render $ SymbP.fill (arr id) 0
-   return $ \sh@(_depth, size) ->
-      liftM2 (,) (emptyCounts size) (emptyImage sh)
+   emptyImage <- PhysP.render $ SymbP.fill (arr id) $ return (0,0,0)
+   return $ \sh -> liftM2 (,) (emptyCounts sh) (emptyImage sh)
 
 
 type MaskBool = Word8
@@ -393,13 +408,11 @@ intFromBool :: Exp MaskBool -> Exp Word32
 intFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.ext
 
 runAddToCanvas ::
-   (Shape.C sh, MultiMem.C sh, MultiMem.Struct sh ~ shs, LLVM.IsSized shs,
-    SV.Storable sh,
-    MultiMem.C a, MultiValue.PseudoRing a, SV.Storable a,
+   (MultiMem.C a, MultiValue.PseudoRing a, SV.Storable a,
     MultiValue.NativeFloating a ar) =>
-   IO ((Plane MaskBool, Channel sh a) ->
-       (Plane Word32, Channel sh a) ->
-       IO (Plane Word32, Channel sh a))
+   IO ((Plane MaskBool, ColorImage a) ->
+       (Plane Word32, ColorImage a) ->
+       IO (Plane Word32, ColorImage a))
 runAddToCanvas = do
    addCounts <-
       PhysP.render $
@@ -410,27 +423,30 @@ runAddToCanvas = do
       let mask = PhysP.feed (arr fst)
           pic = PhysP.feed (arr (fst.snd))
           canvas = PhysP.feed (arr (snd.snd))
-      in  Symb.zipWith Expr.add canvas $ Symb.zipWith Expr.mul pic $
-          replicateChannel pic (Symb.map (fromInt . intFromBool) mask)
+      in  Symb.zipWith (Arith.vecAdd vecYUV) canvas $
+          Symb.zipWith (flip $ Arith.vecScale vecYUV) pic $
+          Symb.map (fromInt . intFromBool) mask
    return $ \(mask, pic) (count, canvas) ->
       liftM2 (,)
          (addCounts (mask, count))
          (addCanvas (mask, (pic, canvas)))
 
 addToCanvas ::
-   (Shape.C sh, MultiValue.PseudoRing a, MultiValue.NativeFloating a ar) =>
-   (SymbPlane MaskBool, SymbChannel sh a) ->
-   (SymbPlane Word32, SymbChannel sh a) ->
-   (SymbPlane Word32, SymbChannel sh a)
-addToCanvas (mask, pic) (count, canvas) =
+   (MultiValue.PseudoRing a, MultiValue.NativeFloating a ar) =>
+   VecExp a v ->
+   (SymbPlane MaskBool, SymbPlane v) ->
+   (SymbPlane Word32, SymbPlane v) ->
+   (SymbPlane Word32, SymbPlane v)
+addToCanvas vec (mask, pic) (count, canvas) =
    (Symb.zipWith Expr.add (Symb.map intFromBool mask) count,
-    Symb.zipWith Expr.add canvas $ Symb.zipWith Expr.mul pic $
-      replicateChannel pic (Symb.map (fromInt . intFromBool) mask))
+    Symb.zipWith (Arith.vecAdd vec) canvas $
+    Symb.zipWith (flip $ Arith.vecScale vec) pic $
+      Symb.map (fromInt . intFromBool) mask)
 
 updateCanvas ::
-   IO ((Float,Float) -> (Float,Float) -> ColorImage ->
-       (Plane Word32, Channel Size Float) ->
-       IO (Plane Word32, Channel Size Float))
+   IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
+       (Plane Word32, ColorImage Float) ->
+       IO (Plane Word32, ColorImage Float))
 updateCanvas = do
    let update select =
          PhysP.render $
@@ -438,9 +454,9 @@ updateCanvas = do
             (\rotMov pic count canvas ->
                let (rot,mov) = Expr.unzip rotMov
                in  select $
-                   addToCanvas
-                     (rotateStretchMove rot mov (Expr.snd $ Symb.shape canvas) $
-                      separateChannels $ imageFloatFromByte pic)
+                   addToCanvas vecYUV
+                     (rotateStretchMove vecYUV rot mov (Symb.shape canvas) $
+                      colorImageFloatFromByte pic)
                      (count,canvas))
             (arr fst) (PhysP.feed $ arr (fst.snd))
             (PhysP.feed $ arr (fst.snd.snd))
@@ -455,15 +471,14 @@ updateCanvas = do
          (updateImage ((rot,mov), (pic, (count,canvas))))
 
 
-finalizeCanvas ::
-   IO ((Plane Word32, Channel Size Float) -> IO ColorImage)
+finalizeCanvas :: IO ((Plane Word32, ColorImage Float) -> IO ColorImage8)
 finalizeCanvas =
    PhysP.render $
       let count = PhysP.feed (arr fst)
           canvas = PhysP.feed (arr snd)
-      in  imageByteFromFloat $ interleaveChannels $
-          ShapeDep.backpermute2 const id Expr.snd
-             (/) canvas (Symb.map fromInt count)
+      in  colorImageByteFromFloat $
+          Symb.zipWith (Arith.vecScale vecYUV)
+            (Symb.map (recip . fromInt) count) canvas 
 
 
 

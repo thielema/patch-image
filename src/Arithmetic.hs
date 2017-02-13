@@ -54,6 +54,7 @@ boundingBoxOfRotatedGen (mini,maxi) rot (w,h) =
           []
    in  ((foldl1 mini xs, foldl1 maxi xs), (foldl1 mini ys, foldl1 maxi ys))
 
+
 linearIp :: (Num a) => (a,a) -> a -> a
 linearIp (x0,x1) t = (1-t) * x0 + t * x1
 
@@ -62,6 +63,25 @@ cubicIp (xm1, x0, x1, x2) t =
    let lipm12 = linearIp (xm1,x2) t
        lip01  = linearIp (x0, x1) t
    in  lip01 + (t*(t-1)/2) * (lipm12 + (x0+x1) - 3 * lip01)
+
+
+data Vec a v = Vec {vecAdd :: v -> v -> v, vecScale :: a -> v -> v}
+
+vecScalar :: (Num a) => Vec a a
+vecScalar = Vec (+) (*)
+
+
+linearIpVec :: (Num a) => Vec a v -> (v,v) -> a -> v
+linearIpVec vec (x0,x1) t =
+   vecAdd vec (vecScale vec (1-t) x0) (vecScale vec t x1)
+
+cubicIpVec :: (Fractional a) => Vec a v -> (v,v,v,v) -> a -> v
+cubicIpVec vec (xm1, x0, x1, x2) t =
+   let lipm12 = linearIpVec vec (xm1,x2) t
+       lip01  = linearIpVec vec (x0, x1) t
+   in  vecAdd vec lip01 $
+       vecScale vec (t*(t-1)/2)
+         (foldl1 (vecAdd vec) [lipm12, x0, x1, vecScale vec (-3) lip01])
 
 
 
