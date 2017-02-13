@@ -246,8 +246,8 @@ validCoords (width,height) =
 
 replicateChannel ::
    (A.Slice ix, A.Shape ix, A.Elt a) =>
-   Exp ix -> Acc (Channel Z a) -> Acc (Channel ix a)
-replicateChannel = LinAlg.extrudeMatrix
+   Exp (ix :. Int :. Int) -> Acc (Channel Z a) -> Acc (Channel ix a)
+replicateChannel = LinAlg.extrudeMatrix . A.indexTail . A.indexTail
 
 {- |
 @rotateStretchMove rot mov@
@@ -261,7 +261,7 @@ rotateStretchMove ::
    ExpDIM2 ix -> Acc (Channel ix a) ->
    (Acc (Channel Z Bool), Acc (Channel ix a))
 rotateStretchMove rot mov sh arr =
-   let ( chansDst :. heightDst :. widthDst) = sh
+   let (_chansDst :. heightDst :. widthDst) = sh
        (_chansSrc :. heightSrc :. widthSrc) = unliftDim2 $ A.shape arr
        coords = rotateStretchMoveCoords rot mov (widthDst, heightDst)
 
@@ -271,7 +271,7 @@ rotateStretchMove rot mov sh arr =
               let (chan :. _ydst :. _xdst) = unliftDim2 ix
                   (xsrc,ysrc) = A.unlift coord
               in  indexFrac arr (chan :. ysrc :. xsrc))
-           (replicateChannel chansDst coords))
+           (replicateChannel (A.lift sh) coords))
 
 
 rotateLeftTop ::
@@ -1119,9 +1119,8 @@ addToCanvas ::
 addToCanvas (mask, pic) (count, canvas) =
    (A.zipWith (+) (A.map A.boolToInt mask) count,
     A.zipWith (+) canvas $ A.zipWith (*) pic $
-    replicateChannel
-       (A.indexTail $ A.indexTail $ A.shape pic)
-       (A.map (A.fromIntegral . A.boolToInt) mask))
+    replicateChannel (A.shape pic) $
+    A.map (A.fromIntegral . A.boolToInt) mask)
 
 updateCanvas ::
    (Float,Float) -> (Float,Float) -> Array DIM3 Word8 ->
@@ -1141,7 +1140,7 @@ finalizeCanvas =
    \(count, canvas) ->
       imageByteFromFloat $ interleaveChannels $
       A.zipWith (/) canvas $
-      replicateChannel (A.indexTail $ A.indexTail $ A.shape canvas) $
+      replicateChannel (A.shape canvas) $
       A.map A.fromIntegral count
 
 
@@ -1444,9 +1443,7 @@ addToWeightedCanvas ::
 addToWeightedCanvas (weight, pic) (weightSum, canvas) =
    (A.zipWith (+) weight weightSum,
     A.zipWith (+) canvas $ A.zipWith (*) pic $
-    replicateChannel
-       (A.indexTail $ A.indexTail $ A.shape pic)
-       weight)
+    replicateChannel (A.shape pic) weight)
 
 -- launch timeout
 updateWeightedCanvasMerged ::
@@ -1532,7 +1529,7 @@ finalizeWeightedCanvas =
    \(weightSum, canvas) ->
       imageByteFromFloat $ interleaveChannels $
       A.zipWith (/) canvas $
-      replicateChannel (A.indexTail $ A.indexTail $ A.shape canvas) weightSum
+      replicateChannel (A.shape canvas) weightSum
 
 
 processOverlap ::
