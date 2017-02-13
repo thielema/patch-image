@@ -409,30 +409,6 @@ maskFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.zext
 intFromBool :: Exp MaskBool -> Exp Word32
 intFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.ext
 
-runAddToCanvas ::
-   (MultiMem.C a, MultiValue.PseudoRing a, SV.Storable a,
-    MultiValue.NativeFloating a ar) =>
-   IO ((Plane MaskBool, ColorImage a) ->
-       (Plane Word32, ColorImage a) ->
-       IO (Plane Word32, ColorImage a))
-runAddToCanvas = do
-   addCounts <-
-      PhysP.render $
-      Symb.zipWith Expr.add
-         (Symb.map intFromBool $ PhysP.feed (arr fst)) (PhysP.feed (arr snd))
-   addCanvas <-
-      PhysP.render $
-      let mask = PhysP.feed (arr fst)
-          pic = PhysP.feed (arr (fst.snd))
-          canvas = PhysP.feed (arr (snd.snd))
-      in  Symb.zipWith (Arith.vecAdd vecYUV) canvas $
-          Symb.zipWith (flip $ Arith.vecScale vecYUV) pic $
-          Symb.map (fromInt . intFromBool) mask
-   return $ \(mask, pic) (count, canvas) ->
-      liftM2 (,)
-         (addCounts (mask, count))
-         (addCanvas (mask, (pic, canvas)))
-
 addToCanvas ::
    (MultiValue.PseudoRing a, MultiValue.NativeFloating a ar) =>
    VecExp a v ->
