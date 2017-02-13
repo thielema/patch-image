@@ -451,6 +451,32 @@ finalizeCanvas =
          (PhysP.feed (arr id))
 
 
+emptyWeightedCanvas :: IO ((Size, Size) -> IO (Plane (Float, YUV Float)))
+emptyWeightedCanvas = PhysP.render $ SymbP.fill (arr id) $ return (0, (0,0,0))
+
+addToWeightedCanvas ::
+   (MultiValue.PseudoRing a, MultiValue.NativeFloating a ar) =>
+   VecExp a v ->
+   SymbPlane (a, v) ->
+   SymbPlane (a, v) ->
+   SymbPlane (a, v)
+addToWeightedCanvas vec =
+   Symb.zipWith
+      (Expr.modify2 (atom,atom) (atom,atom) $
+         \(weight, pic) (weightSum, canvas) ->
+            (Expr.add weight weightSum,
+             Arith.vecAdd vec canvas $ Arith.vecScale vec weight pic))
+
+finalizeWeightedCanvas :: IO ((Plane (Float, YUV Float)) -> IO ColorImage8)
+finalizeWeightedCanvas =
+   PhysP.render $
+      colorImageByteFromFloat $
+      Symb.map
+         (Expr.modify (atom,atom) $ \(weightSum, pixel) ->
+            Arith.vecScale vecYUV (recip weightSum) pixel)
+         (PhysP.feed (arr id))
+
+
 
 rotateTest :: IO ()
 rotateTest = do
