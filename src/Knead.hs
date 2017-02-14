@@ -28,8 +28,12 @@ import qualified Distribution.Verbosity as Verbosity
 import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
+import qualified Data.List as List
 import Control.Arrow (arr)
+import Control.Applicative ((<$>))
+import Data.Traversable (forM)
 import Data.Foldable (forM_)
+import Data.Ord.HT (comparing)
 import Data.Tuple.HT (mapTriple, fst3, swap)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
@@ -392,6 +396,14 @@ runScoreRotation = do
          (arr fst) (PhysP.feed $ arr snd)
    score <- PhysP.the $ scoreHistogram (PhysP.feed $ arr id)
    return $ \ angle img -> score =<< rot ((cos angle, sin angle), img)
+
+findOptimalRotation :: IO ([Float] -> ColorImage8 -> IO Float)
+findOptimalRotation = do
+   scoreRotation <- runScoreRotation
+   return $ \angles pic ->
+      fmap (fst . List.maximumBy (comparing snd)) $
+      forM angles $ \angle ->
+         (,) angle <$> scoreRotation (angle * (pi/180)) pic
 
 
 
