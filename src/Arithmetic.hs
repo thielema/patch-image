@@ -117,9 +117,11 @@ projectPerp (xc,yc) ((xa,ya), (xb,yb)) =
    in  (r, (xa + r*dx, ya + r*dy))
 
 
+distanceSqr :: (Num a) => Point2 a -> Point2 a -> a
+distanceSqr (xa,ya) (xb,yb) = (xa-xb)^(2::Int) + (ya-yb)^(2::Int)
+
 distance :: (Floating a) => Point2 a -> Point2 a -> a
-distance (xa,ya) (xb,yb) =
-   sqrt $ (xa-xb)^(2::Int) + (ya-yb)^(2::Int)
+distance a b = sqrt $ distanceSqr a b
 
 
 

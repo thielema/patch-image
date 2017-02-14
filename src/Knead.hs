@@ -14,9 +14,10 @@ import Data.Array.Knead.Expression (Exp)
 
 import qualified LLVM.Extra.Multi.Value.Memory as MultiMem
 import qualified LLVM.Extra.Multi.Value as MultiValue
-import qualified LLVM.Core as LLVM
 import LLVM.Extra.Multi.Value (atom)
 
+import qualified LLVM.Util.Arithmetic as LLVMArith
+import qualified LLVM.Core as LLVM
 import qualified Codec.Picture as Pic
 
 import qualified Data.Vector.Storable as SV
@@ -449,6 +450,203 @@ finalizeCanvas =
          (Expr.modify (atom,atom) $ \(count, pixel) ->
             Arith.vecScale vecYUV (recip $ fromInt count) pixel)
          (PhysP.feed (arr id))
+
+
+maybePlus ::
+   (MultiValue.C a) =>
+   (Exp a -> Exp a -> Exp a) ->
+   Exp (Bool, a) -> Exp (Bool, a) -> Exp (Bool, a)
+maybePlus f x y =
+   let (xb,xv) = Expr.unzip x
+       (yb,yv) = Expr.unzip y
+   in  Expr.ifThenElse xb
+         (Expr.compose (Expr.true, Expr.ifThenElse yb (f xv yv) xv)) y
+
+maskedMinimum ::
+   (Shape.C sh, Symb.C array, MultiValue.Real a) =>
+   array (sh, Size) (Bool, a) -> array sh (Bool, a)
+maskedMinimum = Symb.fold1 (maybePlus Expr.min)
+
+
+generate ::
+   (Shape.C sh) =>
+   Exp sh -> (Exp (Shape.Index sh) -> Exp b) -> Symb.Array sh b
+generate sh f = Symb.map f $ Symb.id sh
+
+distanceMapBox ::
+   (MultiValue.Field a, MultiValue.NativeFloating a ar,
+    MultiValue.Real a, MultiValue.RationalConstant a) =>
+   Exp (Size,Size) ->
+   Exp ((a,a), (a,a), (Size,Size)) ->
+   SymbPlane (Bool, (((a,(a,a)), (a,(a,a))), ((a,(a,a)), (a,(a,a)))))
+distanceMapBox sh geom =
+   let (rot, mov, extent@(width,height)) =
+         Expr.decompose ((atom,atom),(atom,atom),(atom,atom)) geom
+       widthf  = fromInt width
+       heightf = fromInt height
+       back  = Arith.rotateStretchMoveBackPoint rot mov
+       forth = Arith.rotateStretchMovePoint rot mov
+   in  generate sh $ Expr.modify (atom,atom) $ \(y,x) ->
+         let (xsrc,ysrc) = back (fromInt x, fromInt y)
+             leftDist = Expr.max 0 xsrc
+             rightDist = Expr.max 0 $ widthf - xsrc
+             topDist = Expr.max 0 ysrc
+             bottomDist = Expr.max 0 $ heightf - ysrc
+         in  (inBox extent (fastRound xsrc, fastRound ysrc),
+              (((leftDist, forth (0,ysrc)),
+                (rightDist, forth (widthf,ysrc))),
+               ((topDist, forth (xsrc,0)),
+                (bottomDist, forth (xsrc,heightf)))))
+
+distance ::
+   (MultiValue.Algebraic a, MultiValue.Real a,
+    MultiValue.IntegerConstant a) =>
+   Arith.Point2 (Exp a) -> Arith.Point2 (Exp a) -> Exp a
+distance a b =
+   Expr.liftM MultiValue.sqrt $ Arith.distanceSqr a b
+
+outerProduct ::
+   (Shape.C sha, Shape.C shb, Symb.C array) =>
+   (Exp a -> Exp b -> Exp c) ->
+   array sha a -> array shb b -> array (sha,shb) c
+outerProduct =
+   ShapeDep.backpermute2 Expr.zip Expr.fst Expr.snd
+
+isZero ::
+   (MultiValue.Comparison i, MultiValue.Integral i,
+    MultiValue.IntegerConstant i) =>
+   Exp i -> Exp Bool
+isZero = Expr.liftM $ MultiValue.cmp LLVM.CmpEQ MultiValue.zero
+
+expEven ::
+   (MultiValue.Comparison i, MultiValue.Integral i,
+    MultiValue.IntegerConstant i) =>
+   Exp i -> Exp Bool
+expEven = isZero . flip Expr.irem 2
+
+separateDistanceMap ::
+   (Symb.C array, Shape.C sh, MultiValue.C a) =>
+   array sh (bool, ((a, a), (a, a))) ->
+   array (sh, Size) (bool, a)
+separateDistanceMap array =
+   outerProduct
+      (Expr.modify2 (atom, ((atom, atom), (atom, atom))) atom $
+       \(b,(horiz,vert)) sel ->
+          (b,
+           Expr.ifThenElse (expEven $ Expr.idiv sel 2)
+               (uncurry (Expr.ifThenElse (expEven sel)) horiz)
+               (uncurry (Expr.ifThenElse (expEven sel)) vert)))
+      array (Symb.lift0 $ Symb.id 4)
+
+
+containedAnywhere ::
+   (Symb.C array, Shape.C sh,
+    MultiValue.Field a, MultiValue.NativeFloating a ar,
+    MultiValue.Real a, MultiValue.RationalConstant a) =>
+   array Size ((a,a), (a,a), (Size,Size)) ->
+   array sh (a,a) ->
+   array sh Bool
+containedAnywhere geoms array =
+   Symb.fold1 (Expr.liftM2 MultiValue.or) $
+   outerProduct
+      (Expr.modify2 (atom,atom) ((atom,atom),(atom,atom),(atom,atom)) $
+       \(xdst,ydst) (rot, mov, extent) ->
+         let (xsrc,ysrc) = Arith.rotateStretchMoveBackPoint rot mov (xdst,ydst)
+         in  inBox extent (fastRound xsrc, fastRound ysrc))
+      array geoms
+
+
+distanceMapContained ::
+   (MultiValue.RationalConstant a, MultiValue.NativeFloating a ar,
+    MultiValue.PseudoRing a, MultiValue.Field a, MultiValue.Real a) =>
+   Exp (Size, Size) ->
+   Exp ((a, a), (a, a), (Size, Size)) ->
+   Symb.Array Size ((a, a), (a, a), (Size, Size)) ->
+   SymbPlane a
+distanceMapContained sh this others =
+   let distMap = separateDistanceMap $ distanceMapBox sh this
+       contained =
+          containedAnywhere others $
+          Symb.map (Expr.snd . Expr.snd) distMap
+   in  Symb.map (Expr.modify (atom,atom) $
+                  \(valid, dist) -> Expr.ifThenElse valid dist 0) $
+       maskedMinimum $
+       Symb.zipWith
+          (Expr.modify2 atom (atom,(atom,atom)) $ \c (b,(dist,_)) ->
+             (Expr.liftM2 MultiValue.and c b, dist))
+          contained distMap
+
+
+pixelCoordinates ::
+   (MultiValue.NativeFloating a ar) =>
+   Exp (Size, Size) -> SymbPlane (a,a)
+pixelCoordinates sh =
+   generate sh $ Expr.modify (atom,atom) $ \(y,x) -> (fromInt x, fromInt y)
+
+distanceMapPoints ::
+   (Shape.C sh, Symb.C array,
+    MultiValue.Real a, MultiValue.Algebraic a, MultiValue.IntegerConstant a) =>
+   array sh (a,a) ->
+   array Size (a,a) ->
+   array sh a
+distanceMapPoints a b =
+   Symb.fold1 Expr.min $
+   outerProduct (Expr.modify2 (atom,atom) (atom,atom) distance) a b
+
+
+{- |
+For every pixel
+it computes the distance to the closest point on the image part boundary
+which lies in any other image.
+The rationale is that we want to fade an image out,
+wherever is another image that can take over.
+Such a closest point can either be a perpendicular point
+at one of the image edges,
+or it can be an image corner
+or an intersection between this image border and another image border.
+The first kind of points is computed by 'distanceMapContained'
+and the second kind by 'distanceMapPoints'.
+We simply compute the distances to all special points
+and chose the minimal distance.
+-}
+distanceMap ::
+   (MultiValue.Algebraic a, MultiValue.Real a,
+    MultiValue.RationalConstant a,
+    MultiValue.NativeFloating a ar) =>
+   Exp (Size,Size) ->
+   Exp ((a, a), (a, a), (Size,Size)) ->
+   Symb.Array Size ((a, a), (a, a), (Size,Size)) ->
+   Symb.Array Size (a, a) ->
+   SymbPlane a
+distanceMap sh this others points =
+   Symb.zipWith Expr.min
+      (distanceMapContained sh this others)
+      (distanceMapPoints (pixelCoordinates sh) points)
+
+
+pow ::
+   (MultiValue.Repr LLVM.Value a ~ LLVM.Value ar,
+    LLVM.IsConst ar, LLVM.CmpRet ar, Floating ar,
+    LLVM.IsFloating ar, LLVMArith.CallIntrinsic ar) =>
+   Exp a -> Exp a -> Exp a
+pow =
+   flip $ Expr.liftM2 $ \(MultiValue.Cons x) (MultiValue.Cons y) ->
+      fmap MultiValue.Cons (return x ** return y)
+
+distanceMapGamma ::
+   (MultiValue.Algebraic a, MultiValue.Real a,
+    MultiValue.RationalConstant a,
+    MultiValue.NativeFloating a ar,
+    LLVM.IsConst ar, LLVM.CmpRet ar, Floating ar,
+    LLVM.IsFloating ar, LLVMArith.CallIntrinsic ar) =>
+   Exp a ->
+   Exp (Size,Size) ->
+   Exp ((a, a), (a, a), (Size,Size)) ->
+   Symb.Array Size ((a, a), (a, a), (Size,Size)) ->
+   Symb.Array Size (a, a) ->
+   SymbPlane a
+distanceMapGamma gamma sh this others points =
+   Symb.map (pow gamma) $ distanceMap sh this others points
 
 
 emptyWeightedCanvas :: IO ((Size, Size) -> IO (Plane (Float, YUV Float)))
