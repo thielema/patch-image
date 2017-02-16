@@ -10,23 +10,48 @@ We do not recalculate the average if a pixel is removed from the priority queue.
 -}
 module MatchImageBorders where
 
+import qualified Data.Array.Knead.Simple.Physical as Phys
+
 import qualified Data.PQueue.Prio.Max as PQ
 import qualified Data.Set as Set
 import Data.PQueue.Prio.Max (MaxPQueue)
 import Data.Set (Set)
 
+import qualified Data.Array.CArray.Base as CArrayPriv
 import Data.Array.IOCArray (IOCArray)
 import Data.Array.MArray (readArray, writeArray, freeze, thaw)
 import Data.Array.CArray (CArray)
-import Data.Array.IArray (Ix, amap, bounds, range, inRange, (!), (//))
+import Data.Array.IArray
+         (Ix, amap, bounds, range, rangeSize, inRange, (!), (//))
+
+import Foreign.Storable (Storable)
 
 import Data.Traversable (forM)
 import Data.Tuple.HT (mapSnd)
 import Data.Maybe (mapMaybe, listToMaybe)
+import Data.Int (Int64)
 import Data.Word (Word8)
 
 import Control.Monad (filterM)
 import Control.Applicative ((<$>))
+
+
+type Size = Int64
+
+arrayCFromPhysical :: Phys.Array (Size,Size) a -> IO (CArray (Int,Int) a)
+arrayCFromPhysical (Phys.Array (height,width) fptr) =
+   CArrayPriv.unsafeForeignPtrToCArray fptr
+      ((0,0), (fromIntegral height - 1, fromIntegral width - 1))
+
+arrayPhysicalFromC ::
+   (Storable a) => CArray (Int,Int) a -> Phys.Array (Size,Size) a
+arrayPhysicalFromC carray =
+   case bounds carray of
+      ((ly,lx), (uy,ux)) ->
+         Phys.Array
+            (fromIntegral $ rangeSize (ly,uy),
+             fromIntegral $ rangeSize (lx,ux))
+            (snd $ CArrayPriv.toForeignPtr carray)
 
 
 findBorder :: (Ix i, Enum i, Ix j, Enum j) => CArray (i,j) Bool -> Set (i,j)
