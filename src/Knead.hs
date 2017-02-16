@@ -34,7 +34,7 @@ import Control.Applicative ((<$>))
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
-import Data.Tuple.HT (mapTriple, fst3)
+import Data.Tuple.HT (mapPair, mapTriple, mapThd3, fst3, snd3, thd3)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
 
@@ -676,6 +676,57 @@ addToWeightedCanvas vec =
          \(weight, pic) (weightSum, canvas) ->
             (Expr.add weight weightSum,
              Arith.vecAdd vec canvas $ Arith.vecScale vec weight pic))
+
+geom64 ::
+   ((Float,Float),(Float,Float),(Int,Int)) ->
+   ((Float,Float),(Float,Float),(Size,Size))
+geom64 = mapThd3 (mapPair (fromIntegral, fromIntegral))
+
+updateWeightedCanvas ::
+   IO (Float ->
+       ((Float,Float),(Float,Float),(Int,Int)) ->
+       [((Float,Float),(Float,Float),(Int,Int))] ->
+       [Arith.Point2 Float] ->
+       ColorImage8 ->
+       Plane (Float, YUV Float) ->
+       IO (Plane (Float, YUV Float)))
+updateWeightedCanvas = do
+   distances <-
+      PhysP.render $
+      SymbP.withExp2
+         (\gammaShThis others points ->
+            let (gamma, sh, this) = Expr.unzip3 gammaShThis
+            in  distanceMapGamma gamma sh this others points)
+         (arr fst)
+         (PhysP.feed $ arr (fst.snd))
+         (PhysP.feed $ arr (snd.snd))
+
+   update <-
+      PhysP.render $
+      SymbP.withExp3
+         (\this pic dist weightSumCanvas ->
+            let (rot, mov, _) = Expr.unzip3 this
+            in  addToWeightedCanvas vecYUV
+                  (Symb.zip dist $
+                   Symb.map Expr.snd $
+                   rotateStretchMove vecYUV rot mov
+                      (Symb.shape weightSumCanvas) $
+                   colorImageFloatFromByte pic)
+                  weightSumCanvas)
+         (arr fst)
+         (PhysP.feed $ arr (fst3.snd))
+         (PhysP.feed $ arr (snd3.snd))
+         (PhysP.feed $ arr (thd3.snd))
+
+   return $ \gamma this others points pic weightSumCanvas -> do
+      othersVec <- Phys.vectorFromList $ map geom64 others
+      pointsVec <- Phys.vectorFromList points
+      dists <-
+         distances
+            ((gamma, Phys.shape weightSumCanvas, geom64 this),
+             (othersVec, pointsVec))
+      update (geom64 this, (pic, dists, weightSumCanvas))
+
 
 finalizeWeightedCanvas :: IO ((Plane (Float, YUV Float)) -> IO ColorImage8)
 finalizeWeightedCanvas =
