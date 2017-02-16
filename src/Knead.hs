@@ -140,6 +140,15 @@ imageByteFromFloat ::
 imageByteFromFloat = Symb.map byteFromFloat
 
 
+yuvByteFromFloat ::
+   (MultiValue.NativeFloating a ar,
+    MultiValue.Field a, MultiValue.Real a,
+    MultiValue.RationalConstant a) =>
+   Exp (YUV a) -> Exp (YUV Word8)
+yuvByteFromFloat =
+   Expr.modify (atom,atom,atom) $
+      mapTriple (byteFromFloat, byteFromFloat, byteFromFloat)
+
 colorImageFloatFromByte ::
    (Symb.C array, Shape.C sh,
     MultiValue.NativeFloating a ar,
@@ -156,9 +165,7 @@ colorImageByteFromFloat ::
     MultiValue.Field a, MultiValue.Real a,
     MultiValue.RationalConstant a) =>
    array sh (YUV a) -> array sh (YUV Word8)
-colorImageByteFromFloat =
-   Symb.map $ Expr.modify (atom,atom,atom) $
-      mapTriple (byteFromFloat, byteFromFloat, byteFromFloat)
+colorImageByteFromFloat = Symb.map yuvByteFromFloat
 
 
 fastRound ::
@@ -420,6 +427,11 @@ type MaskBool = Word8
 maskFromBool :: Exp Bool -> Exp MaskBool
 maskFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.zext
 
+boolFromMask :: Exp MaskBool -> Exp Bool
+boolFromMask =
+   Expr.liftM $ MultiValue.liftM $
+      LLVM.cmp LLVM.CmpNE (LLVM.zero :: LLVM.ConstValue MaskBool)
+
 intFromBool :: Exp MaskBool -> Exp Word32
 intFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.ext
 
@@ -502,6 +514,34 @@ finalizeCanvasFloat =
          (Expr.modify (atom,atom) $ \(count, pixel) ->
             Arith.vecScale vecYUV (recip $ fromInt count) pixel)
          (PhysP.feed (arr id))
+
+emptyPlainCanvas :: IO ((Size, Size) -> IO ColorImage8)
+emptyPlainCanvas = PhysP.render $ SymbP.fill (arr id) $ return (0,0,0)
+
+addMaskedToCanvas ::
+   IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
+       Plane MaskBool ->
+       Plane (YUV Word8) ->
+       IO (Plane (YUV Word8)))
+addMaskedToCanvas = do
+   update <-
+      PhysP.render $
+      SymbP.withExp3
+         (\rotMov pic mask countCanvas ->
+            let (rot,mov) = Expr.unzip rotMov
+            in  Symb.zipWith3 Expr.ifThenElse
+                  (Symb.map boolFromMask mask)
+                  (Symb.map (yuvByteFromFloat . Expr.snd) $
+                   rotateStretchMove vecYUV rot mov (Symb.shape countCanvas) $
+                   colorImageFloatFromByte pic)
+                  countCanvas)
+         (arr fst)
+         (PhysP.feed $ arr (fst3.snd))
+         (PhysP.feed $ arr (snd3.snd))
+         (PhysP.feed $ arr (thd3.snd))
+
+   return $ \rot mov pic mask countCanvas ->
+      update ((rot,mov), (pic, mask, countCanvas))
 
 
 maybePlus ::
