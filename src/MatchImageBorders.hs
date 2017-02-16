@@ -101,8 +101,7 @@ shapeParts count masks =
                         filter (inRange (bounds diffs)) $
                         map
                            (\(dy,dx) -> (y+dy, x+dx))
-                           [(0,1), (1,1), (1,0), (1,-1),
-                            (0,-1), (-1,-1), (-1,0), (-1,1)]
+                           [(0,1), (1,0), (0,-1), (-1,0)]
                      mapM_
                         (\envPos -> writeArray locs envPos locBorder)
                         envPoss
