@@ -12,11 +12,12 @@ import qualified Data.Array.Knead.Index.Nested.Shape as Shape
 import qualified Data.Array.Knead.Expression as Expr
 import Data.Array.Knead.Expression (Exp)
 
+import qualified LLVM.Extra.ScalarOrVector as SoV
+import qualified LLVM.Extra.Arithmetic as LLVMArith
 import qualified LLVM.Extra.Multi.Value.Memory as MultiMem
 import qualified LLVM.Extra.Multi.Value as MultiValue
 import LLVM.Extra.Multi.Value (atom)
 
-import qualified LLVM.Util.Arithmetic as LLVMArith
 import qualified LLVM.Core as LLVM
 import qualified Codec.Picture as Pic
 
@@ -638,19 +639,17 @@ distanceMap sh this others points =
 
 pow ::
    (MultiValue.Repr LLVM.Value a ~ LLVM.Value ar,
-    LLVM.IsConst ar, LLVM.CmpRet ar, Floating ar,
-    LLVM.IsFloating ar, LLVMArith.CallIntrinsic ar) =>
+    LLVM.IsFloating ar, SoV.TranscendentalConstant ar) =>
    Exp a -> Exp a -> Exp a
 pow =
    flip $ Expr.liftM2 $ \(MultiValue.Cons x) (MultiValue.Cons y) ->
-      fmap MultiValue.Cons (return x ** return y)
+      fmap MultiValue.Cons $ LLVMArith.pow x y
 
 distanceMapGamma ::
    (MultiValue.Algebraic a, MultiValue.Real a,
     MultiValue.RationalConstant a,
     MultiValue.NativeFloating a ar,
-    LLVM.IsConst ar, LLVM.CmpRet ar, Floating ar,
-    LLVM.IsFloating ar, LLVMArith.CallIntrinsic ar) =>
+    SoV.TranscendentalConstant ar) =>
    Exp a ->
    Exp (Size,Size) ->
    Exp ((a, a), (a, a), (Size,Size)) ->
