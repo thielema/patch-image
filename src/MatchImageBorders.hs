@@ -80,12 +80,12 @@ prepareShaping maskWeightss =
           fmap ((,) (locations, weights)) $ pqueueFromBorder weights border)
 
 shapeParts ::
-   [IOCArray (Int, Int) Location] ->
    IOCArray (Int, Int) Int ->
+   [IOCArray (Int, Int) Location] ->
    MaxPQueue Float
       ((IOCArray (Int, Int) Location, CArray (Int, Int) Float), (Int, Int)) ->
-   IO [CArray (Int,Int) Bool]
-shapeParts masks count =
+   IO [CArray (Int, Int) Bool]
+shapeParts count masks =
    let loop queue =
          case PQ.maxView queue of
             Nothing -> mapM (fmap (amap (/=locOutside)) . freeze) masks
