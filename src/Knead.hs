@@ -34,7 +34,7 @@ import Control.Applicative ((<$>))
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
-import Data.Tuple.HT (mapTriple, fst3, swap)
+import Data.Tuple.HT (mapTriple, fst3)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
 
@@ -276,7 +276,7 @@ rotateStretchMoveCoords rot mov =
             Arith.rotateStretchMoveBackPoint
                (Expr.unzip rot) (Expr.unzip mov)
        in  Expr.modify (atom,atom) $
-               \(y,x) -> swap $ trans (fromInt x, fromInt y))
+               \(y,x) -> trans (fromInt x, fromInt y))
    .
    Symb.id
 
@@ -326,7 +326,7 @@ rotateStretchMove vec rot mov sh img =
        (heightSrc, widthSrc) = Expr.unzip $ Symb.shape img
    in  Symb.zip
          (validCoords (widthSrc, heightSrc) coords)
-         (gatherFrac vec img coords)
+         (gatherFrac vec img $ Symb.map Expr.swap coords)
 
 rotate ::
    (SV.Storable a, MultiMem.C a,
