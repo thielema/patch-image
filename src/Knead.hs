@@ -361,10 +361,13 @@ runRotate = do
    return $ \ angle img -> rot ((cos angle, sin angle), img)
 
 
+brightnessValue :: Exp (YUV a) -> Exp a
+brightnessValue = Expr.modify (atom,atom,atom) fst3
+
 brightnessPlane ::
    (Symb.C array, Shape.C size) =>
    array size (YUV a) -> array size a
-brightnessPlane = Symb.map $ Expr.modify (atom,atom,atom) fst3
+brightnessPlane = Symb.map brightnessValue
 
 rowHistogram ::
    (Symb.C array, Shape.C size, MultiValue.Additive a) =>
@@ -459,6 +462,42 @@ finalizeCanvas :: IO ((Plane (Word32, YUV Float)) -> IO ColorImage8)
 finalizeCanvas =
    PhysP.render $
       colorImageByteFromFloat $
+      Symb.map
+         (Expr.modify (atom,atom) $ \(count, pixel) ->
+            Arith.vecScale vecYUV (recip $ fromInt count) pixel)
+         (PhysP.feed (arr id))
+
+
+diffAbs :: (MultiValue.Real a) => Exp a -> Exp a -> Exp a
+diffAbs = Expr.liftM2 $ \x y -> MultiValue.abs =<< MultiValue.sub x y
+
+diffWithCanvas ::
+   IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
+       Plane (YUV Float) ->
+       IO (Plane (MaskBool, Float)))
+diffWithCanvas = do
+   update <-
+      PhysP.render $
+      SymbP.withExp2
+         (\rotMov pic avg ->
+            let (rot,mov) = Expr.unzip rotMov
+            in  Symb.zipWith
+                  (Expr.modify2 (atom,atom) atom $ \(b,x) y ->
+                     (b, diffAbs (brightnessValue x) (brightnessValue y)))
+                  (rotateStretchMove vecYUV rot mov (Symb.shape avg) $
+                   colorImageFloatFromByte pic)
+                  avg)
+         (arr fst)
+         (PhysP.feed $ arr (fst.snd))
+         (PhysP.feed $ arr (snd.snd))
+
+   return $ \rot mov pic countCanvas ->
+      update ((rot,mov), (pic, countCanvas))
+
+finalizeCanvasFloat ::
+   IO ((Plane (Word32, YUV Float)) -> IO (Plane (YUV Float)))
+finalizeCanvasFloat =
+   PhysP.render $
       Symb.map
          (Expr.modify (atom,atom) $ \(count, pixel) ->
             Arith.vecScale vecYUV (recip $ fromInt count) pixel)
