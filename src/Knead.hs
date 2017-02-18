@@ -583,7 +583,10 @@ updateShapedCanvas = do
          (\rotMov shape pic weightCanvas ->
             let (rot,mov) = Expr.unzip rotMov
             in  addToWeightedCanvas vecYUV
-                  (Symb.zip shape $ Symb.map Expr.snd $
+                  (Symb.zipWith
+                     (Expr.modify2 atom (atom,atom) $ \s (b,x) ->
+                        (fromInt b * s, x))
+                     shape $
                    rotateStretchMove vecYUV rot mov (Symb.shape weightCanvas) $
                    colorImageFloatFromByte pic)
                   weightCanvas)
