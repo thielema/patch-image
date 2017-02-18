@@ -44,9 +44,7 @@ import Data.Word (Word8, Word32)
 
 
 type Size = Int64
-type Channel sh = Phys.Array (sh, (Size, Size))
 type Plane = Phys.Array (Size, Size)
-type SymbChannel sh = Symb.Array (sh, (Size, Size))
 type SymbPlane = Symb.Array (Size, Size)
 type ColorImage a = Phys.Array (Size, Size) (YUV a)
 type ColorImage8 = ColorImage Word8
