@@ -85,6 +85,11 @@ cubicIpVec vec (xm1, x0, x1, x2) t =
 
 
 
+smooth3 :: (Fractional a) => (a,a,a) -> a
+smooth3 (l,m,r) = (l+2*m+r)/4
+
+
+
 type Point2 a = (a,a)
 
 type Line2 a = (Point2 a, Point2 a)

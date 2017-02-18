@@ -11,6 +11,7 @@ import Arithmetic (
    boundingBoxOfRotated,
    linearIp,
    cubicIp,
+   smooth3,
    intersections,
    projectPerp,
    distance,
@@ -566,9 +567,6 @@ clearDCCoefficient arr =
       let (_z:.y:.x) = unliftDim2 p
       in  x==*0 ||* y==*0 ? (0, arr!p)
 
-
-smooth3 :: (A.Elt a, A.IsFloating a) => A.Stencil3 a -> Exp a
-smooth3 (l,m,r) = (l+2*m+r)/4
 
 lowpass, highpass ::
    (A.Elt a, A.IsFloating a) =>
