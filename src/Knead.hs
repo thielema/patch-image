@@ -10,6 +10,7 @@ import qualified Data.Array.Knead.Simple.ShapeDependent as ShapeDep
 import qualified Data.Array.Knead.Simple.Symbolic as Symb
 import qualified Data.Array.Knead.Index.Nested.Shape as Shape
 import qualified Data.Array.Knead.Expression as Expr
+import Data.Array.Knead.Simple.Symbolic ((!))
 import Data.Array.Knead.Expression (Exp)
 
 import qualified LLVM.Extra.ScalarOrVector as SoV
@@ -31,6 +32,7 @@ import Text.Printf (printf)
 
 import qualified Data.List as List
 import Control.Arrow (arr)
+import Control.Monad (foldM)
 import Control.Applicative ((<$>))
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
@@ -415,6 +417,32 @@ findOptimalRotation = do
       fmap (fst . List.maximumBy (comparing snd)) $
       forM angles $ \angle ->
          (,) angle <$> scoreRotation (angle * (pi/180)) pic
+
+
+
+transpose :: SymbPlane a -> SymbPlane a
+transpose = ShapeDep.backpermute Expr.swap Expr.swap
+
+lowpassVert, lowpass ::
+   (MultiValue.Field a, MultiValue.Real a, MultiValue.RationalConstant a) =>
+   SymbPlane a -> SymbPlane a
+lowpassVert img =
+   let height = Expr.fst $ Symb.shape img
+   in  generate (Symb.shape img) $ Expr.modify (atom,atom) $ \(y,x) ->
+         Arith.smooth3
+            (img ! (Expr.zip (Expr.max 0 (y-1)) x),
+             img ! (Expr.zip y x),
+             img ! (Expr.zip (Expr.min (height-1) (y+1)) x))
+
+lowpass = transpose . lowpassVert . transpose . lowpassVert
+
+nestM :: Monad m => Int -> (a -> m a) -> a -> m a
+nestM n f x0 = foldM (\x () -> f x) x0 (replicate n ())
+
+lowpassMulti :: IO (Int -> Plane Float -> IO (Plane Float))
+lowpassMulti = do
+   lp <- PhysP.render (Symb.lift1 lowpass $ PhysP.feed (arr id))
+   return $ \n -> nestM n lp
 
 
 
