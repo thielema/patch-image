@@ -445,6 +445,38 @@ lowpassMulti = do
    return $ \n -> nestM n lp
 
 
+highpassMulti :: IO (Int -> Plane Float -> IO (Plane Float))
+highpassMulti = do
+   lp <- lowpassMulti
+   sub <-
+      PhysP.render $
+         Symb.zipWith Expr.sub (PhysP.feed (arr fst)) (PhysP.feed (arr snd))
+   return $ \n img -> curry sub img =<< lp n img
+
+
+prepareOverlapMatching ::
+   IO (Int -> (Float, ColorImage8) -> IO ((Float, Float), Plane Float))
+prepareOverlapMatching = do
+   bright <-
+      PhysP.render $
+      brightnessPlane . colorImageFloatFromByte $
+      PhysP.feed (arr id)
+   hp <- highpassMulti
+   rotat <-
+      PhysP.render $
+      SymbP.withExp
+         (\orient sharp -> rotate Arith.vecScalar orient sharp)
+         (arr fst) (PhysP.feed $ arr snd)
+   return $ \radius (angle, img) ->
+      let (height, width) = Phys.shape img
+          rot = (cos angle, sin angle)
+          ((left, _right), (top, _bottom)) =
+            Arith.boundingBoxOfRotated rot
+               (fromIntegral width, fromIntegral height)
+      in  fmap ((,) (left, top)) $
+          curry rotat rot =<< hp radius =<< bright img
+
+
 
 emptyCanvas :: IO ((Size, Size) -> IO (Plane (Word32, YUV Float)))
 emptyCanvas = PhysP.render $ SymbP.fill (arr id) $ return (0, (0,0,0))
