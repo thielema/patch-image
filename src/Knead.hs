@@ -571,6 +571,30 @@ addMaskedToCanvas = do
    return $ \rot mov pic mask countCanvas ->
       update ((rot,mov), (pic, mask, countCanvas))
 
+updateShapedCanvas ::
+   IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
+       Plane Float ->
+       Plane (Float, YUV Float) ->
+       IO (Plane (Float, YUV Float)))
+updateShapedCanvas = do
+   update <-
+      PhysP.render $
+      SymbP.withExp3
+         (\rotMov shape pic weightCanvas ->
+            let (rot,mov) = Expr.unzip rotMov
+            in  addToWeightedCanvas vecYUV
+                  (Symb.zip shape $ Symb.map Expr.snd $
+                   rotateStretchMove vecYUV rot mov (Symb.shape weightCanvas) $
+                   colorImageFloatFromByte pic)
+                  weightCanvas)
+         (arr fst)
+         (PhysP.feed $ arr (fst.fst.snd))
+         (PhysP.feed $ arr (snd.fst.snd))
+         (PhysP.feed $ arr (snd.snd))
+
+   return $ \rot mov pic shape weightCanvas ->
+      update ((rot,mov), ((shape, pic), weightCanvas))
+
 
 maybePlus ::
    (MultiValue.C a) =>
