@@ -650,11 +650,13 @@ generate ::
    Exp sh -> (Exp (Shape.Index sh) -> Exp b) -> Symb.Array sh b
 generate sh f = Symb.map f $ Symb.id sh
 
+type Geometry a = ((a,a), (a,a), (Size,Size))
+
 distanceMapBox ::
    (MultiValue.Field a, MultiValue.NativeFloating a ar,
     MultiValue.Real a, MultiValue.RationalConstant a) =>
    Exp (Size,Size) ->
-   Exp ((a,a), (a,a), (Size,Size)) ->
+   Exp (Geometry a) ->
    SymbPlane (Bool, (((a,(a,a)), (a,(a,a))), ((a,(a,a)), (a,(a,a)))))
 distanceMapBox sh geom =
    let (rot, mov, extent@(width,height)) =
@@ -720,7 +722,7 @@ containedAnywhere ::
    (Symb.C array, Shape.C sh,
     MultiValue.Field a, MultiValue.NativeFloating a ar,
     MultiValue.Real a, MultiValue.RationalConstant a) =>
-   array Size ((a,a), (a,a), (Size,Size)) ->
+   array Size (Geometry a) ->
    array sh (a,a) ->
    array sh Bool
 containedAnywhere geoms array =
@@ -737,8 +739,8 @@ distanceMapContained ::
    (MultiValue.RationalConstant a, MultiValue.NativeFloating a ar,
     MultiValue.PseudoRing a, MultiValue.Field a, MultiValue.Real a) =>
    Exp (Size, Size) ->
-   Exp ((a, a), (a, a), (Size, Size)) ->
-   Symb.Array Size ((a, a), (a, a), (Size, Size)) ->
+   Exp (Geometry a) ->
+   Symb.Array Size (Geometry a) ->
    SymbPlane a
 distanceMapContained sh this others =
    let distMap = separateDistanceMap $ distanceMapBox sh this
@@ -791,8 +793,8 @@ distanceMap ::
     MultiValue.RationalConstant a,
     MultiValue.NativeFloating a ar) =>
    Exp (Size,Size) ->
-   Exp ((a, a), (a, a), (Size,Size)) ->
-   Symb.Array Size ((a, a), (a, a), (Size,Size)) ->
+   Exp (Geometry a) ->
+   Symb.Array Size (Geometry a) ->
    Symb.Array Size (a, a) ->
    SymbPlane a
 distanceMap sh this others points =
@@ -816,8 +818,8 @@ distanceMapGamma ::
     SoV.TranscendentalConstant ar) =>
    Exp a ->
    Exp (Size,Size) ->
-   Exp ((a, a), (a, a), (Size,Size)) ->
-   Symb.Array Size ((a, a), (a, a), (Size,Size)) ->
+   Exp (Geometry a) ->
+   Symb.Array Size (Geometry a) ->
    Symb.Array Size (a, a) ->
    SymbPlane a
 distanceMapGamma gamma sh this others points =
@@ -840,9 +842,7 @@ addToWeightedCanvas vec =
             (Expr.add weight weightSum,
              Arith.vecAdd vec canvas $ Arith.vecScale vec weight pic))
 
-geom64 ::
-   ((Float,Float),(Float,Float),(Int,Int)) ->
-   ((Float,Float),(Float,Float),(Size,Size))
+geom64 :: ((Float,Float),(Float,Float),(Int,Int)) -> Geometry Float
 geom64 = mapThd3 (mapPair (fromIntegral, fromIntegral))
 
 updateWeightedCanvas ::
