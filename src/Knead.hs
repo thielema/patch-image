@@ -2,6 +2,9 @@
 module Main where
 
 import qualified Arithmetic as Arith
+import KneadShape
+         (Size, Vec2(Vec2), Dim0, Dim1, Dim2, Shape2, Index2, Ix2,
+          verticalVal, horizontalVal)
 
 import qualified Data.Array.Knead.Parameterized.Physical as PhysP
 import qualified Data.Array.Knead.Parameterized.Symbolic as SymbP
@@ -17,7 +20,7 @@ import qualified LLVM.Extra.ScalarOrVector as SoV
 import qualified LLVM.Extra.Arithmetic as LLVMArith
 import qualified LLVM.Extra.Multi.Value.Memory as MultiMem
 import qualified LLVM.Extra.Multi.Value as MultiValue
-import LLVM.Extra.Multi.Value (atom)
+import LLVM.Extra.Multi.Value (Atom, atom)
 
 import qualified LLVM.Core as LLVM
 import qualified Codec.Picture as Pic
@@ -45,11 +48,6 @@ import Data.Word (Word8, Word32)
 
 type SmallSize = Word32
 
-type Size = Int64
-type Dim0 = ()
-type Dim1 = Size
-type Dim2 = (Size, Size)
-type Ix2  = (Size, Size)
 type Plane = Phys.Array Dim2
 type SymbPlane = Symb.Array Dim2
 type ColorImage a = Phys.Array Dim2 (YUV a)
@@ -58,7 +56,7 @@ type ColorImage8 = ColorImage Word8
 type YUV a = (a,a,a)
 
 shape2 :: (Integral i) => i -> i -> Dim2
-shape2 height width = (fromIntegral height, fromIntegral width)
+shape2 height width = Vec2 (fromIntegral height) (fromIntegral width)
 
 
 readImage :: Verbosity -> FilePath -> IO ColorImage8
@@ -94,7 +92,7 @@ imageFromArray ::
    (Pic.PixelBaseComponent c ~ a, SV.Storable a) =>
    (ForeignPtr b -> ForeignPtr a) -> Phys.Array Dim2 b -> Pic.Image c
 imageFromArray castArray img =
-   let (height, width) = Phys.shape img
+   let Vec2 height width = Phys.shape img
    in Pic.Image {
          Pic.imageWidth = fromIntegral width,
          Pic.imageHeight = fromIntegral height,
@@ -202,6 +200,19 @@ ceilingToInt ::
 ceilingToInt = Expr.liftM MultiValue.truncateToInt
 
 
+atomDim2 :: Shape2 (Atom i)
+atomDim2 = Vec2 atom atom
+
+atomIx2 :: Index2 (Atom i)
+atomIx2 = Vec2 atom atom
+
+dim2 :: Exp i -> Exp i -> Exp (Shape2 i)
+dim2 y x = Expr.compose (Vec2 y x)
+
+ix2 :: Exp i -> Exp i -> Exp (Index2 i)
+ix2 y x = Expr.compose (Vec2 y x)
+
+
 fromSize2 ::
    (MultiValue.NativeFloating a ar) =>
    (Exp Size, Exp Size) -> (Exp a, Exp a)
@@ -214,19 +225,21 @@ limitIndices ::
    Exp Dim2 -> array sh Ix2 -> array sh Ix2
 limitIndices sh =
    Symb.map
-      (case Expr.unzip sh of
-         (height, width) ->
-            Expr.modify (atom, atom) $
-               \(y,x) ->
+      (case Expr.decompose atomDim2 sh of
+         (Vec2 height width) ->
+            Expr.modify atomIx2 $
+               \(Vec2 y x) ->
                   let xc = Expr.max 0 $ Expr.min (width -1) x
                       yc = Expr.max 0 $ Expr.min (height-1) y
-                  in  (yc, xc))
+                  in  Vec2 yc xc)
 
 shiftIndicesHoriz, shiftIndicesVert ::
    (Symb.C array, Shape.C sh) =>
    Exp Size -> array sh Ix2 -> array sh Ix2
-shiftIndicesHoriz dx = Symb.map (Expr.mapSnd (dx+))
-shiftIndicesVert  dy = Symb.map (Expr.mapFst (dy+))
+shiftIndicesHoriz dx =
+   Symb.map $ Expr.modify atomIx2 $ \(Vec2 y x) -> Vec2 y (x+dx)
+shiftIndicesVert  dy =
+   Symb.map $ Expr.modify atomIx2 $ \(Vec2 y x) -> Vec2 (y+dy) x
 
 
 type VecExp a v = Arith.Vec (Exp a) (Exp v)
@@ -250,15 +263,15 @@ gatherFrac ::
     MultiValue.C v) =>
    VecExp a v ->
    SymbPlane v ->
-   SymbPlane (a,a) ->
+   SymbPlane (Index2 a) ->
    SymbPlane v
 gatherFrac vec src poss =
    let possSplit =
          Symb.map
-            (Expr.modify (atom, atom) $ \(y,x) ->
+            (Expr.modify atomIx2 $ \(Vec2 y x) ->
                let (xi,xf) = splitFraction x
                    (yi,yf) = splitFraction y
-               in  ((yf,xf), (yi,xi)))
+               in  (Vec2 yf xf, Vec2 yi xi))
             poss
        possFrac = Symb.map Expr.fst possSplit
        possInt = Symb.map Expr.snd possSplit
@@ -270,7 +283,7 @@ gatherFrac vec src poss =
                (gather $ shiftIndicesHoriz   0  possIntShifted)
                (gather $ shiftIndicesHoriz   1  possIntShifted)
                (gather $ shiftIndicesHoriz   2  possIntShifted))
-            (Symb.map Expr.snd possFrac)
+            (Symb.map horizontalVal possFrac)
 
    in  Symb.zipWith (Arith.cubicIpVec vec . Expr.unzip4)
          (Symb.zip4
@@ -278,7 +291,7 @@ gatherFrac vec src poss =
             (interpolateHoriz $ shiftIndicesVert   0  possInt)
             (interpolateHoriz $ shiftIndicesVert   1  possInt)
             (interpolateHoriz $ shiftIndicesVert   2  possInt))
-         (Symb.map Expr.fst possFrac)
+         (Symb.map verticalVal possFrac)
 
 
 rotateStretchMoveCoords ::
@@ -294,7 +307,7 @@ rotateStretchMoveCoords rot mov =
       (let trans =
             Arith.rotateStretchMoveBackPoint
                (Expr.unzip rot) (Expr.unzip mov)
-       in  Expr.modify (atom,atom) $ \(y,x) -> trans $ fromSize2 (x,y))
+       in  Expr.modify atomIx2 $ \(Vec2 y x) -> trans $ fromSize2 (x,y))
    .
    Symb.id
 
@@ -341,10 +354,11 @@ rotateStretchMove ::
    SymbPlane (MaskBool, v)
 rotateStretchMove vec rot mov sh img =
    let coords = rotateStretchMoveCoords rot mov sh
-       (heightSrc, widthSrc) = Expr.unzip $ Symb.shape img
+       (Vec2 heightSrc widthSrc) = Expr.decompose atomDim2 $ Symb.shape img
    in  Symb.zip
          (validCoords (widthSrc, heightSrc) coords)
-         (gatherFrac vec img $ Symb.map Expr.swap coords)
+         (gatherFrac vec img $
+          Symb.map (Expr.modify (atom,atom) $ \(x,y) -> ix2 y x) coords)
 
 rotate ::
    (SV.Storable a, MultiMem.C a,
@@ -356,13 +370,13 @@ rotate ::
    SymbPlane v ->
    SymbPlane v
 rotate vec rot img =
-   let (height, width) = Expr.unzip $ Symb.shape img
+   let (Vec2 height width) = Expr.decompose atomDim2 $ Symb.shape img
        ((left, right), (top, bottom)) =
          Arith.boundingBoxOfRotatedGen (Expr.min, Expr.max)
             (Expr.unzip rot) (fromSize2 (width, height))
    in  Symb.map Expr.snd $
        rotateStretchMove vec rot (Expr.zip (-left) (-top))
-         (Expr.zip (ceilingToInt (bottom-top)) (ceilingToInt (right-left)))
+         (dim2 (ceilingToInt (bottom-top)) (ceilingToInt (right-left)))
          img
 
 
@@ -387,9 +401,14 @@ brightnessPlane ::
 brightnessPlane = Symb.map brightnessValue
 
 rowHistogram ::
-   (Symb.C array, Shape.C size, MultiValue.Additive a) =>
-   array (size, Size) (YUV a) -> array size a
-rowHistogram = Symb.fold1 Expr.add . brightnessPlane
+   (Symb.C array, MultiValue.Additive a) =>
+   array Dim2 (YUV a) -> array Dim1 a
+rowHistogram =
+   Symb.fold1 Expr.add .
+   ShapeDep.backpermute
+      (Expr.modify atomDim2 $ \(Vec2 h w) -> (h,w))
+      (Expr.modify (atom,atom) $ \(y,x) -> Vec2 y x) .
+   brightnessPlane
 
 
 tailArr :: (Symb.C array) => array Dim1 a -> array Dim1 a
@@ -429,18 +448,21 @@ findOptimalRotation = do
 
 
 transpose :: SymbPlane a -> SymbPlane a
-transpose = ShapeDep.backpermute Expr.swap Expr.swap
+transpose =
+   ShapeDep.backpermute
+      (Expr.modify atomDim2 $ \(Vec2 height width) -> (Vec2 width height))
+      (Expr.modify atomIx2 $ \(Vec2 x y) -> (Vec2 y x))
 
 lowpassVert, lowpass ::
    (MultiValue.Field a, MultiValue.Real a, MultiValue.RationalConstant a) =>
    SymbPlane a -> SymbPlane a
 lowpassVert img =
-   let height = Expr.fst $ Symb.shape img
-   in  generate (Symb.shape img) $ Expr.modify (atom,atom) $ \(y,x) ->
+   let height = verticalVal $ Symb.shape img
+   in  generate (Symb.shape img) $ Expr.modify atomIx2 $ \(Vec2 y x) ->
          Arith.smooth3
-            (img ! (Expr.zip (Expr.max 0 (y-1)) x),
-             img ! (Expr.zip y x),
-             img ! (Expr.zip (Expr.min (height-1) (y+1)) x))
+            (img ! ix2 (Expr.max 0 (y-1)) x,
+             img ! ix2 y x,
+             img ! ix2 (Expr.min (height-1) (y+1)) x)
 
 lowpass = transpose . lowpassVert . transpose . lowpassVert
 
@@ -476,7 +498,7 @@ prepareOverlapMatching = do
          (\orient sharp -> rotate Arith.vecScalar orient sharp)
          (arr fst) (PhysP.feed $ arr snd)
    return $ \radius (angle, img) ->
-      let (height, width) = Phys.shape img
+      let Vec2 height width = Phys.shape img
           rot = (cos angle, sin angle)
           ((left, _right), (top, _bottom)) =
             Arith.boundingBoxOfRotated rot
@@ -675,7 +697,7 @@ distanceMapBox sh geom =
        heightf = fromInt height
        back  = Arith.rotateStretchMoveBackPoint rot mov
        forth = Arith.rotateStretchMovePoint rot mov
-   in  generate sh $ Expr.modify (atom,atom) $ \(y,x) ->
+   in  generate sh $ Expr.modify atomIx2 $ \(Vec2 y x) ->
          let (xsrc,ysrc) = back $ fromSize2 (x,y)
              leftDist = Expr.max 0 xsrc
              rightDist = Expr.max 0 $ widthf - xsrc
@@ -770,7 +792,7 @@ pixelCoordinates ::
    (MultiValue.NativeFloating a ar) =>
    Exp Dim2 -> SymbPlane (a,a)
 pixelCoordinates sh =
-   generate sh $ Expr.modify (atom,atom) $ \(y,x) -> fromSize2 (x,y)
+   generate sh $ Expr.modify atomIx2 $ \(Vec2 y x) -> fromSize2 (x,y)
 
 distanceMapPoints ::
    (Shape.C sh, Symb.C array,

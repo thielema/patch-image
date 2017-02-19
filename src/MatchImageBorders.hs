@@ -10,6 +10,8 @@ We do not recalculate the average if a pixel is removed from the priority queue.
 -}
 module MatchImageBorders where
 
+import KneadShape (Vec2(Vec2), Dim2)
+
 import qualified Data.Array.Knead.Simple.Physical as Phys
 
 import qualified Data.PQueue.Prio.Max as PQ
@@ -29,28 +31,26 @@ import Foreign.Storable (Storable)
 import Data.Traversable (forM)
 import Data.Tuple.HT (mapSnd)
 import Data.Maybe (mapMaybe, listToMaybe)
-import Data.Int (Int64)
 import Data.Word (Word8)
 
 import Control.Monad (filterM)
 import Control.Applicative ((<$>))
 
 
-type Size = Int64
-
-arrayCFromPhysical :: Phys.Array (Size,Size) a -> IO (CArray (Int,Int) a)
-arrayCFromPhysical (Phys.Array (height,width) fptr) =
+arrayCFromPhysical :: Phys.Array Dim2 a -> IO (CArray (Int,Int) a)
+arrayCFromPhysical (Phys.Array (Vec2 height width) fptr) =
    CArrayPriv.unsafeForeignPtrToCArray fptr
       ((0,0), (fromIntegral height - 1, fromIntegral width - 1))
 
 arrayPhysicalFromC ::
-   (Storable a) => CArray (Int,Int) a -> Phys.Array (Size,Size) a
+   (Storable a) => CArray (Int,Int) a -> Phys.Array Dim2 a
 arrayPhysicalFromC carray =
    case bounds carray of
       ((ly,lx), (uy,ux)) ->
          Phys.Array
-            (fromIntegral $ rangeSize (ly,uy),
-             fromIntegral $ rangeSize (lx,ux))
+            (Vec2
+               (fromIntegral (rangeSize (ly,uy)))
+               (fromIntegral (rangeSize (lx,ux))))
             (snd $ CArrayPriv.toForeignPtr carray)
 
 
