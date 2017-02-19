@@ -44,9 +44,13 @@ import Data.Word (Word8, Word32)
 
 
 type Size = Int64
-type Plane = Phys.Array (Size, Size)
-type SymbPlane = Symb.Array (Size, Size)
-type ColorImage a = Phys.Array (Size, Size) (YUV a)
+type Dim0 = ()
+type Dim1 = Size
+type Dim2 = (Size, Size)
+type Ix2  = (Size, Size)
+type Plane = Phys.Array Dim2
+type SymbPlane = Symb.Array Dim2
+type ColorImage a = Phys.Array Dim2 (YUV a)
 type ColorImage8 = ColorImage Word8
 
 type YUV a = (a,a,a)
@@ -84,7 +88,7 @@ vectorStorableFrom castArray img =
 
 imageFromArray ::
    (Pic.PixelBaseComponent c ~ a, SV.Storable a) =>
-   (ForeignPtr b -> ForeignPtr a) -> Phys.Array (Size,Size) b -> Pic.Image c
+   (ForeignPtr b -> ForeignPtr a) -> Phys.Array Dim2 b -> Pic.Image c
 imageFromArray castArray img =
    let (height, width) = Phys.shape img
    in Pic.Image {
@@ -196,9 +200,7 @@ ceilingToInt = Expr.liftM MultiValue.truncateToInt
 
 limitIndices ::
    (Symb.C array, Shape.C sh) =>
-   Exp (Size,Size) ->
-   array sh (Size,Size) ->
-   array sh (Size,Size)
+   Exp Dim2 -> array sh Ix2 -> array sh Ix2
 limitIndices sh =
    Symb.map
       (case Expr.unzip sh of
@@ -211,9 +213,7 @@ limitIndices sh =
 
 shiftIndicesHoriz, shiftIndicesVert ::
    (Symb.C array, Shape.C sh) =>
-   Exp Size ->
-   array sh (Size,Size) ->
-   array sh (Size,Size)
+   Exp Size -> array sh Ix2 -> array sh Ix2
 shiftIndicesHoriz dx = Symb.map (Expr.mapSnd (dx+))
 shiftIndicesVert  dy = Symb.map (Expr.mapFst (dy+))
 
@@ -276,7 +276,7 @@ rotateStretchMoveCoords ::
     MultiValue.RationalConstant a, MultiValue.NativeFloating a ar) =>
    Exp (a, a) ->
    Exp (a, a) ->
-   Exp (Size, Size) ->
+   Exp Dim2 ->
    SymbPlane (a, a)
 rotateStretchMoveCoords rot mov =
    Symb.map
@@ -326,7 +326,7 @@ rotateStretchMove ::
    VecExp a v ->
    Exp (a, a) ->
    Exp (a, a) ->
-   Exp (Size, Size) ->
+   Exp Dim2 ->
    SymbPlane v ->
    SymbPlane (MaskBool, v)
 rotateStretchMove vec rot mov sh img =
@@ -382,18 +382,18 @@ rowHistogram ::
 rowHistogram = Symb.fold1 Expr.add . brightnessPlane
 
 
-tailArr :: (Symb.C array) => array Size a -> array Size a
+tailArr :: (Symb.C array) => array Dim1 a -> array Dim1 a
 tailArr = ShapeDep.backpermute (Expr.max 0 . flip Expr.sub 1) (Expr.add 1)
 
 differentiate ::
-   (Symb.C array, MultiValue.Additive a) => array Size a -> array Size a
+   (Symb.C array, MultiValue.Additive a) => array Dim1 a -> array Dim1 a
 differentiate xs = Symb.zipWith Expr.sub (tailArr xs) xs
 
 sqr :: MultiValue.PseudoRing a => Exp a -> Exp a
 sqr = Expr.liftM $ \x -> MultiValue.mul x x
 
 scoreHistogram ::
-   (Symb.C array, MultiValue.PseudoRing a) => array Size a -> array () a
+   (Symb.C array, MultiValue.PseudoRing a) => array Dim1 a -> array Dim0 a
 scoreHistogram = Symb.fold1All Expr.add . Symb.map sqr . differentiate
 
 
@@ -476,7 +476,7 @@ prepareOverlapMatching = do
 
 
 
-emptyCanvas :: IO ((Size, Size) -> IO (Plane (Word32, YUV Float)))
+emptyCanvas :: IO (Dim2 -> IO (Plane (Word32, YUV Float)))
 emptyCanvas = PhysP.render $ SymbP.fill (arr id) $ return (0, (0,0,0))
 
 
@@ -573,7 +573,7 @@ finalizeCanvasFloat =
             Arith.vecScale vecYUV (recip $ fromInt count) pixel)
          (PhysP.feed (arr id))
 
-emptyPlainCanvas :: IO ((Size, Size) -> IO ColorImage8)
+emptyPlainCanvas :: IO (Dim2 -> IO ColorImage8)
 emptyPlainCanvas = PhysP.render $ SymbP.fill (arr id) $ return (0,0,0)
 
 addMaskedToCanvas ::
@@ -655,7 +655,7 @@ type Geometry a = ((a,a), (a,a), (Size,Size))
 distanceMapBox ::
    (MultiValue.Field a, MultiValue.NativeFloating a ar,
     MultiValue.Real a, MultiValue.RationalConstant a) =>
-   Exp (Size,Size) ->
+   Exp Dim2 ->
    Exp (Geometry a) ->
    SymbPlane (Bool, (((a,(a,a)), (a,(a,a))), ((a,(a,a)), (a,(a,a)))))
 distanceMapBox sh geom =
@@ -738,7 +738,7 @@ containedAnywhere geoms array =
 distanceMapContained ::
    (MultiValue.RationalConstant a, MultiValue.NativeFloating a ar,
     MultiValue.PseudoRing a, MultiValue.Field a, MultiValue.Real a) =>
-   Exp (Size, Size) ->
+   Exp Dim2 ->
    Exp (Geometry a) ->
    Symb.Array Size (Geometry a) ->
    SymbPlane a
@@ -758,7 +758,7 @@ distanceMapContained sh this others =
 
 pixelCoordinates ::
    (MultiValue.NativeFloating a ar) =>
-   Exp (Size, Size) -> SymbPlane (a,a)
+   Exp Dim2 -> SymbPlane (a,a)
 pixelCoordinates sh =
    generate sh $ Expr.modify (atom,atom) $ \(y,x) -> (fromInt x, fromInt y)
 
@@ -792,7 +792,7 @@ distanceMap ::
    (MultiValue.Algebraic a, MultiValue.Real a,
     MultiValue.RationalConstant a,
     MultiValue.NativeFloating a ar) =>
-   Exp (Size,Size) ->
+   Exp Dim2 ->
    Exp (Geometry a) ->
    Symb.Array Size (Geometry a) ->
    Symb.Array Size (a, a) ->
@@ -817,7 +817,7 @@ distanceMapGamma ::
     MultiValue.NativeFloating a ar,
     SoV.TranscendentalConstant ar) =>
    Exp a ->
-   Exp (Size,Size) ->
+   Exp Dim2 ->
    Exp (Geometry a) ->
    Symb.Array Size (Geometry a) ->
    Symb.Array Size (a, a) ->
@@ -826,7 +826,7 @@ distanceMapGamma gamma sh this others points =
    Symb.map (pow gamma) $ distanceMap sh this others points
 
 
-emptyWeightedCanvas :: IO ((Size, Size) -> IO (Plane (Float, YUV Float)))
+emptyWeightedCanvas :: IO (Dim2 -> IO (Plane (Float, YUV Float)))
 emptyWeightedCanvas = PhysP.render $ SymbP.fill (arr id) $ return (0, (0,0,0))
 
 addToWeightedCanvas ::
