@@ -40,7 +40,7 @@ import Control.Applicative ((<$>))
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
-import Data.Tuple.HT (mapPair, mapTriple, mapThd3, fst3, snd3, thd3)
+import Data.Tuple.HT (mapTriple, fst3, snd3, thd3)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
 
@@ -872,13 +872,10 @@ addToWeightedCanvas vec =
             (Expr.add weight weightSum,
              Arith.vecAdd vec canvas $ Arith.vecScale vec weight pic))
 
-geom64 :: ((Float,Float),(Float,Float),(Int,Int)) -> Geometry Float
-geom64 = mapThd3 (mapPair (fromIntegral, fromIntegral))
-
 updateWeightedCanvas ::
    IO (Float ->
-       ((Float,Float),(Float,Float),(Int,Int)) ->
-       [((Float,Float),(Float,Float),(Int,Int))] ->
+       Geometry Float ->
+       [Geometry Float] ->
        [Arith.Point2 Float] ->
        ColorImage8 ->
        Plane (Float, YUV Float) ->
@@ -912,13 +909,13 @@ updateWeightedCanvas = do
          (PhysP.feed $ arr (thd3.snd))
 
    return $ \gamma this others points pic weightSumCanvas -> do
-      othersVec <- Phys.vectorFromList $ map geom64 others
+      othersVec <- Phys.vectorFromList others
       pointsVec <- Phys.vectorFromList points
       dists <-
          distances
-            ((gamma, Phys.shape weightSumCanvas, geom64 this),
+            ((gamma, Phys.shape weightSumCanvas, this),
              (othersVec, pointsVec))
-      update (geom64 this, (pic, dists, weightSumCanvas))
+      update (this, (pic, dists, weightSumCanvas))
 
 
 finalizeWeightedCanvas :: IO ((Plane (Float, YUV Float)) -> IO ColorImage8)
