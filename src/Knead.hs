@@ -202,6 +202,13 @@ ceilingToInt ::
 ceilingToInt = Expr.liftM MultiValue.truncateToInt
 
 
+fromSize2 ::
+   (MultiValue.NativeFloating a ar) =>
+   (Exp Size, Exp Size) -> (Exp a, Exp a)
+fromSize2 (x,y) = (fromInt x, fromInt y)
+
+
+
 limitIndices ::
    (Symb.C array, Shape.C sh) =>
    Exp Dim2 -> array sh Ix2 -> array sh Ix2
@@ -287,8 +294,7 @@ rotateStretchMoveCoords rot mov =
       (let trans =
             Arith.rotateStretchMoveBackPoint
                (Expr.unzip rot) (Expr.unzip mov)
-       in  Expr.modify (atom,atom) $
-               \(y,x) -> trans (fromInt x, fromInt y))
+       in  Expr.modify (atom,atom) $ \(y,x) -> trans $ fromSize2 (x,y))
    .
    Symb.id
 
@@ -353,7 +359,7 @@ rotate vec rot img =
    let (height, width) = Expr.unzip $ Symb.shape img
        ((left, right), (top, bottom)) =
          Arith.boundingBoxOfRotatedGen (Expr.min, Expr.max)
-            (Expr.unzip rot) (fromInt width, fromInt height)
+            (Expr.unzip rot) (fromSize2 (width, height))
    in  Symb.map Expr.snd $
        rotateStretchMove vec rot (Expr.zip (-left) (-top))
          (Expr.zip (ceilingToInt (bottom-top)) (ceilingToInt (right-left)))
@@ -670,7 +676,7 @@ distanceMapBox sh geom =
        back  = Arith.rotateStretchMoveBackPoint rot mov
        forth = Arith.rotateStretchMovePoint rot mov
    in  generate sh $ Expr.modify (atom,atom) $ \(y,x) ->
-         let (xsrc,ysrc) = back (fromInt x, fromInt y)
+         let (xsrc,ysrc) = back $ fromSize2 (x,y)
              leftDist = Expr.max 0 xsrc
              rightDist = Expr.max 0 $ widthf - xsrc
              topDist = Expr.max 0 ysrc
@@ -764,7 +770,7 @@ pixelCoordinates ::
    (MultiValue.NativeFloating a ar) =>
    Exp Dim2 -> SymbPlane (a,a)
 pixelCoordinates sh =
-   generate sh $ Expr.modify (atom,atom) $ \(y,x) -> (fromInt x, fromInt y)
+   generate sh $ Expr.modify (atom,atom) $ \(y,x) -> fromSize2 (x,y)
 
 distanceMapPoints ::
    (Shape.C sh, Symb.C array,
