@@ -43,6 +43,8 @@ import Data.Word (Word8, Word32)
 
 
 
+type SmallSize = Word32
+
 type Size = Int64
 type Dim0 = ()
 type Dim1 = Size
@@ -641,7 +643,7 @@ maybePlus f x y =
 
 maskedMinimum ::
    (Shape.C sh, Symb.C array, MultiValue.Real a) =>
-   array (sh, Size) (Bool, a) -> array sh (Bool, a)
+   array (sh, SmallSize) (Bool, a) -> array sh (Bool, a)
 maskedMinimum = Symb.fold1 (maybePlus Expr.min)
 
 
@@ -706,7 +708,7 @@ expEven = isZero . flip Expr.irem 2
 separateDistanceMap ::
    (Symb.C array, Shape.C sh, MultiValue.C a) =>
    array sh (bool, ((a, a), (a, a))) ->
-   array (sh, Size) (bool, a)
+   array (sh, SmallSize) (bool, a)
 separateDistanceMap array =
    outerProduct
       (Expr.modify2 (atom, ((atom, atom), (atom, atom))) atom $
@@ -722,7 +724,7 @@ containedAnywhere ::
    (Symb.C array, Shape.C sh,
     MultiValue.Field a, MultiValue.NativeFloating a ar,
     MultiValue.Real a, MultiValue.RationalConstant a) =>
-   array Size (Geometry a) ->
+   array SmallSize (Geometry a) ->
    array sh (a,a) ->
    array sh Bool
 containedAnywhere geoms array =
@@ -740,7 +742,7 @@ distanceMapContained ::
     MultiValue.PseudoRing a, MultiValue.Field a, MultiValue.Real a) =>
    Exp Dim2 ->
    Exp (Geometry a) ->
-   Symb.Array Size (Geometry a) ->
+   Symb.Array SmallSize (Geometry a) ->
    SymbPlane a
 distanceMapContained sh this others =
    let distMap = separateDistanceMap $ distanceMapBox sh this
@@ -766,7 +768,7 @@ distanceMapPoints ::
    (Shape.C sh, Symb.C array,
     MultiValue.Real a, MultiValue.Algebraic a, MultiValue.IntegerConstant a) =>
    array sh (a,a) ->
-   array Size (a,a) ->
+   array SmallSize (a,a) ->
    array sh a
 distanceMapPoints a b =
    Symb.fold1 Expr.min $
@@ -794,8 +796,8 @@ distanceMap ::
     MultiValue.NativeFloating a ar) =>
    Exp Dim2 ->
    Exp (Geometry a) ->
-   Symb.Array Size (Geometry a) ->
-   Symb.Array Size (a, a) ->
+   Symb.Array SmallSize (Geometry a) ->
+   Symb.Array SmallSize (a, a) ->
    SymbPlane a
 distanceMap sh this others points =
    Symb.zipWith Expr.min
@@ -819,8 +821,8 @@ distanceMapGamma ::
    Exp a ->
    Exp Dim2 ->
    Exp (Geometry a) ->
-   Symb.Array Size (Geometry a) ->
-   Symb.Array Size (a, a) ->
+   Symb.Array SmallSize (Geometry a) ->
+   Symb.Array SmallSize (a, a) ->
    SymbPlane a
 distanceMapGamma gamma sh this others points =
    Symb.map (pow gamma) $ distanceMap sh this others points
