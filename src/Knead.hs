@@ -14,7 +14,7 @@ import qualified Data.Array.Knead.Simple.Symbolic as Symb
 import qualified Data.Array.Knead.Index.Nested.Shape as Shape
 import qualified Data.Array.Knead.Expression as Expr
 import Data.Array.Knead.Simple.Symbolic ((!))
-import Data.Array.Knead.Expression (Exp)
+import Data.Array.Knead.Expression (Exp, (==*), (/=*))
 
 import qualified LLVM.Extra.ScalarOrVector as SoV
 import qualified LLVM.Extra.Arithmetic as LLVMArith
@@ -518,9 +518,7 @@ maskFromBool :: Exp Bool -> Exp MaskBool
 maskFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.zext
 
 boolFromMask :: Exp MaskBool -> Exp Bool
-boolFromMask =
-   Expr.liftM $ MultiValue.liftM $
-      LLVM.cmp LLVM.CmpNE (LLVM.zero :: LLVM.ConstValue MaskBool)
+boolFromMask = (/=* 0)
 
 intFromBool :: Exp MaskBool -> Exp Word32
 intFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.ext
@@ -727,7 +725,7 @@ isZero ::
    (MultiValue.Comparison i, MultiValue.Integral i,
     MultiValue.IntegerConstant i) =>
    Exp i -> Exp Bool
-isZero = Expr.liftM $ MultiValue.cmp LLVM.CmpEQ MultiValue.zero
+isZero = (==* Expr.zero)
 
 expEven ::
    (MultiValue.Comparison i, MultiValue.Integral i,
