@@ -14,7 +14,7 @@ import qualified Data.Array.Knead.Simple.Symbolic as Symb
 import qualified Data.Array.Knead.Index.Nested.Shape as Shape
 import qualified Data.Array.Knead.Expression as Expr
 import Data.Array.Knead.Simple.Symbolic ((!))
-import Data.Array.Knead.Expression (Exp, (==*), (/=*))
+import Data.Array.Knead.Expression (Exp, (==*), (/=*), (<*), (>=*), (&&*))
 
 import qualified LLVM.Extra.ScalarOrVector as SoV
 import qualified LLVM.Extra.Arithmetic as LLVMArith
@@ -505,6 +505,144 @@ prepareOverlapMatching = do
                (fromIntegral width, fromIntegral height)
       in  fmap ((,) (left, top)) $
           curry rotat rot =<< hp radius =<< bright img
+
+
+wrap :: Exp Size -> Exp Size -> Exp Size -> Exp Size
+wrap size split c = Expr.select (c<*split) c (c-size)
+
+displacementMap ::
+   Exp Size -> Exp Size -> Exp Dim2 -> SymbPlane (Size, Size)
+displacementMap xsplit ysplit sh =
+   let Vec2 height width = Expr.decompose atomDim2 sh
+   in  generate sh $ Expr.modify atomIx2 $ \(Vec2 y x) ->
+         (wrap width xsplit x, wrap height ysplit y)
+
+attachDisplacements ::
+   Exp Size -> Exp Size ->
+   SymbPlane a -> SymbPlane (a, (Size, Size))
+attachDisplacements xsplit ysplit img =
+   Symb.zip img $ displacementMap xsplit ysplit (Symb.shape img)
+
+weightOverlapScores ::
+   (MultiValue.Select a, MultiValue.Field a,
+    MultiValue.RationalConstant a, MultiValue.Real a,
+    MultiValue.NativeFloating a ar) =>
+   Exp Size -> (Exp Size, Exp Size) -> (Exp Size, Exp Size) ->
+   SymbPlane (a, (Size, Size)) ->
+   SymbPlane (a, (Size, Size))
+weightOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
+   Symb.map
+      (Expr.modify (atom,(atom,atom)) $ \(v, dp@(dy,dx)) ->
+         let clipWidth  = Expr.min widtha  (widthb  + dx) - Expr.max 0 dx
+             clipHeight = Expr.min heighta (heightb + dy) - Expr.max 0 dy
+         in  (Expr.select
+                  (clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
+                  (v / (fromInt clipWidth * fromInt clipHeight))
+                  0,
+              dp))
+
+{- |
+Set all scores to zero within a certain border.
+Otherwise the matching algorithm will try to match strong bars at the borders
+that are actually digitalization artifacts.
+-}
+minimumOverlapScores ::
+   (MultiValue.Select a, MultiValue.PseudoRing a,
+    MultiValue.IntegerConstant a, MultiValue.Real a) =>
+   Exp Size -> (Exp Size, Exp Size) -> (Exp Size, Exp Size) ->
+   SymbPlane (a, (Size, Size)) ->
+   SymbPlane (a, (Size, Size))
+minimumOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
+   Symb.map
+      (Expr.modify (atom,(atom,atom)) $ \(v, dp@(dy,dx)) ->
+         let clipWidth  = Expr.min widtha  (widthb  + dx) - Expr.max 0 dx
+             clipHeight = Expr.min heighta (heightb + dy) - Expr.max 0 dy
+         in  (Expr.select
+                  (clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
+                  v 0,
+              dp))
+
+
+allOverlapsFromCorrelation ::
+   Dim2 ->
+   Exp Float ->
+   Exp Dim2 -> Exp Dim2 -> SymbPlane Float ->
+   SymbPlane (Float, (Size, Size))
+allOverlapsFromCorrelation (Vec2 height width) minOverlapPortion =
+   \sha shb correlated ->
+      let (Vec2 heighta widtha) = Expr.decompose atomDim2 sha
+          (Vec2 heightb widthb) = Expr.decompose atomDim2 shb
+          half = flip Expr.idiv 2
+          minOverlap =
+             fastRound $
+                minOverlapPortion
+                *
+                fromInt
+                   (Expr.min
+                      (Expr.min widtha heighta)
+                      (Expr.min widthb heightb))
+          weight =
+             if False
+               then
+                  weightOverlapScores minOverlap
+                     (widtha, heighta)
+                     (widthb, heightb)
+               else
+                  minimumOverlapScores minOverlap
+                     (widtha, heighta)
+                     (widthb, heightb)
+      in  weight $
+          attachDisplacements
+             (half $ Expr.fromInteger' (toInteger width) - widthb + widtha)
+             (half $ Expr.fromInteger' (toInteger height) - heightb + heighta) $
+          correlated
+
+
+shrink ::
+   (MultiValue.Field a, MultiValue.RationalConstant a, MultiValue.Real a,
+    MultiValue.NativeFloating a ar) =>
+   Shape2 (Exp Size) -> SymbPlane a -> SymbPlane a
+shrink (Vec2 yk xk) =
+   Symb.map (/ (fromInt xk * fromInt yk)) .
+   Symb.fold1 Expr.add .
+   ShapeDep.backpermute
+      (Expr.modify atomDim2 $ \(Vec2 height width) ->
+         (Vec2 (Expr.idiv height yk) (Expr.idiv width xk), Vec2 yk xk))
+      (Expr.modify (atomIx2, atomIx2) $
+         \(Vec2 yi xi, Vec2 yj xj) -> Vec2 (yi*yk+yj) (xi*xk+xj))
+
+shrinkFactors :: (Integral a) => Dim2 -> Shape2 a -> Shape2 a -> Shape2 a
+shrinkFactors (Vec2 heightPad widthPad)
+   (Vec2 heighta widtha) (Vec2 heightb widthb) =
+      Vec2
+         (Arith.divUp (heighta+heightb) $ fromIntegral heightPad)
+         (Arith.divUp (widtha +widthb)  $ fromIntegral widthPad)
+
+
+clip ::
+   (MultiValue.C a) =>
+   (Exp Size, Exp Size) ->
+   (Exp Size, Exp Size) ->
+   SymbPlane a -> SymbPlane a
+clip (left,top) (width,height) =
+   Symb.backpermute
+      (Expr.compose $ Vec2 height width)
+      (Expr.modify (Vec2 atom atom) $ \(Vec2 y x) -> Vec2 (y+top) (x+left))
+
+
+overlappingArea ::
+   (Ord a, Num a) =>
+   Shape2 a ->
+   Shape2 a ->
+   (a, a) -> ((a, a), (a, a), (a, a))
+overlappingArea (Vec2 heighta widtha) (Vec2 heightb widthb) (dx, dy) =
+   let left = max 0 dx
+       top  = max 0 dy
+       right  = min widtha  (widthb  + dx)
+       bottom = min heighta (heightb + dy)
+       width  = right - left
+       height = bottom - top
+   in  ((left, top), (right, bottom), (width, height))
 
 
 
