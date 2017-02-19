@@ -57,6 +57,9 @@ type ColorImage8 = ColorImage Word8
 
 type YUV a = (a,a,a)
 
+shape2 :: (Integral i) => i -> i -> Dim2
+shape2 height width = (fromIntegral height, fromIntegral width)
+
 
 readImage :: Verbosity -> FilePath -> IO ColorImage8
 readImage verbosity path = do
@@ -74,8 +77,7 @@ readImage verbosity path = do
                      (SV.length dat)
                return $
                   Phys.Array
-                     (fromIntegral $ Pic.imageHeight pic,
-                      fromIntegral $ Pic.imageWidth pic)
+                     (shape2 (Pic.imageHeight pic) (Pic.imageWidth pic))
                      (castForeignPtr $ fst $ SV.unsafeToForeignPtr0 dat)
             _ -> ioError $ userError "unsupported image type"
 
