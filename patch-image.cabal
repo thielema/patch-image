@@ -235,6 +235,7 @@ Executable patch-image-llvm
 Executable patch-image-cuda
   Main-Is: Accelerate.hs
   Other-Modules:
+    LinearAlgebra
     Arithmetic
     Option.Utility
     Option
