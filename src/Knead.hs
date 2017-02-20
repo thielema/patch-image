@@ -696,6 +696,28 @@ overlap2 vec (dx,dy) (a,b) =
                   (a!pa))
                (Expr.ifThenElse inPicB (b!pb) (Arith.vecZero vec))
 
+composeOverlap ::
+   IO ((Size, Size) ->
+       ((Float, ColorImage8), (Float, ColorImage8)) ->
+       IO ColorImage8)
+composeOverlap = do
+   over <-
+      PhysP.render $
+      SymbP.withExp2
+         (\param picA picB ->
+            let (displacement, (ra,rb)) =
+                  Expr.decompose ((atom, atom), (atom, atom)) param
+            in  colorImageByteFromFloat $
+                overlap2 vecYUV displacement
+                  (rotate vecYUV ra $ colorImageFloatFromByte picA,
+                   rotate vecYUV rb $ colorImageFloatFromByte picB))
+         (arr fst)
+         (PhysP.feed $ arr (fst.snd))
+         (PhysP.feed $ arr (snd.snd))
+   let cis angle = (cos angle, sin angle)
+   return $ \displacement ((angleA,picA), (angleB,picB)) ->
+      over ((displacement, (cis angleA, cis angleB)), (picA, picB))
+
 
 
 emptyCanvas :: IO (Dim2 -> IO (Plane (Word32, YUV Float)))
