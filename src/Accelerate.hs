@@ -954,8 +954,8 @@ overlap2 (dx,dy) (a,b) =
               ya = y + top;  yb = ya-dy
               pa = A.lift $ chan :. ya :. xa
               pb = A.lift $ chan :. yb :. xb
-              inPicA = 0<=*xa &&* xa<*widtha &&* 0<=*ya &&* ya<*heighta
-              inPicB = 0<=*xb &&* xb<*widthb &&* 0<=*yb &&* yb<*heightb
+              inPicA = inBox (widtha,heighta) (xa,ya)
+              inPicB = inBox (widthb,heightb) (xb,yb)
           in  inPicA ?
                  (inPicB ? ((a!pa + b!pb)/2, a!pa),
                   inPicB ? (b!pb, 0))
