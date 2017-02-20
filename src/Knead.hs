@@ -645,6 +645,52 @@ overlappingArea (Vec2 heighta widtha) (Vec2 heightb widthb) (dx, dy) =
    in  ((left, top), (right, bottom), (width, height))
 
 
+overlapDifference ::
+   (MultiValue.Algebraic a, MultiValue.RationalConstant a,
+    MultiValue.Real a, MultiValue.NativeFloating a ar) =>
+   (Exp Size, Exp Size) ->
+   SymbPlane a -> SymbPlane a -> Symb.Array () a
+overlapDifference (dx,dy) a b =
+   let (Vec2 heighta widtha) = Expr.decompose atomDim2 $ Symb.shape a
+       (Vec2 heightb widthb) = Expr.decompose atomDim2 $ Symb.shape b
+       leftOverlap = Expr.max 0 dx
+       topOverlap  = Expr.max 0 dy
+       rightOverlap  = Expr.min widtha  (widthb  + dx)
+       bottomOverlap = Expr.min heighta (heightb + dy)
+       widthOverlap  = rightOverlap - leftOverlap
+       heightOverlap = bottomOverlap - topOverlap
+       extentOverlap = (widthOverlap,heightOverlap)
+   in  Symb.map (Expr.liftM MultiValue.sqrt) $
+       Symb.map (/(fromInt widthOverlap * fromInt heightOverlap)) $
+       Symb.fold1All (+) $
+       Symb.map sqr $
+       Symb.zipWith (-)
+          (clip (leftOverlap,topOverlap) extentOverlap a)
+          (clip (leftOverlap-dx,topOverlap-dy) extentOverlap b)
+
+
+overlap2 ::
+   (Exp Size, Exp Size) ->
+   (SymbPlane Float, SymbPlane Float) -> SymbPlane Float
+overlap2 (dx,dy) (a,b) =
+   let (Vec2 heighta widtha) = Expr.decompose atomDim2 $ Symb.shape a
+       (Vec2 heightb widthb) = Expr.decompose atomDim2 $ Symb.shape b
+       left = Expr.min 0 dx; right  = Expr.max widtha  (widthb  + dx)
+       top  = Expr.min 0 dy; bottom = Expr.max heighta (heightb + dy)
+       width  = right - left
+       height = bottom - top
+   in  generate (dim2 height width) $ Expr.modify atomIx2 $ \(Vec2 y x) ->
+         let xa = x + left; xb = xa-dx
+             ya = y + top;  yb = ya-dy
+             pa = ix2 ya xa
+             pb = ix2 yb xb
+             inPicA = inBox (widtha,heighta) (xa,ya)
+             inPicB = inBox (widthb,heightb) (xb,yb)
+         in  Expr.ifThenElse inPicA
+               (Expr.ifThenElse inPicB ((a!pa + b!pb)/2) (a!pa))
+               (Expr.ifThenElse inPicB (b!pb) 0)
+
+
 
 emptyCanvas :: IO (Dim2 -> IO (Plane (Word32, YUV Float)))
 emptyCanvas = PhysP.render $ SymbP.fill (arr id) $ return (0, (0,0,0))
