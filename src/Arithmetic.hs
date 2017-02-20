@@ -65,10 +65,11 @@ cubicIp (xm1, x0, x1, x2) t =
    in  lip01 + (t*(t-1)/2) * (lipm12 + (x0+x1) - 3 * lip01)
 
 
-data Vec a v = Vec {vecAdd :: v -> v -> v, vecScale :: a -> v -> v}
+data Vec a v =
+   Vec {vecZero :: v, vecAdd :: v -> v -> v, vecScale :: a -> v -> v}
 
 vecScalar :: (Num a) => Vec a a
-vecScalar = Vec (+) (*)
+vecScalar = Vec 0 (+) (*)
 
 
 linearIpVec :: (Num a) => Vec a v -> (v,v) -> a -> v

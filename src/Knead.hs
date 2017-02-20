@@ -247,6 +247,7 @@ type VecExp a v = Arith.Vec (Exp a) (Exp v)
 vecYUV :: (MultiValue.PseudoRing a) => VecExp a (YUV a)
 vecYUV =
    Arith.Vec {
+      Arith.vecZero = Expr.compose (Expr.zero, Expr.zero, Expr.zero),
       Arith.vecAdd =
          Expr.modify2 (atom,atom,atom) (atom,atom,atom) $
             \(ay,au,av) (by,bu,bv) ->
@@ -670,9 +671,12 @@ overlapDifference (dx,dy) a b =
 
 
 overlap2 ::
+   (MultiValue.Field a, MultiValue.Real a, MultiValue.RationalConstant a,
+    MultiValue.C v) =>
+   VecExp a v ->
    (Exp Size, Exp Size) ->
-   (SymbPlane Float, SymbPlane Float) -> SymbPlane Float
-overlap2 (dx,dy) (a,b) =
+   (SymbPlane v, SymbPlane v) -> SymbPlane v
+overlap2 vec (dx,dy) (a,b) =
    let (Vec2 heighta widtha) = Expr.decompose atomDim2 $ Symb.shape a
        (Vec2 heightb widthb) = Expr.decompose atomDim2 $ Symb.shape b
        left = Expr.min 0 dx; right  = Expr.max widtha  (widthb  + dx)
@@ -687,8 +691,10 @@ overlap2 (dx,dy) (a,b) =
              inPicA = inBox (widtha,heighta) (xa,ya)
              inPicB = inBox (widthb,heightb) (xb,yb)
          in  Expr.ifThenElse inPicA
-               (Expr.ifThenElse inPicB ((a!pa + b!pb)/2) (a!pa))
-               (Expr.ifThenElse inPicB (b!pb) 0)
+               (Expr.ifThenElse inPicB
+                  (Arith.vecScale vec (1/2) $ Arith.vecAdd vec (a!pa) (b!pb))
+                  (a!pa))
+               (Expr.ifThenElse inPicB (b!pb) (Arith.vecZero vec))
 
 
 
