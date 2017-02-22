@@ -226,6 +226,11 @@ Executable patch-image-llvm
       tfp >=1.0 && <1.1,
       JuicyPixels >=2.0 && <3.3,
       vector >=0.10 && <0.13,
+      pqueue >=1.2 && <1.4,
+      containers >=0.4.2 && <0.6,
+      fft >=0.1.7 && <0.2,
+      carray >=0.1.5 && <0.2,
+      array >=0.5 && <0.6,
       Cabal >=1.18 && <2,
       utility-ht >=0.0.1 && <0.1,
       base >=4 && <5

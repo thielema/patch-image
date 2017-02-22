@@ -2,9 +2,13 @@
 module Main where
 
 import qualified Arithmetic as Arith
+import MatchImageBorders (arrayCFromPhysical, arrayPhysicalFromC)
 import KneadShape
          (Size, Vec2(Vec2), Dim0, Dim1, Dim2, Shape2, Index2, Ix2,
           verticalVal, horizontalVal)
+
+import qualified Math.FFT as FFT
+import Math.FFT.Base (FFTWReal)
 
 import qualified Data.Array.Knead.Parameterized.Physical as PhysP
 import qualified Data.Array.Knead.Parameterized.Symbolic as SymbP
@@ -14,7 +18,11 @@ import qualified Data.Array.Knead.Simple.Symbolic as Symb
 import qualified Data.Array.Knead.Index.Nested.Shape as Shape
 import qualified Data.Array.Knead.Expression as Expr
 import Data.Array.Knead.Simple.Symbolic ((!))
-import Data.Array.Knead.Expression (Exp, (==*), (/=*), (<*), (>=*), (&&*))
+import Data.Array.Knead.Expression
+         (Exp, (==*), (/=*), (<*), (<=*), (>=*), (&&*))
+
+import qualified Data.Array.CArray as CArray
+import Data.Array.CArray (CArray)
 
 import qualified LLVM.Extra.ScalarOrVector as SoV
 import qualified LLVM.Extra.Arithmetic as LLVMArith
@@ -35,12 +43,12 @@ import Text.Printf (printf)
 
 import qualified Data.List as List
 import Control.Arrow (arr)
-import Control.Monad (foldM)
+import Control.Monad (liftM2, foldM)
 import Control.Applicative ((<$>))
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
-import Data.Tuple.HT (mapTriple, fst3, snd3, thd3)
+import Data.Tuple.HT (mapPair, mapTriple, fst3, snd3, thd3)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
 
@@ -485,6 +493,50 @@ highpassMulti = do
    return $ \n img -> curry sub img =<< lp n img
 
 
+
+-- counterpart to 'clip'
+pad ::
+   (MultiValue.C a) =>
+   Exp a -> Exp Dim2 -> SymbPlane a -> SymbPlane a
+pad a sh img =
+   let Vec2 height width = Expr.decompose atomDim2 $ Symb.shape img
+   in  generate sh $ \p ->
+         let Vec2 y x = Expr.decompose atomIx2 p
+         in  Expr.ifThenElse (y<*height &&* x<*width) (img ! p) a
+
+padCArray ::
+   (SV.Storable a) =>
+   a -> (Int,Int) -> CArray (Int,Int) a -> CArray (Int,Int) a
+padCArray a (height, width) img =
+   CArray.listArray ((0,0), (height-1, width-1)) (repeat a)
+   CArray.//
+   CArray.assocs img
+
+mapPairInt :: (Integral i, Integral j) => (i,i) -> (j,j)
+mapPairInt = mapPair (fromIntegral, fromIntegral)
+
+correlatePaddedSimpleCArray ::
+   (FFTWReal a) =>
+   (Int,Int) ->
+   CArray (Int,Int) a ->
+   CArray (Int,Int) a ->
+   CArray (Int,Int) a
+correlatePaddedSimpleCArray sh =
+   let forward = FFT.dftRCN [0,1] . padCArray 0 sh
+       inverse = FFT.dftCRN [0,1]
+   in  \ x y ->
+         inverse $ CArray.liftArray2 Arith.mulConj (forward x) (forward y)
+
+correlatePaddedSimple ::
+   (FFTWReal a, SV.Storable a) =>
+   (Size, Size) -> Plane a -> Plane a -> IO (Plane a)
+correlatePaddedSimple sh a b =
+   arrayPhysicalFromC <$>
+   liftM2 (correlatePaddedSimpleCArray (mapPairInt sh))
+      (arrayCFromPhysical a)
+      (arrayCFromPhysical b)
+
+
 prepareOverlapMatching ::
    IO (Int -> (Float, ColorImage8) -> IO ((Float, Float), Plane Float))
 prepareOverlapMatching = do
@@ -599,6 +651,59 @@ allOverlapsFromCorrelation (Vec2 height width) minOverlapPortion =
           correlated
 
 
+allOverlapsRun ::
+   Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Plane Word8))
+allOverlapsRun padExtent@(Vec2 height width) = do
+   run <-
+      PhysP.render $
+      SymbP.withExp
+         (\params img ->
+            let (minOverlapPortion, (sha, shb)) =
+                  Expr.decompose (atom, (atom,atom)) params
+            in  imageByteFromFloat $
+                Symb.map (0.0001*) $
+                Symb.map Expr.fst $
+                allOverlapsFromCorrelation padExtent
+                  minOverlapPortion sha shb img)
+         (arr fst)
+         (PhysP.feed $ arr snd)
+
+   return $ \overlap a b ->
+      curry run (overlap, (Phys.shape a, Phys.shape b))
+         =<< correlatePaddedSimple (height, width) a b
+
+
+argmax ::
+   (MultiValue.Comparison a, MultiValue.Select a, MultiValue.Select b) =>
+   Exp (a, b) -> Exp (a, b) -> Exp (a, b)
+argmax x y  =  Expr.select (Expr.fst x <=* Expr.fst y) y x
+
+argmaximum ::
+   (Shape.C sh,
+    MultiValue.Comparison a, MultiValue.Select a, MultiValue.Select b) =>
+   Symb.Array sh (a, b) -> Symb.Array () (a, b)
+argmaximum = Symb.fold1All argmax
+
+optimalOverlap ::
+   Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
+optimalOverlap padExtent@(Vec2 height width) = do
+   run <-
+      PhysP.the $
+      SymbP.withExp
+         (\params img ->
+            let (minOverlapPortion, (sha, shb)) =
+                  Expr.decompose (atom, (atom,atom)) params
+            in  argmaximum $
+                allOverlapsFromCorrelation padExtent
+                  minOverlapPortion sha shb img)
+         (arr fst)
+         (PhysP.feed $ arr snd)
+
+   return $ \overlap a b ->
+      curry run (overlap, (Phys.shape a, Phys.shape b))
+         =<< correlatePaddedSimple (height, width) a b
+
+
 shrink ::
    (MultiValue.Field a, MultiValue.RationalConstant a, MultiValue.Real a,
     MultiValue.NativeFloating a ar) =>
@@ -668,6 +773,18 @@ overlapDifference (dx,dy) a b =
        Symb.zipWith (-)
           (clip (leftOverlap,topOverlap) extentOverlap a)
           (clip (leftOverlap-dx,topOverlap-dy) extentOverlap b)
+
+overlapDifferenceRun ::
+   IO ((Size, Size) -> Plane Float -> Plane Float -> IO Float)
+overlapDifferenceRun = do
+   diff <-
+      PhysP.the $
+      SymbP.withExp2
+         (\d a b -> overlapDifference (Expr.unzip d) a b)
+         (arr fst)
+         (PhysP.feed $ arr (fst.snd))
+         (PhysP.feed $ arr (snd.snd))
+   return $ \d a b -> diff (d, (a, b))
 
 
 overlap2 ::

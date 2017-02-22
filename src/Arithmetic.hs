@@ -146,3 +146,6 @@ pairFromComplex z = (Complex.realPart z, Complex.imagPart z)
 
 mapComplex :: (a -> b) -> Complex a -> Complex b
 mapComplex f (r Complex.:+ i)  =  f r Complex.:+ f i
+
+mulConj :: (RealFloat a) => Complex a -> Complex a -> Complex a
+mulConj x y = x * Complex.conjugate y
