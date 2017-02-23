@@ -1,8 +1,12 @@
 {-# LANGUAGE TypeFamilies #-}
 module Main where
 
+import qualified Option
+
+import qualified MatchImageBorders
 import qualified Arithmetic as Arith
 import MatchImageBorders (arrayCFromPhysical, arrayPhysicalFromC)
+import LinearAlgebra (absolutePositionsFromPairDisplacements)
 import KneadShape
          (Size, Vec2(Vec2), Dim0, Dim1, Dim2, Shape2, Index2, Ix2,
           verticalVal, horizontalVal)
@@ -22,7 +26,9 @@ import Data.Array.Knead.Expression
          (Exp, (==*), (/=*), (<*), (<=*), (>=*), (&&*))
 
 import qualified Data.Array.CArray as CArray
+import Data.Array.IArray (amap)
 import Data.Array.CArray (CArray)
+import Data.Array.MArray (thaw)
 
 import qualified LLVM.Extra.ScalarOrVector as SoV
 import qualified LLVM.Extra.Arithmetic as LLVMArith
@@ -36,19 +42,27 @@ import qualified Codec.Picture as Pic
 import qualified Data.Vector.Storable as SV
 import Foreign.ForeignPtr (ForeignPtr, castForeignPtr)
 
+import qualified System.FilePath as FilePath
+import qualified System.IO as IO
+
 import qualified Distribution.Simple.Utils as CmdLine
 import qualified Distribution.Verbosity as Verbosity
 import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
-import qualified Data.List as List
+import qualified Control.Functor.HT as FuncHT
 import Control.Arrow (arr)
-import Control.Monad (liftM2, foldM)
+import Control.Monad (liftM2, when, foldM, (<=<))
 import Control.Applicative ((<$>))
+
+import qualified Data.List as List
+import Data.Maybe.HT (toMaybe)
+import Data.Maybe (catMaybes)
+import Data.List.HT (removeEach, tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
-import Data.Tuple.HT (mapPair, mapTriple, fst3, snd3, thd3)
+import Data.Tuple.HT (mapPair, mapFst, mapTriple, fst3, snd3, thd3)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
 
@@ -1258,6 +1272,273 @@ finalizeWeightedCanvas =
 
 
 
+processOverlap ::
+   Option.Args ->
+   [(Float, ColorImage8)] ->
+   [((Int, (FilePath, ((Float, Float), Plane Float))),
+     (Int, (FilePath, ((Float, Float), Plane Float))))] ->
+   IO ([(Float, Float)], [((Float, Float), ColorImage8)])
+processOverlap args picAngles pairs = do
+   let opt = Option.option args
+   let info = CmdLine.info (Option.verbosity opt)
+
+   (maybeAllOverlapsShared, optimalOverlapShared) <- do
+            let (rotHeights, rotWidths) =
+                   unzip $
+                   map (\(Vec2 height width) -> (height, width)) $
+                   map (Phys.shape . snd) picAngles
+                maxSum2 sizes =
+                   case List.sortBy (flip compare) sizes of
+                      size0 : size1 : _ -> size0+size1
+                      _ -> error "less than one picture - there should be no pairs"
+                padWidth  = Arith.ceilingPow2 $ maxSum2 rotWidths
+                padHeight = Arith.ceilingPow2 $ maxSum2 rotHeights
+                padExtent = Vec2 padHeight padWidth
+            overlap <- optimalOverlap padExtent
+            allOverlapsIO <- allOverlapsRun padExtent
+            return
+               (Just $ allOverlapsIO (Option.minimumOverlap opt),
+                overlap (Option.minimumOverlap opt))
+
+   composeOver <- composeOverlap
+   overlapDiff <- overlapDifferenceRun
+   displacements <-
+      fmap catMaybes $
+      forM pairs $ \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
+         forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when True $
+            writeGrey (Option.quality opt)
+               (printf "/tmp/%s-%s-score.jpeg"
+                  (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB))
+            =<< allOverlapsShared picA picB
+
+         doffset@(dox,doy) <- snd <$> optimalOverlapShared picA picB
+         diff <- overlapDiff doffset picA picB
+         let overlapping = diff < Option.maximumDifference opt
+         let d = (fromIntegral dox + fst leftTopA - fst leftTopB,
+                  fromIntegral doy + snd leftTopA - snd leftTopB)
+         info $
+            printf "%s - %s, %s, difference %f%s\n" pathA pathB (show d) diff
+               (if overlapping then "" else " unrelated -> ignoring")
+         forM_ (Option.outputOverlap opt) $ \format ->
+            writeImage (Option.quality opt)
+               (printf format
+                  (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB))
+               -- ToDo: avoid (!!)
+            =<< composeOver doffset (picAngles!!ia, picAngles!!ib)
+         return $ toMaybe overlapping ((ia,ib), d)
+
+   let (poss, dps) =
+          absolutePositionsFromPairDisplacements
+             (length picAngles) displacements
+   info "\nabsolute positions"
+   info $ unlines $ map show poss
+
+   info "\ncompare position differences with pair displacements"
+   info $ unlines $
+      zipWith
+         (\(dpx,dpy) (dx,dy) ->
+            printf "(%f,%f) (%f,%f)" dpx dpy dx dy)
+         dps (map snd displacements)
+   let (errdx,errdy) =
+          mapPair (maximum,maximum) $ unzip $
+          zipWith
+             (\(dpx,dpy) (dx,dy) ->
+                (abs $ dpx - realToFrac dx, abs $ dpy - realToFrac dy))
+             dps (map snd displacements)
+
+   info $
+      "\n"
+      ++
+      printf "maximum horizontal error: %f\n" errdx
+      ++
+      printf "maximum vertical error: %f\n" errdy
+
+   let picRots =
+          map (mapFst (\angle -> (cos angle, sin angle))) picAngles
+       floatPoss = map (mapPair (realToFrac, realToFrac)) poss
+
+   return (floatPoss, picRots)
+
+
+process :: Option.Args -> IO ()
+process args = do
+   IO.hSetBuffering IO.stdout IO.LineBuffering
+   IO.hSetBuffering IO.stderr IO.LineBuffering
+
+   let paths = Option.inputs args
+   let opt = Option.option args
+   let notice = CmdLine.notice (Option.verbosity opt)
+   let info = CmdLine.info (Option.verbosity opt)
+
+   notice "\nfind rotation angles"
+   findOptRot <- findOptimalRotation
+   picAngles <-
+      forM paths $ \(imageOption, path) -> do
+         pic <- readImage (Option.verbosity opt) path
+         let maxAngle = Option.maximumAbsoluteAngle opt
+         let angles =
+                Arith.linearScale (Option.numberAngleSteps opt)
+                   (-maxAngle, maxAngle)
+         angle <-
+            case Option.angle imageOption of
+               Just angle -> return angle
+               Nothing -> findOptRot angles pic
+         info $ printf "%s %f\176\n" path angle
+         return (path, (angle*pi/180, pic))
+
+   notice "\nfind relative placements"
+   prepOverlapMatching <- prepareOverlapMatching
+   rotated <-
+      mapM (FuncHT.mapSnd (prepOverlapMatching (Option.smooth opt))) picAngles
+   let pairs = do
+          (a:as) <- tails $ zip [0..] rotated
+          b <- as
+          return (a,b)
+
+   (floatPoss, picRots) <- processOverlap args (map snd picAngles) pairs
+
+   notice "\ncompose all parts"
+   let bbox (rot, pic) =
+          case Phys.shape pic of
+             Vec2 height width ->
+                Arith.boundingBoxOfRotated rot
+                   (fromIntegral width, fromIntegral height)
+       ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
+          mapPair
+             (mapPair (minimum, maximum) . unzip,
+              mapPair (minimum, maximum) . unzip) $
+          unzip $
+          zipWith
+             (\(mx,my) ->
+                mapPair (mapPair ((mx+), (mx+)), mapPair ((my+), (my+))) . bbox)
+             floatPoss picRots
+       canvasWidth, canvasHeight :: Size
+       canvasWidth  = ceiling (canvasRight-canvasLeft)
+       canvasHeight = ceiling (canvasBottom-canvasTop)
+       movRotPics =
+          zipWith
+             (\(mx,my) (rot, pic) -> ((mx-canvasLeft, my-canvasTop), rot, pic))
+             floatPoss picRots
+   info $
+      printf "canvas %f - %f, %f - %f\n"
+         canvasLeft canvasRight canvasTop canvasBottom
+   info $ printf "canvas size %d, %d\n" canvasWidth canvasHeight
+   forM_ (Option.outputHard opt) $ \path -> do
+      emptyCanv <- emptyCanvas
+      updateCanv <- updateCanvas
+      finalizeCanv <- finalizeCanvas
+      finalizeCanvFloat <- finalizeCanvasFloat
+
+      empty <- emptyCanv $ shape2 canvasHeight canvasWidth
+      sumImg <-
+         foldM
+            (\canvas (mov, rot, pic) -> updateCanv rot mov pic canvas)
+            empty movRotPics
+      writeImage (Option.quality opt) path =<< finalizeCanv sumImg
+
+      info "match shapes\n"
+      avg <- finalizeCanvFloat sumImg
+      diff <- diffWithCanvas
+      picDiffs <-
+         mapM (\(mov, rot, pic) -> diff rot mov pic avg) movRotPics
+      getSnd <- PhysP.render (Symb.map Expr.snd $ PhysP.feed (arr id))
+      lp <- lowpassMulti
+      masks <- map (amap ((0/=) . fst)) <$> mapM arrayCFromPhysical picDiffs
+      let smoothRadius = 200
+      smoothPicDiffs <-
+         mapM (arrayCFromPhysical <=< lp smoothRadius <=< getSnd) picDiffs
+      (locs, pqueue) <-
+         MatchImageBorders.prepareShaping $ zip masks smoothPicDiffs
+      counts <- thaw . amap (fromIntegral . fst) =<< arrayCFromPhysical sumImg
+      shapes <- MatchImageBorders.shapeParts counts locs pqueue
+      forM_ (zip [(0::Int) ..] shapes) $ \(k,shape) ->
+         writeGrey 100 (printf "/tmp/shape-hard-%04d.jpeg" k) $
+         arrayPhysicalFromC $ amap (\b -> if b then 255 else 0) shape
+
+      emptyPlainCanv <- emptyPlainCanvas
+      addMasked <- addMaskedToCanvas
+      emptyPlain <- emptyPlainCanv $ shape2 canvasHeight canvasWidth
+      writeImage (Option.quality opt) "/tmp/composition-hard.jpeg" =<<
+         foldM
+            (\canvas (shape, (mov, rot, pic)) ->
+               addMasked rot mov pic
+                  (arrayPhysicalFromC $ amap (fromIntegral . fromEnum) shape)
+                  canvas)
+            emptyPlain (zip shapes movRotPics)
+
+      smoothShapes <-
+         mapM
+            (lp smoothRadius . arrayPhysicalFromC .
+             amap (fromIntegral . fromEnum))
+            shapes
+      makeByteImage <-
+         PhysP.render (Symb.map byteFromFloat $ PhysP.feed (arr id))
+      forM_ (zip [(0::Int) ..] smoothShapes) $ \(k,shape) ->
+         writeGrey 100 (printf "/tmp/shape-soft-%04d.jpeg" k)
+            =<< makeByteImage shape
+
+      emptyWeightedCanv <- emptyWeightedCanvas
+      updateWeightedCanv <- updateShapedCanvas
+      finalizeWeightedCanv <- finalizeWeightedCanvas
+      emptyWeighted <- emptyWeightedCanv $ shape2 canvasHeight canvasWidth
+      writeImage (Option.quality opt) "/tmp/composition-soft.jpeg" =<<
+         finalizeWeightedCanv =<<
+         foldM
+            (\canvas (shape, (mov, rot, pic)) ->
+               updateWeightedCanv rot mov pic shape canvas)
+            emptyWeighted (zip smoothShapes movRotPics)
+
+
+   notice "\ndistance maps"
+   let geometries =
+          map
+             (\(mov, rot, pic) ->
+                let Vec2 height width = Phys.shape pic
+                    trans = Arith.rotateStretchMovePoint rot mov
+                    widthf  = fromIntegral width
+                    heightf = fromIntegral height
+                    corner00 = trans (0,0)
+                    corner10 = trans (widthf,0)
+                    corner01 = trans (0,heightf)
+                    corner11 = trans (widthf,heightf)
+                    corners = [corner00, corner01, corner10, corner11]
+                    edges =
+                       [(corner00, corner10), (corner10, corner11),
+                        (corner11, corner01), (corner01, corner00)]
+                in  ((rot, mov, (width,height)), corners, edges))
+             movRotPics
+
+   let geometryRelations =
+          flip map (removeEach geometries) $
+             \((thisGeom, thisCorners, thisEdges), others) ->
+                let intPoints = Arith.intersections thisEdges $ concatMap thd3 others
+                    overlappingCorners =
+                       filter
+                          (\c ->
+                             any (\(rot, mov, (width,height)) ->
+                                    Arith.inBox (width,height) $
+                                    mapPair (round, round) $
+                                    Arith.rotateStretchMoveBackPoint rot mov c) $
+                             map fst3 others)
+                          thisCorners
+                    allPoints = intPoints ++ overlappingCorners
+                    otherGeoms = map fst3 others
+                in  (thisGeom, otherGeoms, allPoints)
+
+   forM_ (Option.output opt) $ \path -> do
+      notice "\nweighted composition"
+      emptyCanv <- emptyWeightedCanvas
+      updateCanv <- updateWeightedCanvas
+      finalizeCanv <- finalizeWeightedCanvas
+
+      empty <- emptyCanv $ shape2 canvasHeight canvasWidth
+      writeImage (Option.quality opt) path =<< finalizeCanv =<<
+         foldM
+            (\canvas ((thisGeom, otherGeoms, allPoints), (_rot, pic)) ->
+               updateCanv (Option.distanceGamma opt)
+                  thisGeom otherGeoms allPoints pic canvas)
+            empty (zip geometryRelations picRots)
+
 rotateTest :: IO ()
 rotateTest = do
    rot <- runRotate
@@ -1275,4 +1556,4 @@ scoreTest = do
       print =<< score (fromInteger k * 2*pi/(360*10)) img
 
 main :: IO ()
-main = scoreTest
+main = process =<< Option.get
