@@ -137,7 +137,7 @@ linearScale :: Fractional a => Int -> (a,a) -> [a]
 linearScale n (x0,x1) =
    map (\m -> x0 + (x1-x0) * fromIntegral m / fromIntegral n) [0..n]
 
-ceilingPow2 :: Int -> Int
+ceilingPow2 :: (Bit.Bits i, Integral i) => i -> i
 ceilingPow2 n =
    Bit.setBit 0 $ ceiling $ logBase 2 (fromIntegral n :: Double)
 
