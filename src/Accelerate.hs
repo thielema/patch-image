@@ -18,6 +18,7 @@ import Arithmetic (
    intersections,
    projectPerp,
    distance,
+   linearScale,
    divUp,
    pairFromComplex,
    mapComplex,
@@ -312,13 +313,6 @@ rotateHistogram =
                   rowHistogram rotated)
    in  \angle arr -> rot (cos angle, sin angle) arr
 
-
-{-
-duplicate of Graphics.Gnuplot.Utility.linearScale
--}
-linearScale :: Fractional a => Int -> (a,a) -> [a]
-linearScale n (x0,x1) =
-   map (\m -> x0 + (x1-x0) * fromIntegral m / fromIntegral n) [0..n]
 
 analyseRotations :: [Float] -> Array DIM3 Word8 -> IO ()
 analyseRotations angles pic = do

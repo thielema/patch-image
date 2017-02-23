@@ -130,6 +130,12 @@ distance :: (Floating a) => Point2 a -> Point2 a -> a
 distance a b = sqrt $ distanceSqr a b
 
 
+{-
+duplicate of Graphics.Gnuplot.Utility.linearScale
+-}
+linearScale :: Fractional a => Int -> (a,a) -> [a]
+linearScale n (x0,x1) =
+   map (\m -> x0 + (x1-x0) * fromIntegral m / fromIntegral n) [0..n]
 
 ceilingPow2 :: Int -> Int
 ceilingPow2 n =
