@@ -1425,8 +1425,8 @@ processOverlap args picAngles pairs = do
                        case List.sortBy (flip compare) sizes of
                           size0 : size1 : _ -> size0+size1
                           _ -> error "less than one picture - there should be no pairs"
-                    padWidth  = Arith.ceilingPow2 $ maxSum2 rotWidths
-                    padHeight = Arith.ceilingPow2 $ maxSum2 rotHeights
+                    padWidth  = Arith.ceilingSmooth7 $ maxSum2 rotWidths
+                    padHeight = Arith.ceilingSmooth7 $ maxSum2 rotHeights
                     padExtent = Z :. padHeight :. padWidth
                 in  (Just $ allOverlapsRun padExtent (Option.minimumOverlap opt),
                      optimalOverlap padExtent (Option.minimumOverlap opt))

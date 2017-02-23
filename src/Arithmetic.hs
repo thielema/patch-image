@@ -141,6 +141,20 @@ ceilingPow2 :: (Bit.Bits i, Integral i) => i -> i
 ceilingPow2 n =
    Bit.setBit 0 $ ceiling $ logBase 2 (fromIntegral n :: Double)
 
+{- |
+Rounds to the smallest number of the form 2^k*j, with k>=0 and 1<=j<=10
+that is at least as large as @n@.
+-}
+ceilingSmooth7 :: (Bit.Bits i, Integral i) => i -> i
+ceilingSmooth7 n =
+   let maxFac = 10
+   in  if n<=maxFac
+         then n
+         else
+           let m = ceilingPow2 $ divUp n maxFac
+           in  m * divUp n m
+
+
 -- cf. numeric-prelude
 divUp :: (Integral a) => a -> a -> a
 divUp a b = - div (-a) b
