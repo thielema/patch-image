@@ -37,6 +37,9 @@ import qualified LLVM.Extra.Multi.Value as MultiValue
 import LLVM.Extra.Multi.Value (Atom, atom)
 
 import qualified LLVM.Core as LLVM
+
+import Data.Complex (Complex((:+)), conjugate, realPart)
+
 import qualified Codec.Picture as Pic
 
 import qualified Data.Vector.Storable as SV
@@ -541,12 +544,56 @@ correlatePaddedSimpleCArray sh =
    in  \ x y ->
          inverse $ CArray.liftArray2 Arith.mulConj (forward x) (forward y)
 
-correlatePaddedSimple ::
-   (FFTWReal a, SV.Storable a) =>
-   (Size, Size) -> Plane a -> Plane a -> IO (Plane a)
-correlatePaddedSimple sh a b =
+-- expects zero-based arrays
+cyclicReverse2d :: (SV.Storable a) => CArray (Int,Int) a -> CArray (Int,Int) a
+cyclicReverse2d spec =
+   let (height, width) = mapPair ((1+), (1+)) $ snd $ CArray.bounds spec
+   in  CArray.ixmap (CArray.bounds spec)
+         (\(y,x) -> (mod (-y) height, mod (-x) width)) spec
+
+untangleCoefficient ::
+   (RealFloat a) => Complex a -> Complex a -> (Complex a, Complex a)
+untangleCoefficient a b =
+   let bc = conjugate b
+   in  ((a + bc) / 2, (a - bc) * (0 :+ (-1/2)))
+
+-- ToDo: could be moved to fft package
+untangleSpectra2d ::
+   (RealFloat a, SV.Storable a) =>
+   CArray (Int,Int) (Complex a) -> CArray (Int,Int) (Complex a, Complex a)
+untangleSpectra2d spec =
+   CArray.liftArray2 untangleCoefficient spec (cyclicReverse2d spec)
+
+{-
+This is more efficient than 'correlatePaddedSimple'
+since it needs only one complex forward Fourier transform,
+where 'correlatePaddedSimple' needs two real transforms.
+Especially for odd sizes
+two real transforms are slower than a complex transform.
+For the analysis part,
+perform two real-valued Fourier transforms using one complex-valued transform.
+Afterwards we untangle the superposed spectra.
+-}
+correlatePaddedCArray ::
+   (FFTWReal a) =>
+   (Int,Int) ->
+   CArray (Int,Int) a ->
+   CArray (Int,Int) a ->
+   CArray (Int,Int) a
+correlatePaddedCArray sh a b =
+   amap realPart $ FFT.idftN [0,1] $
+   amap (uncurry Arith.mulConj) $
+   untangleSpectra2d $ FFT.dftN [0,1] $
+   CArray.liftArray2 (:+) (padCArray 0 sh a) (padCArray 0 sh b)
+
+
+liftCArray2 ::
+   (SV.Storable a) =>
+   (CArray (Int,Int) a -> CArray (Int,Int) a -> CArray (Int,Int) a) ->
+   Plane a -> Plane a -> IO (Plane a)
+liftCArray2 f a b =
    arrayPhysicalFromC <$>
-   liftM2 (correlatePaddedSimpleCArray (mapPairInt sh))
+   liftM2 f
       (arrayCFromPhysical a)
       (arrayCFromPhysical b)
 
@@ -684,7 +731,7 @@ allOverlapsRun padExtent@(Vec2 height width) = do
 
    return $ \overlap a b ->
       curry run (overlap, (Phys.shape a, Phys.shape b))
-         =<< correlatePaddedSimple (height, width) a b
+         =<< liftCArray2 (correlatePaddedCArray $ mapPairInt (height, width)) a b
 
 
 argmax ::
@@ -715,7 +762,7 @@ optimalOverlap padExtent@(Vec2 height width) = do
 
    return $ \overlap a b ->
       curry run (overlap, (Phys.shape a, Phys.shape b))
-         =<< correlatePaddedSimple (height, width) a b
+         =<< liftCArray2 (correlatePaddedCArray $ mapPairInt (height, width)) a b
 
 
 shrink ::
