@@ -65,7 +65,6 @@ import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
 import qualified Data.List.Key as Key
-import qualified Data.List as List
 import Control.Monad.HT (void)
 import Control.Monad (liftM2, when)
 import Data.Maybe.HT (toMaybe)
@@ -1417,16 +1416,10 @@ processOverlap args picAngles pairs = do
                 (Nothing,
                  optimalOverlapBigFine padExtent (Option.minimumOverlap opt))
              Nothing ->
-                let (rotHeights, rotWidths) =
-                       unzip $
-                       map (\(Z:.height:.width:._chans) -> (height, width)) $
+                let (padWidth, padHeight) =
+                       Arith.correlationSize (Option.minimumOverlap opt) $
+                       map (\(Z:.height:.width:._chans) -> (width, height)) $
                        map (A.arrayShape . snd) picAngles
-                    maxSum2 sizes =
-                       case List.sortBy (flip compare) sizes of
-                          size0 : size1 : _ -> size0+size1
-                          _ -> error "less than one picture - there should be no pairs"
-                    padWidth  = Arith.ceilingSmooth7 $ maxSum2 rotWidths
-                    padHeight = Arith.ceilingSmooth7 $ maxSum2 rotHeights
                     padExtent = Z :. padHeight :. padWidth
                 in  (Just $ allOverlapsRun padExtent (Option.minimumOverlap opt),
                      optimalOverlap padExtent (Option.minimumOverlap opt))

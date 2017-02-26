@@ -65,7 +65,7 @@ import Data.List.HT (removeEach, tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
-import Data.Tuple.HT (mapPair, mapFst, mapTriple, fst3, snd3, thd3)
+import Data.Tuple.HT (mapPair, mapFst, mapTriple, fst3, snd3, thd3, swap)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
 
@@ -1330,28 +1330,11 @@ processOverlap args picAngles pairs = do
    let info = CmdLine.info (Option.verbosity opt)
 
    (maybeAllOverlapsShared, optimalOverlapShared) <- do
-            let ((maxWidthSum, maxMinWidth), (maxHeightSum, maxMinHeight)) =
-                   mapPair (maxSum2, maxSum2) $ unzip $
+            let padExtent =
+                   uncurry Vec2 $ swap $
+                   Arith.correlationSize (Option.minimumOverlap opt) $
                    map (\(Vec2 height width) -> (width, height)) $
                    map (Phys.shape . snd) picAngles
-                maxSum2 sizes =
-                   case List.sortBy (flip compare) sizes of
-                      size0 : size1 : _ -> (size0+size1, size1)
-                      _ -> error "less than two pictures - there should be no pairs"
-                maxMinOverlap =
-                   Arith.minimumOverlapAbsFromPortion
-                      (Option.minimumOverlap opt)
-                      (maxMinWidth, maxMinHeight)
-                {-
-                Since we require a minimum overlap of overlapping image pairs,
-                we can use a smaller size for the correlation image.
-                It means, that correlation wraps around
-                and correlation coefficients from both borders interfer,
-                but only in a stripe that we ignore.
-                -}
-                padWidth  = Arith.ceilingSmooth7 $ maxWidthSum - maxMinOverlap
-                padHeight = Arith.ceilingSmooth7 $ maxHeightSum - maxMinOverlap
-                padExtent = Vec2 padHeight padWidth
             overlap <- optimalOverlap padExtent
             allOverlapsIO <- allOverlapsRun padExtent
             return

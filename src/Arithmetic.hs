@@ -5,6 +5,7 @@ import Data.Complex (Complex, )
 
 import Control.Monad (liftM2, guard)
 
+import qualified Data.List as List
 import qualified Data.Bits as Bit
 import Data.Maybe (catMaybes)
 import Data.Tuple.HT (mapPair)
@@ -159,6 +160,30 @@ ceilingSmooth7 n =
          else
            let m = ceilingPow2 $ divUp n maxFac
            in  m * divUp n m
+
+
+{-
+Since we require a minimum overlap of overlapping image pairs,
+we can reduce the correlation image size by maxMinOverlap.
+It means, that correlation wraps around
+and correlation coefficients from both borders interfer,
+but only in a stripe that we ignore.
+maxMinWidth is the maximal width that the smaller image of each pair can have.
+-}
+correlationSize :: (Bit.Bits i, Integral i) => Float -> [(i, i)] -> (i, i)
+correlationSize minOverlapPortion extents =
+   let ((maxWidthSum, maxMinWidth), (maxHeightSum, maxMinHeight)) =
+          mapPair (maxSum2, maxSum2) $ unzip extents
+       maxSum2 sizes =
+          case List.sortBy (flip compare) sizes of
+             size0 : size1 : _ -> (size0+size1, size1)
+             _ -> error "less than two pictures - there should be no pairs"
+       maxMinOverlap =
+          minimumOverlapAbsFromPortion
+             minOverlapPortion (maxMinWidth, maxMinHeight)
+       padWidth  = ceilingSmooth7 $ maxWidthSum - maxMinOverlap
+       padHeight = ceilingSmooth7 $ maxHeightSum - maxMinOverlap
+   in  (padWidth, padHeight)
 
 
 -- cf. numeric-prelude
