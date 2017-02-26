@@ -277,7 +277,7 @@ Executable patch-image-draft
 
   If flag(buildDraft)
     Build-Depends:
-      JuicyPixels >=2.0 && <3.2,
+      JuicyPixels >=2.0 && <3.3,
       GeomAlgLib >=0.2 && <0.3,
       utility-ht >=0.0.1 && <0.1,
       base >=4 && <5
