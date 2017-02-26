@@ -626,7 +626,7 @@ weightOverlapScores ::
    Acc (Channel Z (a, (Int, Int)))
 weightOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
-       (Exp.modify (expr,(expr,expr)) $ \(v, dp@(dy,dx)) ->
+       (Exp.modify (expr,(expr,expr)) $ \(v, dp@(dx,dy)) ->
           let clipWidth  = min widtha  (widthb  + dx) - max 0 dx
               clipHeight = min heighta (heightb + dy) - max 0 dy
           in  ((clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
@@ -646,7 +646,7 @@ minimumOverlapScores ::
    Acc (Channel Z (a, (Int, Int)))
 minimumOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
-       (Exp.modify (expr,(expr,expr)) $ \(v, dp@(dy,dx)) ->
+       (Exp.modify (expr,(expr,expr)) $ \(v, dp@(dx,dy)) ->
           let clipWidth  = min widtha  (widthb  + dx) - max 0 dx
               clipHeight = min heighta (heightb + dy) - max 0 dy
           in  ((clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)

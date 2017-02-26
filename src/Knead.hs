@@ -646,7 +646,7 @@ weightOverlapScores ::
    SymbPlane (a, (Size, Size))
 weightOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    Symb.map
-      (Expr.modify (atom,(atom,atom)) $ \(v, dp@(dy,dx)) ->
+      (Expr.modify (atom,(atom,atom)) $ \(v, dp@(dx,dy)) ->
          let clipWidth  = Expr.min widtha  (widthb  + dx) - Expr.max 0 dx
              clipHeight = Expr.min heighta (heightb + dy) - Expr.max 0 dy
          in  (Expr.select
@@ -668,7 +668,7 @@ minimumOverlapScores ::
    SymbPlane (a, (Size, Size))
 minimumOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
    Symb.map
-      (Expr.modify (atom,(atom,atom)) $ \(v, dp@(dy,dx)) ->
+      (Expr.modify (atom,(atom,atom)) $ \(v, dp@(dx,dy)) ->
          let clipWidth  = Expr.min widtha  (widthb  + dx) - Expr.max 0 dx
              clipHeight = Expr.min heighta (heightb + dy) - Expr.max 0 dy
          in  (Expr.select
