@@ -148,15 +148,38 @@ ceilingPow2 :: (Bit.Bits i, Integral i) => i -> i
 ceilingPow2 n =
    Bit.setBit 0 $ ceiling $ logBase 2 (fromIntegral n :: Double)
 
+ceilingSmooth7, ceilingSmooth7_10, ceilingSmooth7_100 ::
+   (Bit.Bits i, Integral i) => i -> i
+ceilingSmooth7 = ceilingSmooth7_100
+
 {- |
 Rounds to the smallest number of the form 2^k*j, with k>=0 and 1<=j<=10
 that is at least as large as @n@.
 -}
-ceilingSmooth7 :: (Bit.Bits i, Integral i) => i -> i
-ceilingSmooth7 n =
+ceilingSmooth7_10 n =
    let maxFac = 10
        m = ceilingPow2 $ divUp n maxFac
    in  m * divUp n m
+
+-- cf. synthesizer-core:NumberTheory
+divideByMaximumPower :: (Integral i) => i -> i -> i
+divideByMaximumPower b =
+   let go n =
+         case divMod n b of
+            (q,0) -> go q
+            _ -> n
+   in  go
+
+followingSmooth7Numbers :: (Integral i) => i -> [i]
+followingSmooth7Numbers =
+   filter ((1==) . flip (foldl (flip divideByMaximumPower)) [2,3,5,7]) .
+   iterate (1+)
+
+ceilingSmooth7_100 n =
+   let maxFac = 100
+       m = ceilingPow2 $ divUp n maxFac
+   in  m * head (followingSmooth7Numbers (divUp n m))
+
 
 
 {-
