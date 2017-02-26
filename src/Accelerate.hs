@@ -618,20 +618,6 @@ attachDisplacements ::
 attachDisplacements xsplit ysplit arr =
    A.zip arr $ displacementMap xsplit ysplit (A.shape arr)
 
-weightOverlapScores ::
-   (A.Elt a, A.IsFloating a, A.IsScalar a) =>
-   Exp Int -> (Exp Int, Exp Int) -> (Exp Int, Exp Int) ->
-   Acc (Channel Z (a, (Int, Int))) ->
-   Acc (Channel Z (a, (Int, Int)))
-weightOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
-   A.map
-       (Exp.modify (expr,(expr,expr)) $ \(v, dp@(dx,dy)) ->
-          let clipWidth  = min widtha  (widthb  + dx) - max 0 dx
-              clipHeight = min heighta (heightb + dy) - max 0 dy
-          in  ((clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
-               ?
-               (v / (A.fromIntegral clipWidth * A.fromIntegral clipHeight), 0),
-               dp))
 
 {- |
 Set all scores to zero within a certain border.
@@ -640,17 +626,18 @@ that are actually digitalization artifacts.
 -}
 minimumOverlapScores ::
    (A.Elt a, A.IsFloating a, A.IsScalar a) =>
+   ((Exp Int, Exp Int) -> Exp a -> Exp a) ->
    Exp Int -> (Exp Int, Exp Int) -> (Exp Int, Exp Int) ->
    Acc (Channel Z (a, (Int, Int))) ->
    Acc (Channel Z (a, (Int, Int)))
-minimumOverlapScores minOverlap (widtha,heighta) (widthb,heightb) =
+minimumOverlapScores weight minOverlap (widtha,heighta) (widthb,heightb) =
    A.map
        (Exp.modify (expr,(expr,expr)) $ \(v, dp@(dx,dy)) ->
           let clipWidth  = min widtha  (widthb  + dx) - max 0 dx
               clipHeight = min heighta (heightb + dy) - max 0 dy
           in  ((clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
                ?
-               (v, 0),
+               (weight (clipWidth, clipHeight) v, 0),
                dp))
 
 
@@ -675,15 +662,11 @@ allOverlaps size@(Z :. height :. width) minOverlapPortion =
                           (min widthb heightb))
               weight =
                  if False
-                   then
-                      weightOverlapScores minOverlap
-                         (widtha, heighta)
-                         (widthb, heightb)
-                   else
-                      minimumOverlapScores minOverlap
-                         (widtha, heighta)
-                         (widthb, heightb)
-          in  weight $
+                   then \(clipWidth, clipHeight) v ->
+                     v / (A.fromIntegral clipWidth * A.fromIntegral clipHeight)
+                   else const id
+          in  minimumOverlapScores weight minOverlap
+                 (widtha, heighta) (widthb, heightb) $
               attachDisplacements
                  (half $ A.lift width - widthb + widtha)
                  (half $ A.lift height - heightb + heighta) $
