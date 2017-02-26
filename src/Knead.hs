@@ -1330,16 +1330,27 @@ processOverlap args picAngles pairs = do
    let info = CmdLine.info (Option.verbosity opt)
 
    (maybeAllOverlapsShared, optimalOverlapShared) <- do
-            let (rotHeights, rotWidths) =
-                   unzip $
-                   map (\(Vec2 height width) -> (height, width)) $
+            let ((maxWidthSum, maxMinWidth), (maxHeightSum, maxMinHeight)) =
+                   mapPair (maxSum2, maxSum2) $ unzip $
+                   map (\(Vec2 height width) -> (width, height)) $
                    map (Phys.shape . snd) picAngles
                 maxSum2 sizes =
                    case List.sortBy (flip compare) sizes of
-                      size0 : size1 : _ -> size0+size1
-                      _ -> error "less than one picture - there should be no pairs"
-                padWidth  = Arith.ceilingSmooth7 $ maxSum2 rotWidths
-                padHeight = Arith.ceilingSmooth7 $ maxSum2 rotHeights
+                      size0 : size1 : _ -> (size0+size1, size1)
+                      _ -> error "less than two pictures - there should be no pairs"
+                maxMinOverlap =
+                   Arith.minimumOverlapAbsFromPortion
+                      (Option.minimumOverlap opt)
+                      (maxMinWidth, maxMinHeight)
+                {-
+                Since we require a minimum overlap of overlapping image pairs,
+                we can use a smaller size for the correlation image.
+                It means, that correlation wraps around
+                and correlation coefficients from both borders interfer,
+                but only in a stripe that we ignore.
+                -}
+                padWidth  = Arith.ceilingSmooth7 $ maxWidthSum - maxMinOverlap
+                padHeight = Arith.ceilingSmooth7 $ maxHeightSum - maxMinOverlap
                 padExtent = Vec2 padHeight padWidth
             overlap <- optimalOverlap padExtent
             allOverlapsIO <- allOverlapsRun padExtent
