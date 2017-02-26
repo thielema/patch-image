@@ -155,11 +155,8 @@ that is at least as large as @n@.
 ceilingSmooth7 :: (Bit.Bits i, Integral i) => i -> i
 ceilingSmooth7 n =
    let maxFac = 10
-   in  if n<=maxFac
-         then n
-         else
-           let m = ceilingPow2 $ divUp n maxFac
-           in  m * divUp n m
+       m = ceilingPow2 $ divUp n maxFac
+   in  m * divUp n m
 
 
 {-
