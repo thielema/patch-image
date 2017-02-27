@@ -14,6 +14,7 @@ import KneadShape
 import qualified Math.FFT as FFT
 import Math.FFT.Base (FFTWReal)
 
+import qualified Data.Array.Knead.Parameterized.Render as RenderP
 import qualified Data.Array.Knead.Parameterized.Physical as PhysP
 import qualified Data.Array.Knead.Parameterized.Symbolic as SymbP
 import qualified Data.Array.Knead.Simple.Physical as Phys
@@ -65,7 +66,7 @@ import Data.List.HT (removeEach, tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
-import Data.Tuple.HT (mapPair, mapFst, mapTriple, fst3, snd3, thd3, swap)
+import Data.Tuple.HT (mapPair, mapFst, mapTriple, fst3, thd3, swap)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
 
@@ -409,13 +410,9 @@ rotate vec rot img =
 runRotate :: IO (Float -> ColorImage8 -> IO ColorImage8)
 runRotate = do
    rot <-
-      PhysP.render $
-      SymbP.withExp
-         (\rot ->
-            colorImageByteFromFloat . rotate vecYUV rot .
-            colorImageFloatFromByte)
-         (arr fst) (PhysP.feed $ arr snd)
-   return $ \ angle img -> rot ((cos angle, sin angle), img)
+      RenderP.run $ \rot ->
+         colorImageByteFromFloat . rotate vecYUV rot . colorImageFloatFromByte
+   return $ \ angle img -> rot (cos angle, sin angle) img
 
 
 brightnessValue :: Exp (YUV a) -> Exp a
@@ -455,13 +452,10 @@ scoreHistogram = Symb.fold1All Expr.add . Symb.map sqr . differentiate
 runScoreRotation :: IO (Float -> ColorImage8 -> IO Float)
 runScoreRotation = do
    rot <-
-      PhysP.render $
-      SymbP.withExp
-         (\rot ->
-            rowHistogram . rotate vecYUV rot . colorImageFloatFromByte)
-         (arr fst) (PhysP.feed $ arr snd)
-   score <- PhysP.the $ scoreHistogram (PhysP.feed $ arr id)
-   return $ \ angle img -> score =<< rot ((cos angle, sin angle), img)
+      RenderP.run $ \rot ->
+         rowHistogram . rotate vecYUV rot . colorImageFloatFromByte
+   score <- RenderP.run $ Symb.the . scoreHistogram
+   return $ \ angle img -> score =<< rot (cos angle, sin angle) img
 
 findOptimalRotation :: IO ([Float] -> ColorImage8 -> IO Float)
 findOptimalRotation = do
@@ -606,11 +600,7 @@ prepareOverlapMatching = do
       brightnessPlane . colorImageFloatFromByte $
       PhysP.feed (arr id)
    hp <- highpassMulti
-   rotat <-
-      PhysP.render $
-      SymbP.withExp
-         (\orient sharp -> rotate Arith.vecScalar orient sharp)
-         (arr fst) (PhysP.feed $ arr snd)
+   rotat <- RenderP.run $ rotate Arith.vecScalar
    return $ \radius (angle, img) ->
       let Vec2 height width = Phys.shape img
           rot = (cos angle, sin angle)
@@ -618,7 +608,7 @@ prepareOverlapMatching = do
             Arith.boundingBoxOfRotated rot
                (fromIntegral width, fromIntegral height)
       in  fmap ((,) (left, top)) $
-          curry rotat rot =<< hp radius =<< bright img
+          rotat rot =<< hp radius =<< bright img
 
 
 wrap :: Exp Size -> Exp Size -> Exp Size -> Exp Size
@@ -696,21 +686,14 @@ allOverlapsRun ::
    Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Plane Word8))
 allOverlapsRun padExtent@(Vec2 height width) = do
    run <-
-      PhysP.render $
-      SymbP.withExp
-         (\params img ->
-            let (minOverlapPortion, (sha, shb)) =
-                  Expr.decompose (atom, (atom,atom)) params
-            in  imageByteFromFloat $
-                Symb.map (0.0001*) $
-                Symb.map Expr.fst $
-                allOverlapsFromCorrelation padExtent
-                  minOverlapPortion sha shb img)
-         (arr fst)
-         (PhysP.feed $ arr snd)
+      RenderP.run $ \minOverlapPortion sha shb img ->
+         imageByteFromFloat $
+         Symb.map (0.0001*) $
+         Symb.map Expr.fst $
+         allOverlapsFromCorrelation padExtent minOverlapPortion sha shb img
 
    return $ \overlap a b ->
-      curry run (overlap, (Phys.shape a, Phys.shape b))
+      run overlap (Phys.shape a) (Phys.shape b)
          =<< liftCArray2 (correlatePaddedCArray $ mapPairInt (height, width)) a b
 
 
@@ -729,19 +712,12 @@ optimalOverlap ::
    Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
 optimalOverlap padExtent@(Vec2 height width) = do
    run <-
-      PhysP.the $
-      SymbP.withExp
-         (\params img ->
-            let (minOverlapPortion, (sha, shb)) =
-                  Expr.decompose (atom, (atom,atom)) params
-            in  argmaximum $
-                allOverlapsFromCorrelation padExtent
-                  minOverlapPortion sha shb img)
-         (arr fst)
-         (PhysP.feed $ arr snd)
+      RenderP.run $ \minOverlapPortion (sha, shb) img ->
+         Symb.the $ argmaximum $
+         allOverlapsFromCorrelation padExtent minOverlapPortion sha shb img
 
    return $ \overlap a b ->
-      curry run (overlap, (Phys.shape a, Phys.shape b))
+      run overlap (Phys.shape a, Phys.shape b)
          =<< liftCArray2 (correlatePaddedCArray $ mapPairInt (height, width)) a b
 
 
@@ -817,15 +793,8 @@ overlapDifference (dx,dy) a b =
 
 overlapDifferenceRun ::
    IO ((Size, Size) -> Plane Float -> Plane Float -> IO Float)
-overlapDifferenceRun = do
-   diff <-
-      PhysP.the $
-      SymbP.withExp2
-         (\d a b -> overlapDifference (Expr.unzip d) a b)
-         (arr fst)
-         (PhysP.feed $ arr (fst.snd))
-         (PhysP.feed $ arr (snd.snd))
-   return $ \d a b -> diff (d, (a, b))
+overlapDifferenceRun =
+   RenderP.run $ \d a b -> Symb.the $ overlapDifference d a b
 
 
 overlap2 ::
@@ -860,21 +829,14 @@ composeOverlap ::
        IO ColorImage8)
 composeOverlap = do
    over <-
-      PhysP.render $
-      SymbP.withExp2
-         (\param picA picB ->
-            let (displacement, (ra,rb)) =
-                  Expr.decompose ((atom, atom), (atom, atom)) param
-            in  colorImageByteFromFloat $
-                overlap2 vecYUV displacement
-                  (rotate vecYUV ra $ colorImageFloatFromByte picA,
-                   rotate vecYUV rb $ colorImageFloatFromByte picB))
-         (arr fst)
-         (PhysP.feed $ arr (fst.snd))
-         (PhysP.feed $ arr (snd.snd))
+      RenderP.run $ \displacement (ra, picA) (rb, picB) ->
+         colorImageByteFromFloat $
+         overlap2 vecYUV displacement
+           (rotate vecYUV ra $ colorImageFloatFromByte picA,
+            rotate vecYUV rb $ colorImageFloatFromByte picB)
    let cis angle = (cos angle, sin angle)
    return $ \displacement ((angleA,picA), (angleB,picB)) ->
-      over ((displacement, (cis angleA, cis angleB)), (picA, picB))
+      over displacement (cis angleA, picA) (cis angleB, picB)
 
 
 
@@ -910,23 +872,12 @@ updateCanvas ::
    IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
        Plane (Word32, YUV Float) ->
        IO (Plane (Word32, YUV Float)))
-updateCanvas = do
-   update <-
-      PhysP.render $
-      SymbP.withExp2
-         (\rotMov pic countCanvas ->
-            let (rot,mov) = Expr.unzip rotMov
-            in  addToCanvas vecYUV
-                  (rotateStretchMove vecYUV rot mov (Symb.shape countCanvas) $
-                   colorImageFloatFromByte pic)
-                  countCanvas)
-         (arr fst)
-         (PhysP.feed $ arr (fst.snd))
-         (PhysP.feed $ arr (snd.snd))
-
-   return $ \rot mov pic countCanvas ->
-      update ((rot,mov), (pic, countCanvas))
-
+updateCanvas =
+   RenderP.run $ \rot mov pic countCanvas ->
+      addToCanvas vecYUV
+         (rotateStretchMove vecYUV rot mov (Symb.shape countCanvas) $
+          colorImageFloatFromByte pic)
+         countCanvas
 
 finalizeCanvas :: IO ((Plane (Word32, YUV Float)) -> IO ColorImage8)
 finalizeCanvas =
@@ -945,24 +896,14 @@ diffWithCanvas ::
    IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
        Plane (YUV Float) ->
        IO (Plane (MaskBool, Float)))
-diffWithCanvas = do
-   update <-
-      PhysP.render $
-      SymbP.withExp2
-         (\rotMov pic avg ->
-            let (rot,mov) = Expr.unzip rotMov
-            in  Symb.zipWith
-                  (Expr.modify2 (atom,atom) atom $ \(b,x) y ->
-                     (b, diffAbs (brightnessValue x) (brightnessValue y)))
-                  (rotateStretchMove vecYUV rot mov (Symb.shape avg) $
-                   colorImageFloatFromByte pic)
-                  avg)
-         (arr fst)
-         (PhysP.feed $ arr (fst.snd))
-         (PhysP.feed $ arr (snd.snd))
-
-   return $ \rot mov pic countCanvas ->
-      update ((rot,mov), (pic, countCanvas))
+diffWithCanvas =
+   RenderP.run $ \rot mov pic avg ->
+      Symb.zipWith
+         (Expr.modify2 (atom,atom) atom $ \(b,x) y ->
+            (b, diffAbs (brightnessValue x) (brightnessValue y)))
+         (rotateStretchMove vecYUV rot mov (Symb.shape avg) $
+          colorImageFloatFromByte pic)
+         avg
 
 finalizeCanvasFloat ::
    IO ((Plane (Word32, YUV Float)) -> IO (Plane (YUV Float)))
@@ -981,52 +922,30 @@ addMaskedToCanvas ::
        Plane MaskBool ->
        Plane (YUV Word8) ->
        IO (Plane (YUV Word8)))
-addMaskedToCanvas = do
-   update <-
-      PhysP.render $
-      SymbP.withExp3
-         (\rotMov pic mask countCanvas ->
-            let (rot,mov) = Expr.unzip rotMov
-            in  Symb.zipWith3 Expr.ifThenElse
-                  (Symb.map boolFromMask mask)
-                  (Symb.map (yuvByteFromFloat . Expr.snd) $
-                   rotateStretchMove vecYUV rot mov (Symb.shape countCanvas) $
-                   colorImageFloatFromByte pic)
-                  countCanvas)
-         (arr fst)
-         (PhysP.feed $ arr (fst3.snd))
-         (PhysP.feed $ arr (snd3.snd))
-         (PhysP.feed $ arr (thd3.snd))
-
-   return $ \rot mov pic mask countCanvas ->
-      update ((rot,mov), (pic, mask, countCanvas))
+addMaskedToCanvas =
+   RenderP.run $ \rot mov pic mask countCanvas ->
+      Symb.zipWith3 Expr.ifThenElse
+         (Symb.map boolFromMask mask)
+         (Symb.map (yuvByteFromFloat . Expr.snd) $
+          rotateStretchMove vecYUV rot mov (Symb.shape countCanvas) $
+          colorImageFloatFromByte pic)
+         countCanvas
 
 updateShapedCanvas ::
    IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
        Plane Float ->
        Plane (Float, YUV Float) ->
        IO (Plane (Float, YUV Float)))
-updateShapedCanvas = do
-   update <-
-      PhysP.render $
-      SymbP.withExp3
-         (\rotMov shape pic weightCanvas ->
-            let (rot,mov) = Expr.unzip rotMov
-            in  addToWeightedCanvas vecYUV
-                  (Symb.zipWith
-                     (Expr.modify2 atom (atom,atom) $ \s (b,x) ->
-                        (fromInt b * s, x))
-                     shape $
-                   rotateStretchMove vecYUV rot mov (Symb.shape weightCanvas) $
-                   colorImageFloatFromByte pic)
-                  weightCanvas)
-         (arr fst)
-         (PhysP.feed $ arr (fst.fst.snd))
-         (PhysP.feed $ arr (snd.fst.snd))
-         (PhysP.feed $ arr (snd.snd))
-
-   return $ \rot mov pic shape weightCanvas ->
-      update ((rot,mov), ((shape, pic), weightCanvas))
+updateShapedCanvas =
+   RenderP.run $ \rot mov pic shape weightCanvas ->
+      addToWeightedCanvas vecYUV
+         (Symb.zipWith
+            (Expr.modify2 atom (atom,atom) $ \s (b,x) ->
+               (fromInt b * s, x))
+            shape $
+          rotateStretchMove vecYUV rot mov (Symb.shape weightCanvas) $
+          colorImageFloatFromByte pic)
+         weightCanvas
 
 
 maybePlus ::
@@ -1251,20 +1170,10 @@ updateWeightedCanvas ::
        Plane (Float, YUV Float) ->
        IO (Plane (Float, YUV Float)))
 updateWeightedCanvas = do
-   distances <-
-      PhysP.render $
-      SymbP.withExp2
-         (\gammaShThis others points ->
-            let (gamma, sh, this) = Expr.unzip3 gammaShThis
-            in  distanceMapGamma gamma sh this others points)
-         (arr fst)
-         (PhysP.feed $ arr (fst.snd))
-         (PhysP.feed $ arr (snd.snd))
+   distances <- RenderP.run distanceMapGamma
 
    update <-
-      PhysP.render $
-      SymbP.withExp3
-         (\this pic dist weightSumCanvas ->
+      RenderP.run $ \this pic dist weightSumCanvas ->
             let (rot, mov, _) = Expr.unzip3 this
             in  addToWeightedCanvas vecYUV
                   (Symb.zip dist $
@@ -1272,20 +1181,16 @@ updateWeightedCanvas = do
                    rotateStretchMove vecYUV rot mov
                       (Symb.shape weightSumCanvas) $
                    colorImageFloatFromByte pic)
-                  weightSumCanvas)
-         (arr fst)
-         (PhysP.feed $ arr (fst3.snd))
-         (PhysP.feed $ arr (snd3.snd))
-         (PhysP.feed $ arr (thd3.snd))
+                  weightSumCanvas
 
    return $ \gamma this others points pic weightSumCanvas -> do
       othersVec <- Phys.vectorFromList others
       pointsVec <- Phys.vectorFromList points
       dists <-
          distances
-            ((gamma, Phys.shape weightSumCanvas, this),
-             (othersVec, pointsVec))
-      update (this, (pic, dists, weightSumCanvas))
+            gamma (Phys.shape weightSumCanvas) this
+            othersVec pointsVec
+      update this pic dists weightSumCanvas
 
 
 finalizeWeightedCanvas :: IO ((Plane (Float, YUV Float)) -> IO ColorImage8)
