@@ -170,15 +170,30 @@ divideByMaximumPower b =
             _ -> n
    in  go
 
-followingSmooth7Numbers :: (Integral i) => i -> [i]
-followingSmooth7Numbers =
-   filter ((1==) . flip (foldl (flip divideByMaximumPower)) [2,3,5,7]) .
-   iterate (1+)
+(^!) :: (Num a) => a -> Int -> a
+(^!) = (^)
+
+isSmooth7NumberReduce, isSmooth7NumberDiv :: (Integral i) => i -> Bool
+isSmooth7NumberReduce =
+   (1==) . flip (foldl (flip divideByMaximumPower)) [2,3,5,7]
+
+isSmooth7NumberDiv =
+   let multBig = 2^!6*3^!4*5^!2*7^!2
+       mult = fromInteger multBig
+   in  if toInteger mult == multBig
+         then \k -> mod mult k == 0
+         else error "isSmooth7NumberDiv: Integer type too small"
+
+propIsSmooth7Number :: Bool
+propIsSmooth7Number =
+   all
+      (\k -> isSmooth7NumberReduce k == isSmooth7NumberDiv k)
+      [1 .. (124::Integer)]
 
 ceilingSmooth7_100 n =
    let maxFac = 100
        m = ceilingPow2 $ divUp n maxFac
-   in  m * head (followingSmooth7Numbers (divUp n m))
+   in  m * (head $ filter isSmooth7NumberDiv $ iterate (1+) $ divUp n m)
 
 
 
