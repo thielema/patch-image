@@ -246,6 +246,13 @@ fromSize2 (x,y) = (fromInt x, fromInt y)
 
 
 
+indexLimit :: SymbPlane a -> Index2 (Exp Size) -> Exp a
+indexLimit img (Vec2 y x) =
+   let (Vec2 height width) = Expr.decompose atomDim2 $ Symb.shape img
+       xc = Expr.max 0 $ Expr.min (width -1) x
+       yc = Expr.max 0 $ Expr.min (height-1) y
+   in  img ! ix2 yc xc
+
 limitIndices ::
    (Symb.C array, Shape.C sh) =>
    Exp Dim2 -> array sh Ix2 -> array sh Ix2
@@ -283,7 +290,50 @@ vecYUV =
             \a (by,bu,bv) -> (Expr.mul a by, Expr.mul a bu, Expr.mul a bv)
    }
 
-gatherFrac ::
+{-
+Generated code becomes too big for LLVM here. We need sharing!
+-}
+indexFrac ::
+   (MultiValue.NativeFloating a ar,
+    MultiValue.Real a, MultiValue.Field a,
+    MultiValue.RationalConstant a) =>
+   VecExp a v -> SymbPlane v -> Index2 (Exp a) -> Exp v
+indexFrac vec img (Vec2 y x) =
+   let (xi,xf) = splitFraction x
+       (yi,yf) = splitFraction y
+       interpolRow yc =
+          Arith.cubicIpVec vec
+             (indexLimit img (Vec2 yc (xi-1)),
+              indexLimit img (Vec2 yc (xi  )),
+              indexLimit img (Vec2 yc (xi+1)),
+              indexLimit img (Vec2 yc (xi+2)))
+             xf
+   in  Arith.cubicIpVec vec
+          (interpolRow (yi-1),
+           interpolRow  yi,
+           interpolRow (yi+1),
+           interpolRow (yi+2))
+          yf
+
+indexFrac1 ::
+   (MultiValue.NativeFloating a ar,
+    MultiValue.Real a, MultiValue.Field a,
+    MultiValue.RationalConstant a) =>
+   VecExp a v -> SymbPlane v -> Index2 (Exp a) -> Exp v
+indexFrac1 vec img (Vec2 y x) =
+   let (xi,xf) = splitFraction x
+       (yi,yf) = splitFraction y
+       interpolRow yc =
+          Arith.linearIpVec vec
+             (indexLimit img (Vec2 yc (xi-1)),
+              indexLimit img (Vec2 yc (xi+1)))
+             xf
+   in  Arith.linearIpVec vec
+          (interpolRow  yi,
+           interpolRow (yi+1))
+          yf
+
+gatherFrac, gatherFrac_ ::
    (MultiValue.NativeFloating a ar,
     MultiValue.Real a, MultiValue.Field a,
     MultiValue.RationalConstant a,
@@ -292,6 +342,9 @@ gatherFrac ::
    SymbPlane v ->
    SymbPlane (Index2 a) ->
    SymbPlane v
+gatherFrac_ vec src =
+   Symb.map (indexFrac vec src . Expr.decompose atomIx2)
+
 gatherFrac vec src poss =
    let possSplit =
          Symb.map
