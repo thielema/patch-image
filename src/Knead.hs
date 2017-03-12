@@ -66,7 +66,7 @@ import Data.List.HT (removeEach, tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
-import Data.Tuple.HT (mapPair, mapFst, mapTriple, fst3, thd3, swap)
+import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapTriple, fst3, thd3, swap)
 import Data.Int (Int64)
 import Data.Word (Word8, Word32)
 
@@ -795,6 +795,22 @@ shrinkFactors (Vec2 heightPad widthPad)
          (Arith.divUp (widtha +widthb)  $ fromIntegral widthPad)
 
 
+optimalOverlapBig ::
+   Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
+optimalOverlapBig padExtent = do
+   shrnk <-
+      fmap (\f (Vec2 height width) -> f (width,height)) $
+      RenderP.run $ \(width,height) -> shrink (Vec2 height width)
+   optOverlap <- optimalOverlap padExtent
+   return $ \minimumOverlap a b -> do
+      let factors@(Vec2 yk xk) =
+            shrinkFactors padExtent (Phys.shape a) (Phys.shape b)
+      aSmall <- shrnk factors a
+      bSmall <- shrnk factors b
+      mapSnd (mapPair ((*xk), (*yk))) <$>
+         optOverlap minimumOverlap aSmall bSmall
+
+
 clip ::
    (MultiValue.C a) =>
    (Exp Size, Exp Size) ->
@@ -1267,7 +1283,13 @@ processOverlap args picAngles pairs = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
-   (maybeAllOverlapsShared, optimalOverlapShared) <- do
+   let padSize = fromIntegral $ Option.padSize opt
+   (maybeAllOverlapsShared, optimalOverlapShared) <-
+      case Just $ Vec2 padSize padSize of
+         Just padExtent -> do
+            overlap <- optimalOverlapBig padExtent
+            return (Nothing, overlap (Option.minimumOverlap opt))
+         Nothing -> do
             let padExtent =
                    uncurry Vec2 $ swap $
                    Arith.correlationSize (Option.minimumOverlap opt) $
