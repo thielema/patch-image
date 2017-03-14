@@ -835,6 +835,36 @@ overlappingArea (Vec2 heighta widtha) (Vec2 heightb widthb) (dx, dy) =
    in  ((left, top), (right, bottom), (width, height))
 
 
+{-
+Like 'optimalOverlapBig'
+but computes precise distance in a second step
+using a part in the overlapping area.
+-}
+optimalOverlapBigFine ::
+   Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
+optimalOverlapBigFine padExtent@(Vec2 heightPad widthPad) = do
+   overlap <- optimalOverlap padExtent
+   -- optimalOverlap is rendered again here
+   overlapBig <- optimalOverlapBig padExtent
+   clp <- RenderP.run clip
+   return $ \minimumOverlap a b -> do
+      let shapeA = Phys.shape a
+      let shapeB = Phys.shape b
+      coarsed@(coarsedx,coarsedy) <- snd <$> overlapBig minimumOverlap a b
+      let ((leftOverlap, topOverlap), _,
+           (widthOverlap, heightOverlap))
+               = overlappingArea shapeA shapeB coarsed
+          widthFocus  = min widthOverlap $ div widthPad 2
+          heightFocus = min heightOverlap $ div heightPad 2
+          extentFocus = (widthFocus,heightFocus)
+          leftFocus = leftOverlap + div (widthOverlap-widthFocus) 2
+          topFocus  = topOverlap  + div (heightOverlap-heightFocus) 2
+          addCoarsePos (xm,ym) = (xm+coarsedx, ym+coarsedy)
+      clipA <- clp (leftFocus,topFocus) extentFocus a
+      clipB <- clp (leftFocus-coarsedx,topFocus-coarsedy) extentFocus b
+      mapSnd addCoarsePos <$> overlap minimumOverlap clipA clipB
+
+
 overlapDifference ::
    (MultiValue.Algebraic a, MultiValue.RationalConstant a,
     MultiValue.Real a, MultiValue.NativeFloating a ar) =>
@@ -1285,7 +1315,7 @@ processOverlap args picAngles pairs = do
    (maybeAllOverlapsShared, optimalOverlapShared) <-
       case Just $ Vec2 padSize padSize of
          Just padExtent -> do
-            overlap <- optimalOverlapBig padExtent
+            overlap <- optimalOverlapBigFine padExtent
             return (Nothing, overlap (Option.minimumOverlap opt))
          Nothing -> do
             let padExtent =
