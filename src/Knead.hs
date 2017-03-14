@@ -798,9 +798,7 @@ shrinkFactors (Vec2 heightPad widthPad)
 optimalOverlapBig ::
    Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
 optimalOverlapBig padExtent = do
-   shrnk <-
-      fmap (\f (Vec2 height width) -> f (width,height)) $
-      RenderP.run $ \(width,height) -> shrink (Vec2 height width)
+   shrnk <- RenderP.run $ shrink . Expr.decompose atomDim2
    optOverlap <- optimalOverlap padExtent
    return $ \minimumOverlap a b -> do
       let factors@(Vec2 yk xk) =
