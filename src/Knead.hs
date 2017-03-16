@@ -648,13 +648,15 @@ liftCArray2 f a b =
       (arrayCFromPhysical b)
 
 
+type Id a = a -> a
+
+fixArray :: Id (Symb.Array sh a)
+fixArray = id
+
 prepareOverlapMatching ::
    IO (Int -> (Float, ColorImage8) -> IO ((Float, Float), Plane Float))
 prepareOverlapMatching = do
-   bright <-
-      PhysP.render $
-      brightnessPlane . colorImageFloatFromByte $
-      PhysP.feed (arr id)
+   bright <- RenderP.run $ brightnessPlane . colorImageFloatFromByte . fixArray
    hp <- highpassMulti
    rotat <- RenderP.run $ rotate Arith.vecScalar
    return $ \radius (angle, img) ->
