@@ -6,7 +6,9 @@ import qualified Option
 import qualified MatchImageBorders
 import qualified Arithmetic as Arith
 import MatchImageBorders (arrayCFromPhysical, arrayPhysicalFromC)
-import LinearAlgebra (absolutePositionsFromPairDisplacements)
+import LinearAlgebra (
+   absolutePositionsFromPairDisplacements, layoutFromPairDisplacements,
+   )
 import KneadShape
          (Size, Vec2(Vec2), Dim0, Dim1, Dim2, Shape2, Index2, Ix2,
           verticalVal, horizontalVal)
@@ -39,6 +41,7 @@ import LLVM.Extra.Multi.Value (Atom, atom)
 
 import qualified LLVM.Core as LLVM
 
+import qualified Data.Complex as Complex
 import Data.Complex (Complex((:+)), conjugate, realPart)
 
 import qualified Codec.Picture as Pic
@@ -57,7 +60,7 @@ import Text.Printf (printf)
 import qualified Control.Functor.HT as FuncHT
 import Control.Arrow (arr)
 import Control.Monad (liftM2, when, foldM, (<=<))
-import Control.Applicative ((<$>))
+import Control.Applicative (pure, (<$>), (<*>))
 
 import qualified Data.List as List
 import Data.Maybe.HT (toMaybe)
@@ -865,6 +868,75 @@ optimalOverlapBigFine padExtent@(Vec2 heightPad widthPad) = do
       mapSnd addCoarsePos <$> overlap minimumOverlap clipA clipB
 
 
+{-
+Like 'optimalOverlapBigFine'
+but computes precise distances between many point pairs in a second step
+using many parts in the overlapping area.
+These point correspondences
+can be used to compute corrections to rotation angles.
+-}
+optimalOverlapBigMulti ::
+   Dim2 -> Dim2 -> Int ->
+   IO (Float -> Float -> Plane Float -> Plane Float ->
+       IO [(Float, (Size, Size), (Size, Size))])
+optimalOverlapBigMulti padExtent (Vec2 heightStamp widthStamp) numCorrs = do
+   shrnk <- RenderP.run $ shrink . Expr.decompose atomDim2
+   optOverlap <- optimalOverlap padExtent
+   overDiff <- overlapDifferenceRun
+   clp <- RenderP.run clip
+
+   optOverlapFine <- optimalOverlap $ Vec2 (2*heightStamp) (2*widthStamp)
+   let overlapFine minimumOverlap a b
+         anchorA@(leftA, topA) anchorB@(leftB, topB) extent@(width,height) = do
+            let addCoarsePos (score, (xm,ym)) =
+                  let xc = div (width+xm) 2
+                      yc = div (height+ym) 2
+                  in  (score,
+                       (leftA+xc,    topA+yc),
+                       (leftB+xc-xm, topB+yc-ym))
+            clipA <- clp anchorA extent a
+            clipB <- clp anchorB extent b
+            addCoarsePos <$> optOverlapFine minimumOverlap clipA clipB
+
+   return $ \maximumDiff minimumOverlap a b -> do
+      let factors@(Vec2 yk xk) =
+            shrinkFactors padExtent (Phys.shape a) (Phys.shape b)
+      aSmall <- shrnk factors a
+      bSmall <- shrnk factors b
+
+      shrunkd@(shrunkdx, shrunkdy)
+         <- snd <$> optOverlap minimumOverlap aSmall bSmall
+      let coarsedx = shrunkdx * xk
+      let coarsedy = shrunkdy * yk
+      let coarsed = (coarsedx,coarsedy)
+
+      diff <- overDiff shrunkd aSmall bSmall
+
+      let ((leftOverlap, topOverlap),
+           (rightOverlap, bottomOverlap),
+           (widthOverlap, heightOverlap))
+             = overlappingArea (Phys.shape a) (Phys.shape b) coarsed
+
+      let widthStampClip = min widthOverlap widthStamp
+          heightStampClip = min heightOverlap heightStamp
+
+      (if diff < maximumDiff then id else const $ return []) $
+         mapM
+            (\(x,y) ->
+               overlapFine minimumOverlap a b
+                  (x, y) (x-coarsedx, y-coarsedy)
+                  (widthStampClip, heightStampClip)) $
+         zip
+            (map round $ tail $ init $
+             Arith.linearScale (numCorrs+1)
+                (fromIntegral leftOverlap :: Double,
+                 fromIntegral $ rightOverlap - widthStampClip))
+            (map round $ tail $ init $
+             Arith.linearScale (numCorrs+1)
+                (fromIntegral topOverlap :: Double,
+                 fromIntegral $ bottomOverlap - heightStampClip))
+
+
 overlapDifference ::
    (MultiValue.Algebraic a, MultiValue.RationalConstant a,
     MultiValue.Real a, MultiValue.NativeFloating a ar) =>
@@ -1389,6 +1461,72 @@ processOverlap args picAngles pairs = do
    return (floatPoss, picRots)
 
 
+processOverlapRotate ::
+   Option.Args ->
+   [(Float, ColorImage8)] ->
+   [((Int, (FilePath, ((Float, Float), Plane Float))),
+     (Int, (FilePath, ((Float, Float), Plane Float))))] ->
+   IO ([(Float, Float)], [((Float, Float), ColorImage8)])
+processOverlapRotate args picAngles pairs = do
+   let opt = Option.option args
+   let info = CmdLine.info (Option.verbosity opt)
+
+   let padSize = Option.padSize opt
+   let stampSize = Option.stampSize opt
+   optimalOverlapShared <-
+      optimalOverlapBigMulti
+         (shape2 padSize padSize)
+         (shape2 stampSize stampSize)
+         (Option.numberStamps opt)
+      <*> pure (Option.maximumDifference opt)
+      <*> pure (Option.minimumOverlap opt)
+
+   displacements <-
+      fmap concat $
+      forM pairs $ \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
+         let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
+         correspondences <-
+            map
+               (\(score,pa,pb) ->
+                  (score, ((ia, add pa leftTopA), (ib, add pb leftTopB)))) <$>
+            optimalOverlapShared picA picB
+         info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
+         info $ printf "%s - %s" pathA pathB
+         forM_ correspondences $ \(score, ((_ia,pa@(xa,ya)),(_ib,pb@(xb,yb)))) ->
+            info $
+               printf "%s ~ %s, (%f,%f), %f"
+                  (show pa) (show pb) (xb-xa) (yb-ya) score
+         return $ map snd correspondences
+
+   let (posRots, dps) =
+          layoutFromPairDisplacements (length picAngles) displacements
+   info "\nabsolute positions and rotations: place, rotation (magnitude, phase)"
+   info $ unlines $
+      map
+         (\(d,r) ->
+            printf "%s, %s (%7.5f, %6.2f)" (show d) (show r)
+               (Complex.magnitude r) (Complex.phase r * 180/pi))
+         posRots
+
+   info "\ncompare position differences with pair displacements"
+   info $ unlines $
+      zipWith
+         (\(dpx,dpy) ((_ia,pa),(_ib,pb)) ->
+            printf "(%f,%f) %s ~ %s" dpx dpy (show pa) (show pb))
+         dps displacements
+
+   let picRots =
+          zipWith
+             (\(angle,pic) rot ->
+                (Arith.pairFromComplex $
+                    Complex.cis angle * Arith.mapComplex realToFrac rot,
+                 pic))
+             picAngles (map snd posRots)
+       floatPoss = map (mapPair (realToFrac, realToFrac) . fst) posRots
+
+   return (floatPoss, picRots)
+
+
 process :: Option.Args -> IO ()
 process args = do
    IO.hSetBuffering IO.stdout IO.LineBuffering
@@ -1424,7 +1562,11 @@ process args = do
           b <- as
           return (a,b)
 
-   (floatPoss, picRots) <- processOverlap args (map snd picAngles) pairs
+   (floatPoss, picRots) <-
+      (if Option.finetuneRotate opt
+         then processOverlapRotate
+         else processOverlap)
+            args (map snd picAngles) pairs
 
    notice "\ncompose all parts"
    let bbox (rot, pic) =
