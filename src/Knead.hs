@@ -496,12 +496,9 @@ differentiate ::
    (Symb.C array, MultiValue.Additive a) => array Dim1 a -> array Dim1 a
 differentiate xs = Symb.zipWith Expr.sub (tailArr xs) xs
 
-sqr :: MultiValue.PseudoRing a => Exp a -> Exp a
-sqr = Expr.liftM $ \x -> MultiValue.mul x x
-
 scoreHistogram ::
    (Symb.C array, MultiValue.PseudoRing a) => array Dim1 a -> array Dim0 a
-scoreHistogram = Symb.fold1All Expr.add . Symb.map sqr . differentiate
+scoreHistogram = Symb.fold1All Expr.add . Symb.map Expr.sqr . differentiate
 
 
 runScoreRotation :: IO (Float -> ColorImage8 -> IO Float)
@@ -956,7 +953,7 @@ overlapDifference (dx,dy) a b =
    in  Symb.map (Expr.liftM MultiValue.sqrt) $
        Symb.map (/(fromInt widthOverlap * fromInt heightOverlap)) $
        Symb.fold1All (+) $
-       Symb.map sqr $
+       Symb.map Expr.sqr $
        Symb.zipWith (-)
           (clip (leftOverlap,topOverlap) extentOverlap a)
           (clip (leftOverlap-dx,topOverlap-dy) extentOverlap b)
