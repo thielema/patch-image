@@ -70,7 +70,6 @@ import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
 import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapTriple, fst3, thd3, swap)
-import Data.Int (Int64)
 import Data.Word (Word8, Word32)
 
 
@@ -215,7 +214,7 @@ splitFraction ::
    (MultiValue.NativeFloating a ar,
     MultiValue.PseudoRing a, MultiValue.Real a,
     MultiValue.IntegerConstant a) =>
-   Exp a -> (Exp Int64, Exp a)
+   Exp a -> (Exp Size, Exp a)
 splitFraction x =
    let i = Expr.liftM MultiValue.truncateToInt x
    in  (i, x - fromInt i)
@@ -225,7 +224,7 @@ ceilingToInt ::
    (MultiValue.NativeFloating a ar,
     MultiValue.PseudoRing a, MultiValue.Real a,
     MultiValue.IntegerConstant a) =>
-   Exp a -> Exp Int64
+   Exp a -> Exp Size
 ceilingToInt = Expr.liftM MultiValue.truncateToInt
 
 
