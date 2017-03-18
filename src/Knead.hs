@@ -203,33 +203,20 @@ colorImageByteFromFloat = Symb.map yuvByteFromFloat
 
 
 fastRound ::
-   (MultiValue.NativeInteger i ir, MultiValue.NativeFloating a ar,
-    MultiValue.Field a, MultiValue.Real a,
-    MultiValue.RationalConstant a) =>
+   (MultiValue.NativeInteger i ir, MultiValue.NativeFloating a ar) =>
    Exp a -> Exp i
-fastRound x = Expr.liftM MultiValue.truncateToInt $ x + 0.5 * signum x
+fastRound = Expr.liftM MultiValue.roundToIntFast
 
--- ToDo: use floor instead of truncate
 splitFraction ::
-   (MultiValue.NativeFloating a ar,
-    MultiValue.PseudoRing a, MultiValue.Real a,
-    MultiValue.IntegerConstant a) =>
+   (MultiValue.NativeFloating a ar) =>
    Exp a -> (Exp Size, Exp a)
-splitFraction x =
-   let i = Expr.liftM MultiValue.truncateToInt x
-   in  (i, x - fromInt i)
+splitFraction = Expr.unzip . Expr.liftM MultiValue.splitFractionToInt
 
 ceilingToInt ::
-   (MultiValue.NativeFloating a ar,
-    MultiValue.PseudoRing a, MultiValue.Comparison a,
-    MultiValue.IntegerConstant a) =>
+   (MultiValue.NativeFloating a ar) =>
    Exp a -> Exp Size
-ceilingToInt = Expr.liftM $ \x -> do
-   i <- MultiValue.truncateToInt x
-   gt <- MultiValue.cmp LLVM.CmpGT x =<< MultiValue.fromIntegral i
-   MultiValue.add i =<<
-      MultiValue.select gt
-         (MultiValue.fromInteger' 1) (MultiValue.fromInteger' 0)
+ceilingToInt = Expr.liftM MultiValue.ceilingToInt
+
 
 
 
@@ -449,7 +436,7 @@ rotateStretchMove vec rot mov sh img =
 
 rotate ::
    (SV.Storable a, MultiMem.C a,
-    MultiValue.Comparison a, MultiValue.Field a,
+    MultiValue.Real a, MultiValue.Field a,
     MultiValue.RationalConstant a, MultiValue.NativeFloating a ar,
     MultiValue.C v) =>
    VecExp a v ->
