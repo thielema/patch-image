@@ -567,6 +567,11 @@ padCArray a (height, width) img =
    CArray.//
    CArray.assocs img
 
+clipCArray ::
+   (SV.Storable a) => (Int,Int) -> CArray (Int,Int) a -> CArray (Int,Int) a
+clipCArray (height, width) =
+   CArray.ixmap ((0,0), (height-1, width-1)) id
+
 mapPairInt :: (Integral i, Integral j) => (i,i) -> (j,j)
 mapPairInt = mapPair (fromIntegral, fromIntegral)
 
@@ -603,14 +608,30 @@ untangleSpectra2d spec =
    CArray.liftArray2 untangleCoefficient spec (cyclicReverse2d spec)
 
 {-
-This is more efficient than 'correlatePaddedSimple'
+This is more efficient than 'correlatePaddedSimpleCArray'
 since it needs only one complex forward Fourier transform,
-where 'correlatePaddedSimple' needs two real transforms.
+where 'correlatePaddedSimpleCArray' needs two real transforms.
 Especially for odd sizes
 two real transforms are slower than a complex transform.
 For the analysis part,
 perform two real-valued Fourier transforms using one complex-valued transform.
 Afterwards we untangle the superposed spectra.
+-}
+correlatePaddedComplexCArray ::
+   (FFTWReal a) =>
+   (Int,Int) ->
+   CArray (Int,Int) a ->
+   CArray (Int,Int) a ->
+   CArray (Int,Int) a
+correlatePaddedComplexCArray sh a b =
+   amap realPart $ FFT.idftN [0,1] $
+   amap (uncurry Arith.mulConj) $
+   untangleSpectra2d $ FFT.dftN [0,1] $
+   CArray.liftArray2 (:+) (padCArray 0 sh a) (padCArray 0 sh b)
+
+{- |
+Should be yet a little bit more efficient than 'correlatePaddedComplexCArray'
+since it uses a real back transform.
 -}
 correlatePaddedCArray ::
    (FFTWReal a) =>
@@ -618,8 +639,10 @@ correlatePaddedCArray ::
    CArray (Int,Int) a ->
    CArray (Int,Int) a ->
    CArray (Int,Int) a
-correlatePaddedCArray sh a b =
-   amap realPart $ FFT.idftN [0,1] $
+correlatePaddedCArray sh@(height,width) a b =
+   (case divMod width 2 of
+      (halfWidth,0) -> FFT.dftCRN [0,1] . clipCArray (height,halfWidth+1)
+      (halfWidth,_) -> FFT.dftCRON [0,1] . clipCArray (height,halfWidth+1)) $
    amap (uncurry Arith.mulConj) $
    untangleSpectra2d $ FFT.dftN [0,1] $
    CArray.liftArray2 (:+) (padCArray 0 sh a) (padCArray 0 sh b)
