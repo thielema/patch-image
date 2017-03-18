@@ -219,13 +219,18 @@ splitFraction x =
    let i = Expr.liftM MultiValue.truncateToInt x
    in  (i, x - fromInt i)
 
--- ToDo: replace by real ceiling
 ceilingToInt ::
    (MultiValue.NativeFloating a ar,
-    MultiValue.PseudoRing a, MultiValue.Real a,
+    MultiValue.PseudoRing a, MultiValue.Comparison a,
     MultiValue.IntegerConstant a) =>
    Exp a -> Exp Size
-ceilingToInt = Expr.liftM MultiValue.truncateToInt
+ceilingToInt = Expr.liftM $ \x -> do
+   i <- MultiValue.truncateToInt x
+   gt <- MultiValue.cmp LLVM.CmpGT x =<< MultiValue.fromIntegral i
+   MultiValue.add i =<<
+      MultiValue.select gt
+         (MultiValue.fromInteger' 1) (MultiValue.fromInteger' 0)
+
 
 
 atomDim2 :: Shape2 (Atom i)
@@ -444,7 +449,7 @@ rotateStretchMove vec rot mov sh img =
 
 rotate ::
    (SV.Storable a, MultiMem.C a,
-    MultiValue.Real a, MultiValue.Field a,
+    MultiValue.Comparison a, MultiValue.Field a,
     MultiValue.RationalConstant a, MultiValue.NativeFloating a ar,
     MultiValue.C v) =>
    VecExp a v ->
