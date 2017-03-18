@@ -579,8 +579,8 @@ correlatePaddedSimpleCArray ::
 correlatePaddedSimpleCArray sh =
    let forward = FFT.dftRCN [0,1] . padCArray 0 sh
        inverse = FFT.dftCRN [0,1]
-   in  \ x y ->
-         inverse $ CArray.liftArray2 Arith.mulConj (forward x) (forward y)
+   in  \ a b ->
+         inverse $ CArray.liftArray2 Arith.mulConj (forward a) (forward b)
 
 -- expects zero-based arrays
 cyclicReverse2d :: (SV.Storable a) => CArray (Int,Int) a -> CArray (Int,Int) a
