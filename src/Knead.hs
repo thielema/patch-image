@@ -965,7 +965,7 @@ overlapDifference (dx,dy) a b =
        widthOverlap  = rightOverlap - leftOverlap
        heightOverlap = bottomOverlap - topOverlap
        extentOverlap = (widthOverlap,heightOverlap)
-   in  Symb.map (Expr.liftM MultiValue.sqrt) $
+   in  Symb.map Expr.sqrt $
        Symb.map (/(fromInt widthOverlap * fromInt heightOverlap)) $
        Symb.fold1All (+) $
        Symb.map Expr.sqr $
@@ -1182,8 +1182,7 @@ distance ::
    (MultiValue.Algebraic a, MultiValue.Real a,
     MultiValue.IntegerConstant a) =>
    Arith.Point2 (Exp a) -> Arith.Point2 (Exp a) -> Exp a
-distance a b =
-   Expr.liftM MultiValue.sqrt $ Arith.distanceSqr a b
+distance a b = Expr.sqrt $ Arith.distanceSqr a b
 
 outerProduct ::
    (Shape.C sha, Shape.C shb, Symb.C array) =>
