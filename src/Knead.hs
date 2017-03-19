@@ -1754,4 +1754,4 @@ scoreTest = do
       print =<< score (fromInteger k * 2*pi/(360*10)) img
 
 main :: IO ()
-main = process =<< Option.get
+main = process =<< Option.get Option.Knead

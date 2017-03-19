@@ -231,6 +231,7 @@ Executable patch-image-llvm
       hmatrix >=0.15 && <0.16,
       vector >=0.10 && <0.13,
       pqueue >=1.2 && <1.4,
+      enumset >=0.0.4 && <0.1,
       containers >=0.4.2 && <0.6,
       fft >=0.1.7 && <0.2,
       carray >=0.1.5 && <0.2,

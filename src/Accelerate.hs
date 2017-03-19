@@ -1696,4 +1696,4 @@ process args = do
          (zip geometryRelations picRots)
 
 main :: IO ()
-main = process =<< Option.get
+main = process =<< Option.get Option.Accelerate
