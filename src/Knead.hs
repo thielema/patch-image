@@ -62,11 +62,11 @@ import Control.Applicative (pure, (<$>), (<*>))
 import qualified Data.List as List
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (catMaybes, isJust)
-import Data.List.HT (removeEach, tails)
+import Data.List.HT (tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
-import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapTriple, fst3, thd3, swap)
+import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapTriple, fst3, swap)
 import Data.Word (Word8, Word32)
 
 
@@ -1152,7 +1152,7 @@ generate ::
    Exp sh -> (Exp (Shape.Index sh) -> Exp b) -> Symb.Array sh b
 generate sh f = Symb.map f $ Symb.id sh
 
-type Geometry a = ((a,a), (a,a), (Size,Size))
+type Geometry a = Arith.Geometry Size a
 
 distanceMapBox ::
    (MultiValue.Field a, MultiValue.NativeFloating a ar,
@@ -1637,22 +1637,7 @@ process args = do
                 in  ((rot, mov, (width,height)), corners, edges))
              rotMovPics
 
-   let geometryRelations =
-          flip map (removeEach geometries) $
-             \((thisGeom, thisCorners, thisEdges), others) ->
-                let intPoints = Arith.intersections thisEdges $ concatMap thd3 others
-                    overlappingCorners =
-                       filter
-                          (\c ->
-                             any (\(rot, mov, (width,height)) ->
-                                    Arith.inBox (width,height) $
-                                    mapPair (round, round) $
-                                    Arith.rotateStretchMoveBackPoint rot mov c) $
-                             map fst3 others)
-                          thisCorners
-                    allPoints = intPoints ++ overlappingCorners
-                    otherGeoms = map fst3 others
-                in  (thisGeom, otherGeoms, allPoints)
+   let geometryRelations = Arith.geometryRelations geometries
 
    forM_ (Option.output opt) $ \path -> do
       notice "\nweighted composition"

@@ -15,7 +15,6 @@ import Arithmetic (
    linearIp,
    cubicIp,
    smooth3,
-   intersections,
    projectPerp,
    distance,
    linearScale,
@@ -69,10 +68,10 @@ import Control.Monad.HT (void)
 import Control.Monad (liftM2, when)
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (catMaybes)
-import Data.List.HT (removeEach, mapAdjacent, tails)
+import Data.List.HT (mapAdjacent, tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_, foldMap)
-import Data.Tuple.HT (mapPair, mapFst, mapSnd, fst3, thd3)
+import Data.Tuple.HT (mapPair, mapFst, mapSnd)
 import Data.Word (Word8)
 
 import System.IO.Unsafe (unsafePerformIO)
@@ -1045,7 +1044,7 @@ distanceMapEdgesRun =
    Run.with CUDA.run1 $ \sh ->
       imageByteFromFloat . A.map (0.01*) . distanceMapEdges sh
 
-type Geometry a = ((a,a), (a,a), (Int,Int))
+type Geometry a = Arith.Geometry Int a
 
 distanceMapBox ::
    (A.Elt a, A.IsFloating a) =>
@@ -1645,22 +1644,7 @@ process args = do
                 in  ((rot, mov, (width,height)), corners, edges))
              rotMovPics
 
-   let geometryRelations =
-          flip map (removeEach geometries) $
-             \((thisGeom, thisCorners, thisEdges), others) ->
-                let intPoints = intersections thisEdges $ concatMap thd3 others
-                    overlappingCorners =
-                       filter
-                          (\c ->
-                             any (\(rot, mov, (width,height)) ->
-                                    Arith.inBox (width,height) $
-                                    mapPair (round, round) $
-                                    rotateStretchMoveBackPoint rot mov c) $
-                             map fst3 others)
-                          thisCorners
-                    allPoints = intPoints ++ overlappingCorners
-                    otherGeoms = map fst3 others
-                in  (thisGeom, otherGeoms, allPoints)
+   let geometryRelations = Arith.geometryRelations geometries
 
    forM_ (zip geometryRelations picAngles) $
          \((thisGeom, otherGeoms, allPoints), (path, _)) -> do

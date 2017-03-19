@@ -5,10 +5,11 @@ import Data.Complex (Complex, )
 
 import Control.Monad (liftM2, guard)
 
+import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import qualified Data.Bits as Bit
 import Data.Maybe (catMaybes)
-import Data.Tuple.HT (mapPair)
+import Data.Tuple.HT (mapPair, fst3, thd3)
 
 
 inBox ::
@@ -112,6 +113,29 @@ intersections ::
    [Line2 a] -> [Line2 a] -> [Point2 a]
 intersections segments0 segments1 =
    catMaybes $ liftM2 intersect segments0 segments1
+
+type Geometry i a = ((a,a), (a,a), (i,i))
+
+geometryRelations ::
+   (RealFrac a, Integral i) =>
+   [(Geometry i a, [Point2 a], [Line2 a])] ->
+   [(Geometry i a, [Geometry i a], [Point2 a])]
+geometryRelations geometries =
+   flip map (ListHT.removeEach geometries) $
+      \((thisGeom, thisCorners, thisEdges), others) ->
+         let intPoints = intersections thisEdges $ concatMap thd3 others
+             overlappingCorners =
+                filter
+                   (\c ->
+                      any (\(rot, mov, (width,height)) ->
+                             inBox (width,height) $
+                             mapPair (round, round) $
+                             rotateStretchMoveBackPoint rot mov c) $
+                      map fst3 others)
+                   thisCorners
+             allPoints = intPoints ++ overlappingCorners
+             otherGeoms = map fst3 others
+         in  (thisGeom, otherGeoms, allPoints)
 
 
 projectPerp ::
