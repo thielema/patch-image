@@ -1603,6 +1603,7 @@ process args = do
        canvasWidth, canvasHeight :: Size
        canvasWidth  = ceiling (canvasRight-canvasLeft)
        canvasHeight = ceiling (canvasBottom-canvasTop)
+       canvasShape = shape2 canvasHeight canvasWidth
        rotMovPics =
           zipWith
              (\(mx,my) (rot, pic) -> (rot, (mx-canvasLeft, my-canvasTop), pic))
@@ -1616,7 +1617,7 @@ process args = do
       updateCanv <- updateCountCanvas
       finalizeCanv <- finalizeCountCanvas
 
-      empty <- emptyCanv $ shape2 canvasHeight canvasWidth
+      empty <- emptyCanv canvasShape
       writeImage (Option.quality opt) path =<< finalizeCanv =<<
          foldM (flip updateCanv) empty rotMovPics
 
@@ -1632,7 +1633,7 @@ process args = do
       updateCanv <- updateWeightedCanvas
       finalizeCanv <- finalizeWeightedCanvas
 
-      empty <- emptyCanv $ shape2 canvasHeight canvasWidth
+      empty <- emptyCanv canvasShape
       writeImage (Option.quality opt) path =<< finalizeCanv =<<
          foldM
             (\canvas ((thisGeom, otherGeoms, allPoints), (_rot, pic)) ->
@@ -1646,7 +1647,7 @@ process args = do
       updateCanv <- updateCountCanvas
       finalizeCanv <- finalizeCountCanvasFloat
 
-      empty <- emptyCanv $ shape2 canvasHeight canvasWidth
+      empty <- emptyCanv canvasShape
       sumImg <- foldM (flip updateCanv) empty rotMovPics
 
       avg <- finalizeCanv sumImg
@@ -1672,7 +1673,7 @@ process args = do
 
          emptyPlainCanv <- emptyCanvas
          addMasked <- addMaskedToCanvas
-         emptyPlain <- emptyPlainCanv $ shape2 canvasHeight canvasWidth
+         emptyPlain <- emptyPlainCanv canvasShape
          writeImage (Option.quality opt) path =<<
             foldM
                (\canvas (shape, rotMovPic) ->
@@ -1696,7 +1697,7 @@ process args = do
          emptyWeightedCanv <- emptyWeightedCanvas
          updateWeightedCanv <- updateShapedCanvas
          finalizeWeightedCanv <- finalizeWeightedCanvas
-         emptyWeighted <- emptyWeightedCanv $ shape2 canvasHeight canvasWidth
+         emptyWeighted <- emptyWeightedCanv canvasShape
          writeImage (Option.quality opt) path =<<
             finalizeWeightedCanv =<<
             foldM
