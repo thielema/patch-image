@@ -1045,10 +1045,12 @@ distanceMapEdgesRun =
    Run.with CUDA.run1 $ \sh ->
       imageByteFromFloat . A.map (0.01*) . distanceMapEdges sh
 
+type Geometry a = ((a,a), (a,a), (Int,Int))
+
 distanceMapBox ::
    (A.Elt a, A.IsFloating a) =>
    Exp DIM2 ->
-   Exp ((a,a), (a,a), (Int,Int)) ->
+   Exp (Geometry a) ->
    Acc (Channel Z (Bool, (((a,(a,a)), (a,(a,a))), ((a,(a,a)), (a,(a,a))))))
 distanceMapBox sh geom =
    let (rot, mov, extent@(width,height)) =
@@ -1126,7 +1128,7 @@ array1FromList xs = A.fromList (Z :. length xs) xs
 
 containedAnywhere ::
    (A.Elt a, A.IsFloating a) =>
-   Acc (Array DIM1 ((a,a), (a,a), (Int,Int))) ->
+   Acc (Array DIM1 (Geometry a)) ->
    Acc (Array DIM3 (a,a)) ->
    Acc (Array DIM3 Bool)
 containedAnywhere geoms arr =
@@ -1143,8 +1145,8 @@ containedAnywhere geoms arr =
 distanceMapContained ::
    (A.IsFloating a, A.Elt a) =>
    Exp DIM2 ->
-   Exp ((a, a), (a, a), (Int, Int)) ->
-   Acc (Array DIM1 ((a, a), (a, a), (Int, Int))) ->
+   Exp (Geometry a) ->
+   Acc (Array DIM1 (Geometry a)) ->
    Acc (Channel Z a)
 distanceMapContained sh this others =
    let distMap =
@@ -1162,10 +1164,7 @@ distanceMapContained sh this others =
           contained distMap
 
 distanceMapContainedRun ::
-   DIM2 ->
-   ((Float,Float),(Float,Float),(Int,Int)) ->
-   [((Float,Float),(Float,Float),(Int,Int))] ->
-   Channel Z Word8
+   DIM2 -> Geometry Float -> [Geometry Float] -> Channel Z Word8
 distanceMapContainedRun =
    let distances =
           Run.with CUDA.run1 $
@@ -1232,8 +1231,8 @@ and chose the minimal distance.
 distanceMap ::
    (A.Elt a, A.IsFloating a) =>
    Exp DIM2 ->
-   Exp ((a, a), (a, a), (Int, Int)) ->
-   Acc (Array DIM1 ((a, a), (a, a), (Int, Int))) ->
+   Exp (Geometry a) ->
+   Acc (Array DIM1 (Geometry a)) ->
    Acc (Array DIM1 (a, a)) ->
    Acc (Channel Z a)
 distanceMap sh this others points =
@@ -1243,8 +1242,8 @@ distanceMap sh this others points =
 
 distanceMapRun ::
    DIM2 ->
-   ((Float,Float),(Float,Float),(Int,Int)) ->
-   [((Float,Float),(Float,Float),(Int,Int))] ->
+   Geometry Float ->
+   [Geometry Float] ->
    [Point2 Float] ->
    Channel Z Word8
 distanceMapRun =
@@ -1266,8 +1265,8 @@ distanceMapGamma ::
    (A.Elt a, A.IsFloating a) =>
    Exp a ->
    Exp DIM2 ->
-   Exp ((a, a), (a, a), (Int, Int)) ->
-   Acc (Array DIM1 ((a, a), (a, a), (Int, Int))) ->
+   Exp (Geometry a) ->
+   Acc (Array DIM1 (Geometry a)) ->
    Acc (Array DIM1 (a, a)) ->
    Acc (Channel Z a)
 distanceMapGamma gamma sh this others points =
@@ -1297,8 +1296,8 @@ addToWeightedCanvas (weight, pic) (weightSum, canvas) =
 
 -- launch timeout
 updateWeightedCanvasMerged ::
-   ((Float,Float),(Float,Float),(Int,Int)) ->
-   [((Float,Float),(Float,Float),(Int,Int))] ->
+   Geometry Float ->
+   [Geometry Float] ->
    [Point2 Float] ->
    Array DIM3 Word8 ->
    (Channel Z Float, Channel DIM1 Float) ->
@@ -1322,8 +1321,8 @@ updateWeightedCanvasMerged =
 
 updateWeightedCanvas ::
    Float ->
-   ((Float,Float),(Float,Float),(Int,Int)) ->
-   [((Float,Float),(Float,Float),(Int,Int))] ->
+   Geometry Float ->
+   [Geometry Float] ->
    [Point2 Float] ->
    Array DIM3 Word8 ->
    (Channel Z Float, Channel DIM1 Float) ->
@@ -1349,8 +1348,8 @@ updateWeightedCanvas =
 
 -- launch timeout
 updateWeightedCanvasSplit ::
-   ((Float,Float),(Float,Float),(Int,Int)) ->
-   [((Float,Float),(Float,Float),(Int,Int))] ->
+   Geometry Float ->
+   [Geometry Float] ->
    [Point2 Float] ->
    Array DIM3 Word8 ->
    (Channel Z Float, Channel DIM1 Float) ->
