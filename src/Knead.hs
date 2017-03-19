@@ -1106,13 +1106,13 @@ addMaskedToCanvas ::
        Plane (YUV Word8) ->
        IO (Plane (YUV Word8)))
 addMaskedToCanvas =
-   RenderP.run $ \(rot, mov, pic) mask countCanvas ->
+   RenderP.run $ \(rot, mov, pic) mask canvas ->
       Symb.zipWith3 Expr.ifThenElse
          (Symb.map boolFromMask mask)
          (Symb.map (yuvByteFromFloat . Expr.snd) $
-          rotateStretchMove vecYUV rot mov (Symb.shape countCanvas) $
+          rotateStretchMove vecYUV rot mov (Symb.shape canvas) $
           colorImageFloatFromByte pic)
-         countCanvas
+         canvas
 
 updateShapedCanvas ::
    IO (RotatedImage ->
