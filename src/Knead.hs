@@ -66,7 +66,7 @@ import Data.List.HT (tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
-import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapTriple, fst3, swap)
+import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapTriple, mapThd3, fst3, swap)
 import Data.Word (Word8, Word32)
 
 
@@ -132,6 +132,11 @@ writeImage quality path img =
 writeGrey :: Int -> FilePath -> Plane Word8 -> IO ()
 writeGrey quality path img =
    Pic.saveJpgImage quality path $ Pic.ImageY8 $ imageFromArray id img
+
+
+colorImageExtent :: ColorImage8 -> (Size, Size)
+colorImageExtent pic =
+   case Phys.shape pic of Vec2 height width -> (width, height)
 
 
 fromInt ::
@@ -1407,8 +1412,7 @@ processOverlap args picAngles pairs = do
             let padExtent =
                    uncurry Vec2 $ swap $
                    Arith.correlationSize (Option.minimumOverlap opt) $
-                   map (\(Vec2 height width) -> (width, height)) $
-                   map (Phys.shape . snd) picAngles
+                   map (colorImageExtent . snd) picAngles
             overlap <- optimalOverlap padExtent
             allOverlapsIO <- allOverlapsRun padExtent
             return
@@ -1584,10 +1588,9 @@ process args = do
 
    notice "\ncompose all parts"
    let bbox (rot, pic) =
-          case Phys.shape pic of
-             Vec2 height width ->
-                Arith.boundingBoxOfRotated rot
-                   (fromIntegral width, fromIntegral height)
+          Arith.boundingBoxOfRotated rot $
+          mapPair (fromIntegral, fromIntegral) $
+          colorImageExtent pic
        ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
           mapPair
              (mapPair (minimum, maximum) . unzip,
@@ -1621,11 +1624,7 @@ process args = do
    notice "\ndistance maps"
    let geometryRelations =
          Arith.geometryRelations $
-         map
-            (\(rot, mov, pic) ->
-               let Vec2 height width = Phys.shape pic
-               in  Arith.geometryFeatures (rot, mov, (width,height)))
-            rotMovPics
+         map (Arith.geometryFeatures . mapThd3 colorImageExtent) rotMovPics
 
    forM_ (Option.output opt) $ \path -> do
       notice "\nweighted composition"

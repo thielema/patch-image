@@ -71,7 +71,7 @@ import Data.Maybe (catMaybes)
 import Data.List.HT (mapAdjacent, tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_, foldMap)
-import Data.Tuple.HT (mapPair, mapFst, mapSnd)
+import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapThd3)
 import Data.Word (Word8)
 
 import System.IO.Unsafe (unsafePerformIO)
@@ -116,6 +116,10 @@ writeGrey quality path arr = do
          Pic.imageHeight = height,
          Pic.imageData = snd $ AIO.toVectors arr
       }
+
+colorImageExtent :: Array DIM3 Word8 -> (Int, Int)
+colorImageExtent pic =
+   case A.arrayShape pic of Z:.height:.width:._chans -> (width, height)
 
 imageFloatFromByte ::
    (A.Shape sh, A.Elt a, A.IsFloating a) =>
@@ -1399,8 +1403,7 @@ processOverlap args picAngles pairs = do
              Nothing ->
                 let (padWidth, padHeight) =
                        Arith.correlationSize (Option.minimumOverlap opt) $
-                       map (\(Z:.height:.width:._chans) -> (width, height)) $
-                       map (A.arrayShape . snd) picAngles
+                       map (colorImageExtent . snd) picAngles
                     padExtent = Z :. padHeight :. padWidth
                 in  (Just $ allOverlapsRun padExtent (Option.minimumOverlap opt),
                      optimalOverlap padExtent (Option.minimumOverlap opt))
@@ -1593,10 +1596,9 @@ process args = do
 
    notice "\ncompose all parts"
    let bbox (rot, pic) =
-          case A.arrayShape pic of
-             Z:.height:.width:._chans ->
-                boundingBoxOfRotated rot
-                   (fromIntegral width, fromIntegral height)
+          boundingBoxOfRotated rot $
+          mapPair (fromIntegral, fromIntegral) $
+          colorImageExtent pic
        ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
           mapPair
              (mapPair (minimum, maximum) . unzip,
@@ -1628,11 +1630,7 @@ process args = do
    notice "\ndistance maps"
    let geometryRelations =
          Arith.geometryRelations $
-         map
-            (\(rot, mov, pic) ->
-               let Z:.height:.width:._chans = A.arrayShape pic
-               in  Arith.geometryFeatures (rot, mov, (width,height)))
-            rotMovPics
+         map (Arith.geometryFeatures . mapThd3 colorImageExtent) rotMovPics
 
    forM_ (zip geometryRelations picAngles) $
          \((thisGeom, otherGeoms, allPoints), (path, _)) -> do
