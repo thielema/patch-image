@@ -5,7 +5,7 @@ import qualified Option
 
 import qualified MatchImageBorders
 import qualified Arithmetic as Arith
-import MatchImageBorders (arrayCFromPhysical, arrayPhysicalFromC)
+import MatchImageBorders (arrayCFromKnead, arrayKneadFromC)
 import LinearAlgebra (
    absolutePositionsFromPairDisplacements, layoutFromPairDisplacements,
    )
@@ -655,10 +655,10 @@ liftCArray2 ::
    (CArray (Int,Int) a -> CArray (Int,Int) a -> CArray (Int,Int) a) ->
    Plane a -> Plane a -> IO (Plane a)
 liftCArray2 f a b =
-   arrayPhysicalFromC <$>
+   arrayKneadFromC <$>
    liftM2 f
-      (arrayCFromPhysical a)
-      (arrayCFromPhysical b)
+      (arrayCFromKnead a)
+      (arrayCFromKnead b)
 
 
 type Id a = a -> a
@@ -1688,13 +1688,13 @@ process args = do
       picDiffs <- mapM (\(mov, rot, pic) -> diff rot mov pic avg) movRotPics
       getSnd <- RenderP.run $ Symb.map Expr.snd . fixArray
       lp <- lowpassMulti
-      masks <- map (amap ((0/=) . fst)) <$> mapM arrayCFromPhysical picDiffs
+      masks <- map (amap ((0/=) . fst)) <$> mapM arrayCFromKnead picDiffs
       let smoothRadius = Option.shapeSmooth opt
       smoothPicDiffs <-
-         mapM (arrayCFromPhysical <=< lp smoothRadius <=< getSnd) picDiffs
+         mapM (arrayCFromKnead <=< lp smoothRadius <=< getSnd) picDiffs
       (locs, pqueue) <-
          MatchImageBorders.prepareShaping $ zip masks smoothPicDiffs
-      counts <- thaw . amap (fromIntegral . fst) =<< arrayCFromPhysical sumImg
+      counts <- thaw . amap (fromIntegral . fst) =<< arrayCFromKnead sumImg
       shapes <- MatchImageBorders.shapeParts counts locs pqueue
 
       let names = map (FilePath.takeBaseName . fst) picAngles
@@ -1702,7 +1702,7 @@ process args = do
          forM_ (Option.outputShapeHard opt) $ \format ->
             forM_ (zip names shapes) $ \(name,shape) ->
                writeGrey (Option.quality opt) (printf format name) $
-               arrayPhysicalFromC $ amap (\b -> if b then 255 else 0) shape
+               arrayKneadFromC $ amap (\b -> if b then 255 else 0) shape
 
          emptyPlainCanv <- emptyPlainCanvas
          addMasked <- addMaskedToCanvas
@@ -1711,14 +1711,14 @@ process args = do
             foldM
                (\canvas (shape, (mov, rot, pic)) ->
                   addMasked rot mov pic
-                     (arrayPhysicalFromC $ amap (fromIntegral . fromEnum) shape)
+                     (arrayKneadFromC $ amap (fromIntegral . fromEnum) shape)
                      canvas)
                emptyPlain (zip shapes movRotPics)
 
       forM_ (Option.outputShaped opt) $ \path -> do
          smoothShapes <-
             mapM
-               (lp smoothRadius . arrayPhysicalFromC .
+               (lp smoothRadius . arrayKneadFromC .
                 amap (fromIntegral . fromEnum))
                shapes
          forM_ (Option.outputShape opt) $ \format -> do

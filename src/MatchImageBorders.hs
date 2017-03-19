@@ -37,14 +37,14 @@ import Control.Monad (filterM)
 import Control.Applicative ((<$>))
 
 
-arrayCFromPhysical :: Phys.Array Dim2 a -> IO (CArray (Int,Int) a)
-arrayCFromPhysical (Phys.Array (Vec2 height width) fptr) =
+arrayCFromKnead :: Phys.Array Dim2 a -> IO (CArray (Int,Int) a)
+arrayCFromKnead (Phys.Array (Vec2 height width) fptr) =
    CArrayPriv.unsafeForeignPtrToCArray fptr
       ((0,0), (fromIntegral height - 1, fromIntegral width - 1))
 
-arrayPhysicalFromC ::
+arrayKneadFromC ::
    (Storable a) => CArray (Int,Int) a -> Phys.Array Dim2 a
-arrayPhysicalFromC carray =
+arrayKneadFromC carray =
    case bounds carray of
       ((ly,lx), (uy,ux)) ->
          Phys.Array
