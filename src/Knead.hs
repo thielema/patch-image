@@ -1038,6 +1038,8 @@ boolFromMask = (/=* 0)
 intFromBool :: Exp MaskBool -> Exp Word32
 intFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.ext
 
+type RotatedImage = ((Float,Float), (Float,Float), ColorImage8)
+
 addToCanvas ::
    (MultiValue.PseudoRing a, MultiValue.NativeFloating a ar) =>
    VecExp a v ->
@@ -1052,11 +1054,10 @@ addToCanvas vec =
           Arith.vecScale vec (fromInt $ intFromBool mask) pic))
 
 updateCanvas ::
-   IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
-       Plane (Word32, YUV Float) ->
+   IO (RotatedImage -> Plane (Word32, YUV Float) ->
        IO (Plane (Word32, YUV Float)))
 updateCanvas =
-   RenderP.run $ \rot mov pic countCanvas ->
+   RenderP.run $ \(rot, mov, pic) countCanvas ->
       addToCanvas vecYUV
          (rotateStretchMove vecYUV rot mov (Symb.shape countCanvas) $
           colorImageFloatFromByte pic)
@@ -1076,11 +1077,9 @@ diffAbs :: (MultiValue.Real a) => Exp a -> Exp a -> Exp a
 diffAbs = Expr.liftM2 $ \x y -> MultiValue.abs =<< MultiValue.sub x y
 
 diffWithCanvas ::
-   IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
-       Plane (YUV Float) ->
-       IO (Plane (MaskBool, Float)))
+   IO (RotatedImage -> Plane (YUV Float) -> IO (Plane (MaskBool, Float)))
 diffWithCanvas =
-   RenderP.run $ \rot mov pic avg ->
+   RenderP.run $ \(rot, mov, pic) avg ->
       Symb.zipWith
          (Expr.modify2 (atom,atom) atom $ \(b,x) y ->
             (b, diffAbs (brightnessValue x) (brightnessValue y)))
@@ -1102,12 +1101,12 @@ emptyPlainCanvas :: IO (Dim2 -> IO ColorImage8)
 emptyPlainCanvas = RenderP.run $ \sh -> Symb.fill sh (Expr.zip3 0 0 0)
 
 addMaskedToCanvas ::
-   IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
+   IO (RotatedImage ->
        Plane MaskBool ->
        Plane (YUV Word8) ->
        IO (Plane (YUV Word8)))
 addMaskedToCanvas =
-   RenderP.run $ \rot mov pic mask countCanvas ->
+   RenderP.run $ \(rot, mov, pic) mask countCanvas ->
       Symb.zipWith3 Expr.ifThenElse
          (Symb.map boolFromMask mask)
          (Symb.map (yuvByteFromFloat . Expr.snd) $
@@ -1116,12 +1115,12 @@ addMaskedToCanvas =
          countCanvas
 
 updateShapedCanvas ::
-   IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
+   IO (RotatedImage ->
        Plane Float ->
        Plane (Float, YUV Float) ->
        IO (Plane (Float, YUV Float)))
 updateShapedCanvas =
-   RenderP.run $ \rot mov pic shape weightCanvas ->
+   RenderP.run $ \(rot, mov, pic) shape weightCanvas ->
       addToWeightedCanvas vecYUV
          (Symb.zipWith
             (Expr.modify2 atom (atom,atom) $ \s (b,x) ->
@@ -1601,9 +1600,9 @@ process args = do
        canvasWidth, canvasHeight :: Size
        canvasWidth  = ceiling (canvasRight-canvasLeft)
        canvasHeight = ceiling (canvasBottom-canvasTop)
-       movRotPics =
+       rotMovPics =
           zipWith
-             (\(mx,my) (rot, pic) -> ((mx-canvasLeft, my-canvasTop), rot, pic))
+             (\(mx,my) (rot, pic) -> (rot, (mx-canvasLeft, my-canvasTop), pic))
              floatPoss picRots
    info $
       printf "canvas %f - %f, %f - %f\n"
@@ -1616,15 +1615,13 @@ process args = do
 
       empty <- emptyCanv $ shape2 canvasHeight canvasWidth
       writeImage (Option.quality opt) path =<< finalizeCanv =<<
-         foldM
-            (\canvas (mov, rot, pic) -> updateCanv rot mov pic canvas)
-            empty movRotPics
+         foldM (flip updateCanv) empty rotMovPics
 
 
    notice "\ndistance maps"
    let geometries =
           map
-             (\(mov, rot, pic) ->
+             (\(rot, mov, pic) ->
                 let Vec2 height width = Phys.shape pic
                     trans = Arith.rotateStretchMovePoint rot mov
                     widthf  = fromIntegral width
@@ -1638,7 +1635,7 @@ process args = do
                        [(corner00, corner10), (corner10, corner11),
                         (corner11, corner01), (corner01, corner00)]
                 in  ((rot, mov, (width,height)), corners, edges))
-             movRotPics
+             rotMovPics
 
    let geometryRelations =
           flip map (removeEach geometries) $
@@ -1678,14 +1675,11 @@ process args = do
       finalizeCanv <- finalizeCanvasFloat
 
       empty <- emptyCanv $ shape2 canvasHeight canvasWidth
-      sumImg <-
-         foldM
-            (\canvas (mov, rot, pic) -> updateCanv rot mov pic canvas)
-            empty movRotPics
+      sumImg <- foldM (flip updateCanv) empty rotMovPics
 
       avg <- finalizeCanv sumImg
       diff <- diffWithCanvas
-      picDiffs <- mapM (\(mov, rot, pic) -> diff rot mov pic avg) movRotPics
+      picDiffs <- mapM (flip diff avg) rotMovPics
       getSnd <- RenderP.run $ Symb.map Expr.snd . fixArray
       lp <- lowpassMulti
       masks <- map (amap ((0/=) . fst)) <$> mapM arrayCFromKnead picDiffs
@@ -1709,11 +1703,11 @@ process args = do
          emptyPlain <- emptyPlainCanv $ shape2 canvasHeight canvasWidth
          writeImage (Option.quality opt) path =<<
             foldM
-               (\canvas (shape, (mov, rot, pic)) ->
-                  addMasked rot mov pic
+               (\canvas (shape, rotMovPic) ->
+                  addMasked rotMovPic
                      (arrayKneadFromC $ amap (fromIntegral . fromEnum) shape)
                      canvas)
-               emptyPlain (zip shapes movRotPics)
+               emptyPlain (zip shapes rotMovPics)
 
       forM_ (Option.outputShaped opt) $ \path -> do
          smoothShapes <-
@@ -1734,9 +1728,9 @@ process args = do
          writeImage (Option.quality opt) path =<<
             finalizeWeightedCanv =<<
             foldM
-               (\canvas (shape, (mov, rot, pic)) ->
-                  updateWeightedCanv rot mov pic shape canvas)
-               emptyWeighted (zip smoothShapes movRotPics)
+               (\canvas (shape, rotMovPic) ->
+                  updateWeightedCanv rotMovPic shape canvas)
+               emptyWeighted (zip smoothShapes rotMovPics)
 
 
 rotateTest :: IO ()

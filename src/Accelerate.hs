@@ -973,12 +973,12 @@ addToCanvas (mask, pic) (count, canvas) =
     A.map (A.fromIntegral . A.boolToInt) mask)
 
 updateCanvas ::
-   (Float,Float) -> (Float,Float) -> Array DIM3 Word8 ->
+   ((Float,Float), (Float,Float), Array DIM3 Word8) ->
    (Channel Z Int, Channel DIM1 Float) ->
    (Channel Z Int, Channel DIM1 Float)
 updateCanvas =
    Run.with CUDA.run1 $
-   \rot mov pic (count,canvas) ->
+   \(rot, mov, pic) (count,canvas) ->
       addToCanvas
          (rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
           separateChannels $ imageFloatFromByte pic)
@@ -1611,9 +1611,9 @@ process args = do
        canvasWidth  = ceiling (canvasRight-canvasLeft)
        canvasHeight = ceiling (canvasBottom-canvasTop)
        canvasShape = Z :. canvasHeight :. canvasWidth
-       movRotPics =
+       rotMovPics =
           zipWith
-             (\(mx,my) (rot, pic) -> ((mx-canvasLeft, my-canvasTop), rot, pic))
+             (\(mx,my) (rot, pic) -> (rot, (mx-canvasLeft, my-canvasTop), pic))
              floatPoss picRots
    info $
       printf "canvas %f - %f, %f - %f\n"
@@ -1623,14 +1623,14 @@ process args = do
       writeImage (Option.quality opt) path $
       finalizeCanvas $
       foldl
-         (\canvas (mov, rot, pic) -> updateCanvas rot mov pic canvas)
+         (flip updateCanvas)
          (emptyCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
-         movRotPics
+         rotMovPics
 
    notice "\ndistance maps"
    let geometries =
           map
-             (\(mov, rot, pic) ->
+             (\(rot, mov, pic) ->
                 let Z:.height:.width:._chans = A.arrayShape pic
                     trans = rotateStretchMovePoint rot mov
                     widthf  = fromIntegral width
@@ -1644,7 +1644,7 @@ process args = do
                        [(corner00, corner10), (corner10, corner11),
                         (corner11, corner01), (corner01, corner00)]
                 in  ((rot, mov, (width,height)), corners, edges))
-             movRotPics
+             rotMovPics
 
    let geometryRelations =
           flip map (removeEach geometries) $
