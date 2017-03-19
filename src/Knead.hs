@@ -1023,8 +1023,9 @@ composeOverlap = do
 
 
 
-emptyCanvas :: IO (Dim2 -> IO (Plane (Word32, YUV Float)))
-emptyCanvas = RenderP.run $ \sh -> Symb.fill sh (Expr.zip 0 $ Expr.zip3 0 0 0)
+emptyCountCanvas :: IO (Dim2 -> IO (Plane (Word32, YUV Float)))
+emptyCountCanvas =
+   RenderP.run $ \sh -> Symb.fill sh (Expr.zip 0 $ Expr.zip3 0 0 0)
 
 
 type MaskBool = Word8
@@ -1040,31 +1041,31 @@ intFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.ext
 
 type RotatedImage = ((Float,Float), (Float,Float), ColorImage8)
 
-addToCanvas ::
+addToCountCanvas ::
    (MultiValue.PseudoRing a, MultiValue.NativeFloating a ar) =>
    VecExp a v ->
    SymbPlane (MaskBool, v) ->
    SymbPlane (Word32, v) ->
    SymbPlane (Word32, v)
-addToCanvas vec =
+addToCountCanvas vec =
    Symb.zipWith
       (Expr.modify2 (atom,atom) (atom,atom) $ \(mask, pic) (count, canvas) ->
          (Expr.add (intFromBool mask) count,
           Arith.vecAdd vec canvas $
           Arith.vecScale vec (fromInt $ intFromBool mask) pic))
 
-updateCanvas ::
+updateCountCanvas ::
    IO (RotatedImage -> Plane (Word32, YUV Float) ->
        IO (Plane (Word32, YUV Float)))
-updateCanvas =
+updateCountCanvas =
    RenderP.run $ \(rot, mov, pic) countCanvas ->
-      addToCanvas vecYUV
+      addToCountCanvas vecYUV
          (rotateStretchMove vecYUV rot mov (Symb.shape countCanvas) $
           colorImageFloatFromByte pic)
          countCanvas
 
-finalizeCanvas :: IO ((Plane (Word32, YUV Float)) -> IO ColorImage8)
-finalizeCanvas =
+finalizeCountCanvas :: IO ((Plane (Word32, YUV Float)) -> IO ColorImage8)
+finalizeCountCanvas =
    RenderP.run $
       colorImageByteFromFloat .
       Symb.map
@@ -1087,9 +1088,9 @@ diffWithCanvas =
           colorImageFloatFromByte pic)
          avg
 
-finalizeCanvasFloat ::
+finalizeCountCanvasFloat ::
    IO ((Plane (Word32, YUV Float)) -> IO (Plane (YUV Float)))
-finalizeCanvasFloat =
+finalizeCountCanvasFloat =
    RenderP.run $
       Symb.map
          (Expr.modify (atom,atom) $ \(count, pixel) ->
@@ -1097,8 +1098,8 @@ finalizeCanvasFloat =
       .
       fixArray
 
-emptyPlainCanvas :: IO (Dim2 -> IO ColorImage8)
-emptyPlainCanvas = RenderP.run $ \sh -> Symb.fill sh (Expr.zip3 0 0 0)
+emptyCanvas :: IO (Dim2 -> IO ColorImage8)
+emptyCanvas = RenderP.run $ \sh -> Symb.fill sh (Expr.zip3 0 0 0)
 
 addMaskedToCanvas ::
    IO (RotatedImage ->
@@ -1123,8 +1124,7 @@ updateShapedCanvas =
    RenderP.run $ \(rot, mov, pic) shape weightCanvas ->
       addToWeightedCanvas vecYUV
          (Symb.zipWith
-            (Expr.modify2 atom (atom,atom) $ \s (b,x) ->
-               (fromInt b * s, x))
+            (Expr.modify2 atom (atom,atom) $ \s (b,x) -> (fromInt b * s, x))
             shape $
           rotateStretchMove vecYUV rot mov (Symb.shape weightCanvas) $
           colorImageFloatFromByte pic)
@@ -1609,9 +1609,9 @@ process args = do
          canvasLeft canvasRight canvasTop canvasBottom
    info $ printf "canvas size %d, %d\n" canvasWidth canvasHeight
    forM_ (Option.outputHard opt) $ \path -> do
-      emptyCanv <- emptyCanvas
-      updateCanv <- updateCanvas
-      finalizeCanv <- finalizeCanvas
+      emptyCanv <- emptyCountCanvas
+      updateCanv <- updateCountCanvas
+      finalizeCanv <- finalizeCountCanvas
 
       empty <- emptyCanv $ shape2 canvasHeight canvasWidth
       writeImage (Option.quality opt) path =<< finalizeCanv =<<
@@ -1670,9 +1670,9 @@ process args = do
 
    when (isJust (Option.outputShaped opt) || isJust (Option.outputShapedHard opt)) $ do
       notice "\nmatch shapes"
-      emptyCanv <- emptyCanvas
-      updateCanv <- updateCanvas
-      finalizeCanv <- finalizeCanvasFloat
+      emptyCanv <- emptyCountCanvas
+      updateCanv <- updateCountCanvas
+      finalizeCanv <- finalizeCountCanvasFloat
 
       empty <- emptyCanv $ shape2 canvasHeight canvasWidth
       sumImg <- foldM (flip updateCanv) empty rotMovPics
@@ -1698,7 +1698,7 @@ process args = do
                writeGrey (Option.quality opt) (printf format name) $
                arrayKneadFromC $ amap (\b -> if b then 255 else 0) shape
 
-         emptyPlainCanv <- emptyPlainCanvas
+         emptyPlainCanv <- emptyCanvas
          addMasked <- addMaskedToCanvas
          emptyPlain <- emptyPlainCanv $ shape2 canvasHeight canvasWidth
          writeImage (Option.quality opt) path =<<

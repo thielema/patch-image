@@ -950,42 +950,42 @@ composeOverlap =
           overlap2 (dx, dy) (rot a, rot b)
 
 
-emptyCanvas ::
+emptyCountCanvas ::
    (A.Slice ix, A.Shape ix) =>
    ix :. Int :. Int ->
    (Channel Z Int, Channel ix Float)
-emptyCanvas =
+emptyCountCanvas =
    Run.with CUDA.run1 $ \sh ->
       let (_ix :. height :. width) = unliftDim2 sh
       in  (A.fill (A.lift $ Z:.height:.width) 0,
            A.fill sh 0)
 
 
-addToCanvas ::
+addToCountCanvas ::
    (A.Slice ix, A.Shape ix, A.Elt a, A.IsNum a) =>
    (Acc (Channel Z Bool), Acc (Channel ix a)) ->
    (Acc (Channel Z Int),  Acc (Channel ix a)) ->
    (Acc (Channel Z Int),  Acc (Channel ix a))
-addToCanvas (mask, pic) (count, canvas) =
+addToCountCanvas (mask, pic) (count, canvas) =
    (A.zipWith (+) (A.map A.boolToInt mask) count,
     A.zipWith (+) canvas $ A.zipWith (*) pic $
     replicateChannel (A.shape pic) $
     A.map (A.fromIntegral . A.boolToInt) mask)
 
-updateCanvas ::
+updateCountCanvas ::
    ((Float,Float), (Float,Float), Array DIM3 Word8) ->
    (Channel Z Int, Channel DIM1 Float) ->
    (Channel Z Int, Channel DIM1 Float)
-updateCanvas =
+updateCountCanvas =
    Run.with CUDA.run1 $
    \(rot, mov, pic) (count,canvas) ->
-      addToCanvas
+      addToCountCanvas
          (rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
           separateChannels $ imageFloatFromByte pic)
          (count,canvas)
 
-finalizeCanvas :: (Channel Z Int, Channel DIM1 Float) -> Array DIM3 Word8
-finalizeCanvas =
+finalizeCountCanvas :: (Channel Z Int, Channel DIM1 Float) -> Array DIM3 Word8
+finalizeCountCanvas =
    Run.with CUDA.run1 $
    \(count, canvas) ->
       imageByteFromFloat $ interleaveChannels $
@@ -1621,10 +1621,10 @@ process args = do
    info $ printf "canvas size %d, %d\n" canvasWidth canvasHeight
    forM_ (Option.outputHard opt) $ \path ->
       writeImage (Option.quality opt) path $
-      finalizeCanvas $
+      finalizeCountCanvas $
       foldl
-         (flip updateCanvas)
-         (emptyCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
+         (flip updateCountCanvas)
+         (emptyCountCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
          rotMovPics
 
    notice "\ndistance maps"
