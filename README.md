@@ -158,5 +158,39 @@ Options:
   The downside is that it also reduces the area for adaption
   of differing brightness.
 
+The LLVM implementation provides an additional way to assemble the image parts.
+The weighting approach tries to blend across all the overlapping area.
+This can equalize differences in brightness.
+The downside is that imperfectly matching image parts
+lead to blurred content in the overlapping area.
+An alternative algorithm tries to make the overlapping as small as possible
+and additionally performs blending where it hurts least.
+More precisely, parts are blended where they differ least.
+However, if the brightness of the image parts differ
+then the blending boundaries may become visible.
+
+Options:
+
+* `--output-shaped`:
+  Path of the output JPEG image with smoothly blended image parts
+  along curves of low image difference.
+
+* `--output-shaped-hard`:
+  Like before but the image parts are not smoothly faded.
+  Instead, every pixel belongs to exactly one original image part.
+  This is more for debugging purposes than of practical use.
+
+* `--output-shape`:
+  Emit the smoothed mask of each image part used for blending.
+
+* `--output-shape-hard`:
+  Emit the non-smoothed masks.
+
+* `--shape-smooth`:
+  Smooth radius of the image masks.
+  The higher, the smoother is the blending between parts.
+
+General options:
+
 * `--quality`:
   JPEG quality percentage for writing the images.
