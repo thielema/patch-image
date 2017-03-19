@@ -10,7 +10,7 @@ import LinearAlgebra (
    absolutePositionsFromPairDisplacements, layoutFromPairDisplacements,
    )
 import KneadShape
-         (Size, Vec2(Vec2), Dim0, Dim1, Dim2, Shape2, Index2, Ix2,
+         (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Index2, Ix2,
           verticalVal, horizontalVal)
 
 import qualified Math.FFT as FFT
@@ -485,9 +485,16 @@ differentiate ::
    (Symb.C array, MultiValue.Additive a) => array Dim1 a -> array Dim1 a
 differentiate xs = Symb.zipWith Expr.sub (tailArr xs) xs
 
-scoreHistogram ::
-   (Symb.C array, MultiValue.PseudoRing a) => array Dim1 a -> array Dim0 a
-scoreHistogram = Symb.fold1All Expr.add . Symb.map Expr.sqr . differentiate
+the :: Symb.Array () a -> Exp a
+the = Symb.the
+
+fold1All ::
+   (Shape.C sh, MultiValue.C a) =>
+   (Exp a -> Exp a -> Exp a) -> Symb.Array sh a -> Exp a
+fold1All f = the . Symb.fold1All f
+
+scoreHistogram :: (MultiValue.PseudoRing a) => Symb.Array Dim1 a -> Exp a
+scoreHistogram = fold1All Expr.add . Symb.map Expr.sqr . differentiate
 
 
 runScoreRotation :: IO (Float -> ColorImage8 -> IO Float)
@@ -495,7 +502,7 @@ runScoreRotation = do
    rot <-
       RenderP.run $ \rot ->
          rowHistogram . rotate vecYUV rot . colorImageFloatFromByte
-   score <- RenderP.run $ Symb.the . scoreHistogram
+   score <- RenderP.run scoreHistogram
    return $ \ angle img -> score =<< rot (cos angle, sin angle) img
 
 findOptimalRotation :: IO ([Float] -> ColorImage8 -> IO Float)
@@ -769,15 +776,15 @@ argmax x y  =  Expr.select (Expr.fst x <=* Expr.fst y) y x
 argmaximum ::
    (Shape.C sh,
     MultiValue.Comparison a, MultiValue.Select a, MultiValue.Select b) =>
-   Symb.Array sh (a, b) -> Symb.Array () (a, b)
-argmaximum = Symb.fold1All argmax
+   Symb.Array sh (a, b) -> Exp (a, b)
+argmaximum = fold1All argmax
 
 optimalOverlap ::
    Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
 optimalOverlap padExtent@(Vec2 height width) = do
    run <-
       RenderP.run $ \minOverlapPortion (sha, shb) img ->
-         Symb.the $ argmaximum $
+         argmaximum $
          allOverlapsFromCorrelation padExtent minOverlapPortion sha shb img
 
    return $ \overlap a b ->
@@ -949,7 +956,7 @@ overlapDifference ::
    (MultiValue.Algebraic a, MultiValue.RationalConstant a,
     MultiValue.Real a, MultiValue.NativeFloating a ar) =>
    (Exp Size, Exp Size) ->
-   SymbPlane a -> SymbPlane a -> Symb.Array () a
+   SymbPlane a -> SymbPlane a -> Exp a
 overlapDifference (dx,dy) a b =
    let (Vec2 heighta widtha) = Expr.decompose atomDim2 $ Symb.shape a
        (Vec2 heightb widthb) = Expr.decompose atomDim2 $ Symb.shape b
@@ -960,9 +967,9 @@ overlapDifference (dx,dy) a b =
        widthOverlap  = rightOverlap - leftOverlap
        heightOverlap = bottomOverlap - topOverlap
        extentOverlap = (widthOverlap,heightOverlap)
-   in  Symb.map Expr.sqrt $
-       Symb.map (/(fromInt widthOverlap * fromInt heightOverlap)) $
-       Symb.fold1All (+) $
+   in  Expr.sqrt $
+       (/(fromInt widthOverlap * fromInt heightOverlap)) $
+       fold1All (+) $
        Symb.map Expr.sqr $
        Symb.zipWith (-)
           (clip (leftOverlap,topOverlap) extentOverlap a)
@@ -970,8 +977,7 @@ overlapDifference (dx,dy) a b =
 
 overlapDifferenceRun ::
    IO ((Size, Size) -> Plane Float -> Plane Float -> IO Float)
-overlapDifferenceRun =
-   RenderP.run $ \d a b -> Symb.the $ overlapDifference d a b
+overlapDifferenceRun = RenderP.run overlapDifference
 
 
 overlap2 ::
