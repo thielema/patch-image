@@ -32,8 +32,12 @@ data Option =
       verbosity :: Verbosity,
       output :: Maybe FilePath,
       outputHard :: Maybe FilePath,
+      outputShaped :: Maybe FilePath,
+      outputShapedHard :: Maybe FilePath,
       outputOverlap :: Maybe String, -- e.g. "/tmp/%s-%s-overlap.jpeg"
       outputDistanceMap :: Maybe String, -- e.g. "/tmp/%s-distance.jpeg"
+      outputShape :: Maybe String, -- e.g. "/tmp/%s-shape-soft.jpeg"
+      outputShapeHard :: Maybe String, -- e.g. "/tmp/%s-shape-hard.jpeg"
       quality :: Int,
       maximumAbsoluteAngle :: Float,
       numberAngleSteps :: Int,
@@ -45,7 +49,8 @@ data Option =
       finetuneRotate :: Bool,
       numberStamps :: Int,
       stampSize :: Int,
-      distanceGamma :: Float
+      distanceGamma :: Float,
+      shapeSmooth :: Int
    }
 
 defltOption :: Option
@@ -54,8 +59,12 @@ defltOption =
       verbosity = Verbosity.verbose,
       output = Nothing,
       outputHard = Nothing,
+      outputShaped = Nothing,
+      outputShapedHard = Nothing,
       outputOverlap = Nothing,
       outputDistanceMap = Nothing,
+      outputShape = Nothing,
+      outputShapeHard = Nothing,
       quality = 99,
       maximumAbsoluteAngle = 1,
       numberAngleSteps = 40,
@@ -67,7 +76,8 @@ defltOption =
       finetuneRotate = False,
       numberStamps = 5,
       stampSize = 64,
-      distanceGamma = 2
+      distanceGamma = 2,
+      shapeSmooth = 200
    }
 
 
@@ -118,6 +128,16 @@ optionDescription desc =
          return $ flags{outputHard = Just str})
       ("path to collage without fading") :
 
+   Opt.Option [] ["output-shaped"]
+      (flip ReqArg "PATH" $ \str flags ->
+         return $ flags{outputShaped = Just str})
+      ("path to generated collage") :
+
+   Opt.Option [] ["output-shaped-hard"]
+      (flip ReqArg "PATH" $ \str flags ->
+         return $ flags{outputShapedHard = Just str})
+      ("path to collage without fading") :
+
    Opt.Option [] ["output-overlap"]
       (flip ReqArg "FORMAT" $ \str flags ->
          return $ flags{outputOverlap = Just str})
@@ -127,6 +147,16 @@ optionDescription desc =
       (flip ReqArg "FORMAT" $ \str flags ->
          return $ flags{outputDistanceMap = Just str})
       ("path format for distance maps") :
+
+   Opt.Option [] ["output-shape"]
+      (flip ReqArg "FORMAT" $ \str flags ->
+         return $ flags{outputShape = Just str})
+      ("path format for smooth part shape") :
+
+   Opt.Option [] ["output-shape-hard"]
+      (flip ReqArg "FORMAT" $ \str flags ->
+         return $ flags{outputShapeHard = Just str})
+      ("path format for hard part shape") :
 
    Opt.Option [] ["quality"]
       (flip ReqArg "PERCENTAGE" $ \str flags ->
@@ -205,6 +235,13 @@ optionDescription desc =
          parseNumber "gamma exponent" (0<) "positive" str)
       (printf "Distance exponent, default: %f"
          (distanceGamma defltOption)) :
+
+   Opt.Option [] ["shape-smooth"]
+      (flip ReqArg "NATURAL" $ \str flags ->
+         fmap (\x -> flags{shapeSmooth = x}) $
+         parseNumber "smooth radius" (0<=) "non-negative" str)
+      (printf "Smooth radius for part shapes, default: %d"
+         (shapeSmooth defltOption)) :
 
    []
 

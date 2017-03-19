@@ -64,7 +64,7 @@ import Control.Applicative (pure, (<$>), (<*>))
 
 import qualified Data.List as List
 import Data.Maybe.HT (toMaybe)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isJust)
 import Data.List.HT (removeEach, tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
@@ -1610,66 +1610,12 @@ process args = do
       emptyCanv <- emptyCanvas
       updateCanv <- updateCanvas
       finalizeCanv <- finalizeCanvas
-      finalizeCanvFloat <- finalizeCanvasFloat
 
       empty <- emptyCanv $ shape2 canvasHeight canvasWidth
-      sumImg <-
+      writeImage (Option.quality opt) path =<< finalizeCanv =<<
          foldM
             (\canvas (mov, rot, pic) -> updateCanv rot mov pic canvas)
             empty movRotPics
-      writeImage (Option.quality opt) path =<< finalizeCanv sumImg
-
-      info "match shapes\n"
-      avg <- finalizeCanvFloat sumImg
-      diff <- diffWithCanvas
-      picDiffs <-
-         mapM (\(mov, rot, pic) -> diff rot mov pic avg) movRotPics
-      getSnd <- PhysP.render (Symb.map Expr.snd $ PhysP.feed (arr id))
-      lp <- lowpassMulti
-      masks <- map (amap ((0/=) . fst)) <$> mapM arrayCFromPhysical picDiffs
-      let smoothRadius = 200
-      smoothPicDiffs <-
-         mapM (arrayCFromPhysical <=< lp smoothRadius <=< getSnd) picDiffs
-      (locs, pqueue) <-
-         MatchImageBorders.prepareShaping $ zip masks smoothPicDiffs
-      counts <- thaw . amap (fromIntegral . fst) =<< arrayCFromPhysical sumImg
-      shapes <- MatchImageBorders.shapeParts counts locs pqueue
-      forM_ (zip [(0::Int) ..] shapes) $ \(k,shape) ->
-         writeGrey 100 (printf "/tmp/shape-hard-%04d.jpeg" k) $
-         arrayPhysicalFromC $ amap (\b -> if b then 255 else 0) shape
-
-      emptyPlainCanv <- emptyPlainCanvas
-      addMasked <- addMaskedToCanvas
-      emptyPlain <- emptyPlainCanv $ shape2 canvasHeight canvasWidth
-      writeImage (Option.quality opt) "/tmp/composition-hard.jpeg" =<<
-         foldM
-            (\canvas (shape, (mov, rot, pic)) ->
-               addMasked rot mov pic
-                  (arrayPhysicalFromC $ amap (fromIntegral . fromEnum) shape)
-                  canvas)
-            emptyPlain (zip shapes movRotPics)
-
-      smoothShapes <-
-         mapM
-            (lp smoothRadius . arrayPhysicalFromC .
-             amap (fromIntegral . fromEnum))
-            shapes
-      makeByteImage <-
-         PhysP.render (Symb.map byteFromFloat $ PhysP.feed (arr id))
-      forM_ (zip [(0::Int) ..] smoothShapes) $ \(k,shape) ->
-         writeGrey 100 (printf "/tmp/shape-soft-%04d.jpeg" k)
-            =<< makeByteImage shape
-
-      emptyWeightedCanv <- emptyWeightedCanvas
-      updateWeightedCanv <- updateShapedCanvas
-      finalizeWeightedCanv <- finalizeWeightedCanvas
-      emptyWeighted <- emptyWeightedCanv $ shape2 canvasHeight canvasWidth
-      writeImage (Option.quality opt) "/tmp/composition-soft.jpeg" =<<
-         finalizeWeightedCanv =<<
-         foldM
-            (\canvas (shape, (mov, rot, pic)) ->
-               updateWeightedCanv rot mov pic shape canvas)
-            emptyWeighted (zip smoothShapes movRotPics)
 
 
    notice "\ndistance maps"
@@ -1721,6 +1667,75 @@ process args = do
                updateCanv (Option.distanceGamma opt)
                   thisGeom otherGeoms allPoints pic canvas)
             empty (zip geometryRelations picRots)
+
+   when (isJust (Option.outputShaped opt) || isJust (Option.outputShapedHard opt)) $ do
+      notice "\nmatch shapes"
+      emptyCanv <- emptyCanvas
+      updateCanv <- updateCanvas
+      finalizeCanv <- finalizeCanvasFloat
+
+      empty <- emptyCanv $ shape2 canvasHeight canvasWidth
+      sumImg <-
+         foldM
+            (\canvas (mov, rot, pic) -> updateCanv rot mov pic canvas)
+            empty movRotPics
+
+      avg <- finalizeCanv sumImg
+      diff <- diffWithCanvas
+      picDiffs <- mapM (\(mov, rot, pic) -> diff rot mov pic avg) movRotPics
+      getSnd <- PhysP.render (Symb.map Expr.snd $ PhysP.feed (arr id))
+      lp <- lowpassMulti
+      masks <- map (amap ((0/=) . fst)) <$> mapM arrayCFromPhysical picDiffs
+      let smoothRadius = Option.shapeSmooth opt
+      smoothPicDiffs <-
+         mapM (arrayCFromPhysical <=< lp smoothRadius <=< getSnd) picDiffs
+      (locs, pqueue) <-
+         MatchImageBorders.prepareShaping $ zip masks smoothPicDiffs
+      counts <- thaw . amap (fromIntegral . fst) =<< arrayCFromPhysical sumImg
+      shapes <- MatchImageBorders.shapeParts counts locs pqueue
+
+      let names = map (FilePath.takeBaseName . fst) picAngles
+      forM_ (Option.outputShapedHard opt) $ \path -> do
+         forM_ (Option.outputShapeHard opt) $ \format ->
+            forM_ (zip names shapes) $ \(name,shape) ->
+               writeGrey (Option.quality opt) (printf format name) $
+               arrayPhysicalFromC $ amap (\b -> if b then 255 else 0) shape
+
+         emptyPlainCanv <- emptyPlainCanvas
+         addMasked <- addMaskedToCanvas
+         emptyPlain <- emptyPlainCanv $ shape2 canvasHeight canvasWidth
+         writeImage (Option.quality opt) path =<<
+            foldM
+               (\canvas (shape, (mov, rot, pic)) ->
+                  addMasked rot mov pic
+                     (arrayPhysicalFromC $ amap (fromIntegral . fromEnum) shape)
+                     canvas)
+               emptyPlain (zip shapes movRotPics)
+
+      forM_ (Option.outputShaped opt) $ \path -> do
+         smoothShapes <-
+            mapM
+               (lp smoothRadius . arrayPhysicalFromC .
+                amap (fromIntegral . fromEnum))
+               shapes
+         forM_ (Option.outputShape opt) $ \format -> do
+            makeByteImage <-
+               PhysP.render (Symb.map byteFromFloat $ PhysP.feed (arr id))
+            forM_ (zip names smoothShapes) $ \(name,shape) ->
+               writeGrey (Option.quality opt) (printf format name)
+                  =<< makeByteImage shape
+
+         emptyWeightedCanv <- emptyWeightedCanvas
+         updateWeightedCanv <- updateShapedCanvas
+         finalizeWeightedCanv <- finalizeWeightedCanvas
+         emptyWeighted <- emptyWeightedCanv $ shape2 canvasHeight canvasWidth
+         writeImage (Option.quality opt) path =<<
+            finalizeWeightedCanv =<<
+            foldM
+               (\canvas (shape, (mov, rot, pic)) ->
+                  updateWeightedCanv rot mov pic shape canvas)
+               emptyWeighted (zip smoothShapes movRotPics)
+
 
 rotateTest :: IO ()
 rotateTest = do
