@@ -1595,30 +1595,10 @@ process args = do
             args (map snd picAngles) pairs
 
    notice "\ncompose all parts"
-   let bbox (rot, pic) =
-          boundingBoxOfRotated rot $
-          mapPair (fromIntegral, fromIntegral) $
-          colorImageExtent pic
-       ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
-          mapPair
-             (mapPair (minimum, maximum) . unzip,
-              mapPair (minimum, maximum) . unzip) $
-          unzip $
-          zipWith
-             (\(mx,my) ->
-                mapPair (mapPair ((mx+), (mx+)), mapPair ((my+), (my+))) . bbox)
-             floatPoss picRots
-       canvasWidth  = ceiling (canvasRight-canvasLeft)
-       canvasHeight = ceiling (canvasBottom-canvasTop)
-       canvasShape = Z :. canvasHeight :. canvasWidth
-       rotMovPics =
-          zipWith
-             (\(mx,my) (rot, pic) -> (rot, (mx-canvasLeft, my-canvasTop), pic))
-             floatPoss picRots
-   info $
-      printf "canvas %f - %f, %f - %f\n"
-         canvasLeft canvasRight canvasTop canvasBottom
-   info $ printf "canvas size %d, %d\n" canvasWidth canvasHeight
+   let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =
+         Arith.canvasShape colorImageExtent floatPoss picRots
+   mapM_ info canvasMsgs
+
    forM_ (Option.outputHard opt) $ \path ->
       writeImage (Option.quality opt) path $
       finalizeCountCanvas $
@@ -1636,6 +1616,7 @@ process args = do
          \((thisGeom, otherGeoms, allPoints), (path, _)) -> do
 
       let stem = FilePath.takeBaseName path
+      let canvasShape = Z :. canvasHeight :. canvasWidth
       when False $ do
          writeGrey (Option.quality opt)
             (printf "/tmp/%s-distance-box.jpeg" stem) $

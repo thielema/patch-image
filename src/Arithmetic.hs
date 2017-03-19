@@ -11,6 +11,8 @@ import qualified Data.Bits as Bit
 import Data.Maybe (catMaybes)
 import Data.Tuple.HT (mapPair, fst3, thd3)
 
+import Text.Printf (PrintfArg, printf)
+
 
 inBox ::
    (Ord a, Num a) =>
@@ -55,6 +57,38 @@ boundingBoxOfRotatedGen (mini,maxi) rot (w,h) =
           rotatePoint rot (w,h) :
           []
    in  ((foldl1 mini xs, foldl1 maxi xs), (foldl1 mini ys, foldl1 maxi ys))
+
+canvasShape ::
+   (RealFrac a, Integral i,
+    PrintfArg a, PrintfArg i) =>
+   (image -> (i, i)) -> [Point2 a] -> [((a, a), image)] ->
+   ((i, i), [((a, a), (a, a), image)], [String])
+canvasShape extent floatPoss picRots =
+   let bbox (rot, pic) =
+         case extent pic of
+            (width, height) ->
+               boundingBoxOfRotated rot
+                  (fromIntegral width, fromIntegral height)
+       ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
+         mapPair
+            (mapPair (minimum, maximum) . unzip,
+             mapPair (minimum, maximum) . unzip) $
+         unzip $
+         zipWith
+            (\(mx,my) ->
+               mapPair (mapPair ((mx+), (mx+)), mapPair ((my+), (my+))) . bbox)
+            floatPoss picRots
+       canvasWidth  = ceiling (canvasRight-canvasLeft)
+       canvasHeight = ceiling (canvasBottom-canvasTop)
+       rotMovPics =
+         zipWith
+            (\(mx,my) (rot, pic) -> (rot, (mx-canvasLeft, my-canvasTop), pic))
+            floatPoss picRots
+   in  ((canvasWidth, canvasHeight), rotMovPics,
+        [printf "canvas %f - %f, %f - %f\n"
+            canvasLeft canvasRight canvasTop canvasBottom,
+         printf "canvas size %d, %d\n" canvasWidth canvasHeight])
+
 
 
 linearIp :: (Num a) => (a,a) -> a -> a
