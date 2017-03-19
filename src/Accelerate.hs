@@ -1626,25 +1626,13 @@ process args = do
          rotMovPics
 
    notice "\ndistance maps"
-   let geometries =
-          map
-             (\(rot, mov, pic) ->
-                let Z:.height:.width:._chans = A.arrayShape pic
-                    trans = rotateStretchMovePoint rot mov
-                    widthf  = fromIntegral width
-                    heightf = fromIntegral height
-                    corner00 = trans (0,0)
-                    corner10 = trans (widthf,0)
-                    corner01 = trans (0,heightf)
-                    corner11 = trans (widthf,heightf)
-                    corners = [corner00, corner01, corner10, corner11]
-                    edges =
-                       [(corner00, corner10), (corner10, corner11),
-                        (corner11, corner01), (corner01, corner00)]
-                in  ((rot, mov, (width,height)), corners, edges))
-             rotMovPics
-
-   let geometryRelations = Arith.geometryRelations geometries
+   let geometryRelations =
+         Arith.geometryRelations $
+         map
+            (\(rot, mov, pic) ->
+               let Z:.height:.width:._chans = A.arrayShape pic
+               in  Arith.geometryFeatures (rot, mov, (width,height)))
+            rotMovPics
 
    forM_ (zip geometryRelations picAngles) $
          \((thisGeom, otherGeoms, allPoints), (path, _)) -> do

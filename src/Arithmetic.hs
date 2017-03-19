@@ -116,6 +116,23 @@ intersections segments0 segments1 =
 
 type Geometry i a = ((a,a), (a,a), (i,i))
 
+geometryFeatures ::
+   (Fractional a, Integral i) =>
+   Geometry i a -> (Geometry i a, [Point2 a], [Line2 a])
+geometryFeatures geom@(rot, mov, (width,height)) =
+   let trans = rotateStretchMovePoint rot mov
+       widthf  = fromIntegral width
+       heightf = fromIntegral height
+       corner00 = trans (0,0)
+       corner10 = trans (widthf,0)
+       corner01 = trans (0,heightf)
+       corner11 = trans (widthf,heightf)
+       corners = [corner00, corner01, corner10, corner11]
+       edges =
+          [(corner00, corner10), (corner10, corner11),
+           (corner11, corner01), (corner01, corner00)]
+   in  (geom, corners, edges)
+
 geometryRelations ::
    (RealFrac a, Integral i) =>
    [(Geometry i a, [Point2 a], [Line2 a])] ->
