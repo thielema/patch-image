@@ -17,8 +17,6 @@ import qualified Math.FFT as FFT
 import Math.FFT.Base (FFTWReal)
 
 import qualified Data.Array.Knead.Parameterized.Render as RenderP
-import qualified Data.Array.Knead.Parameterized.Physical as PhysP
-import qualified Data.Array.Knead.Parameterized.Symbolic as SymbP
 import qualified Data.Array.Knead.Simple.Physical as Phys
 import qualified Data.Array.Knead.Simple.ShapeDependent as ShapeDep
 import qualified Data.Array.Knead.Simple.Symbolic as Symb
@@ -58,7 +56,6 @@ import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
 import qualified Control.Functor.HT as FuncHT
-import Control.Arrow (arr)
 import Control.Monad (liftM2, when, foldM, (<=<))
 import Control.Applicative (pure, (<$>), (<*>))
 
@@ -535,17 +532,15 @@ nestM n f x0 = foldM (\x () -> f x) x0 (replicate n ())
 
 lowpassMulti :: IO (Int -> Plane Float -> IO (Plane Float))
 lowpassMulti = do
-   lp <- PhysP.render (Symb.lift1 lowpass $ PhysP.feed (arr id))
+   lp <- RenderP.run lowpass
    return $ \n -> nestM n lp
 
 
 highpassMulti :: IO (Int -> Plane Float -> IO (Plane Float))
 highpassMulti = do
    lp <- lowpassMulti
-   sub <-
-      PhysP.render $
-         Symb.zipWith Expr.sub (PhysP.feed (arr fst)) (PhysP.feed (arr snd))
-   return $ \n img -> curry sub img =<< lp n img
+   sub <- RenderP.run $ Symb.zipWith Expr.sub . fixArray
+   return $ \n img -> sub img =<< lp n img
 
 
 
@@ -1023,7 +1018,7 @@ composeOverlap = do
 
 
 emptyCanvas :: IO (Dim2 -> IO (Plane (Word32, YUV Float)))
-emptyCanvas = PhysP.render $ SymbP.fill (arr id) $ return (0, (0,0,0))
+emptyCanvas = RenderP.run $ \sh -> Symb.fill sh (Expr.zip 0 $ Expr.zip3 0 0 0)
 
 
 type MaskBool = Word8
@@ -1063,12 +1058,12 @@ updateCanvas =
 
 finalizeCanvas :: IO ((Plane (Word32, YUV Float)) -> IO ColorImage8)
 finalizeCanvas =
-   PhysP.render $
-      colorImageByteFromFloat $
+   RenderP.run $
+      colorImageByteFromFloat .
       Symb.map
          (Expr.modify (atom,atom) $ \(count, pixel) ->
-            Arith.vecScale vecYUV (recip $ fromInt count) pixel)
-         (PhysP.feed (arr id))
+            Arith.vecScale vecYUV (recip $ fromInt count) pixel) .
+      fixArray
 
 
 diffAbs :: (MultiValue.Real a) => Exp a -> Exp a -> Exp a
@@ -1090,14 +1085,15 @@ diffWithCanvas =
 finalizeCanvasFloat ::
    IO ((Plane (Word32, YUV Float)) -> IO (Plane (YUV Float)))
 finalizeCanvasFloat =
-   PhysP.render $
+   RenderP.run $
       Symb.map
          (Expr.modify (atom,atom) $ \(count, pixel) ->
             Arith.vecScale vecYUV (recip $ fromInt count) pixel)
-         (PhysP.feed (arr id))
+      .
+      fixArray
 
 emptyPlainCanvas :: IO (Dim2 -> IO ColorImage8)
-emptyPlainCanvas = PhysP.render $ SymbP.fill (arr id) $ return (0,0,0)
+emptyPlainCanvas = RenderP.run $ \sh -> Symb.fill sh (Expr.zip3 0 0 0)
 
 addMaskedToCanvas ::
    IO ((Float,Float) -> (Float,Float) -> ColorImage8 ->
@@ -1327,7 +1323,8 @@ distanceMapGamma gamma sh this others points =
 
 
 emptyWeightedCanvas :: IO (Dim2 -> IO (Plane (Float, YUV Float)))
-emptyWeightedCanvas = PhysP.render $ SymbP.fill (arr id) $ return (0, (0,0,0))
+emptyWeightedCanvas =
+   RenderP.run $ \sh -> Symb.fill sh (Expr.zip 0 $ Expr.zip3 0 0 0)
 
 addToWeightedCanvas ::
    (MultiValue.PseudoRing a, MultiValue.NativeFloating a ar) =>
@@ -1376,12 +1373,12 @@ updateWeightedCanvas = do
 
 finalizeWeightedCanvas :: IO ((Plane (Float, YUV Float)) -> IO ColorImage8)
 finalizeWeightedCanvas =
-   PhysP.render $
-      colorImageByteFromFloat $
+   RenderP.run $
+      colorImageByteFromFloat .
       Symb.map
          (Expr.modify (atom,atom) $ \(weightSum, pixel) ->
-            Arith.vecScale vecYUV (recip weightSum) pixel)
-         (PhysP.feed (arr id))
+            Arith.vecScale vecYUV (recip weightSum) pixel) .
+      fixArray
 
 
 
@@ -1683,7 +1680,7 @@ process args = do
       avg <- finalizeCanv sumImg
       diff <- diffWithCanvas
       picDiffs <- mapM (\(mov, rot, pic) -> diff rot mov pic avg) movRotPics
-      getSnd <- PhysP.render (Symb.map Expr.snd $ PhysP.feed (arr id))
+      getSnd <- RenderP.run $ Symb.map Expr.snd . fixArray
       lp <- lowpassMulti
       masks <- map (amap ((0/=) . fst)) <$> mapM arrayCFromPhysical picDiffs
       let smoothRadius = Option.shapeSmooth opt
@@ -1719,8 +1716,7 @@ process args = do
                 amap (fromIntegral . fromEnum))
                shapes
          forM_ (Option.outputShape opt) $ \format -> do
-            makeByteImage <-
-               PhysP.render (Symb.map byteFromFloat $ PhysP.feed (arr id))
+            makeByteImage <- RenderP.run $ imageByteFromFloat . fixArray
             forM_ (zip names smoothShapes) $ \(name,shape) ->
                writeGrey (Option.quality opt) (printf format name)
                   =<< makeByteImage shape
