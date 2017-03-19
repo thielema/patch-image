@@ -39,10 +39,10 @@ data Option =
       outputHard :: Maybe FilePath,
       outputShaped :: Maybe FilePath,
       outputShapedHard :: Maybe FilePath,
-      outputOverlap :: Maybe String, -- e.g. "/tmp/%s-%s-overlap.jpeg"
-      outputDistanceMap :: Maybe String, -- e.g. "/tmp/%s-distance.jpeg"
-      outputShape :: Maybe String, -- e.g. "/tmp/%s-shape-soft.jpeg"
-      outputShapeHard :: Maybe String, -- e.g. "/tmp/%s-shape-hard.jpeg"
+      outputOverlap :: Maybe String,
+      outputDistanceMap :: Maybe String,
+      outputShape :: Maybe String,
+      outputShapeHard :: Maybe String,
       quality :: Int,
       maximumAbsoluteAngle :: Float,
       numberAngleSteps :: Int,
@@ -164,22 +164,22 @@ optionDescription desc =
    opt generic [] ["output-overlap"]
       (flip ReqArg "FORMAT" $ \str flags ->
          return $ flags{outputOverlap = Just str})
-      ("path format for overlapped pairs") :
+      ("path format for overlapped pairs like '%s-%s-overlap.jpeg'") :
 
    opt generic [] ["output-distance-map"]
       (flip ReqArg "FORMAT" $ \str flags ->
          return $ flags{outputDistanceMap = Just str})
-      ("path format for distance maps") :
+      ("path format for distance maps like '%s-distance.jpeg'") :
 
    opt knead [] ["output-shape"]
       (flip ReqArg "FORMAT" $ \str flags ->
          return $ flags{outputShape = Just str})
-      ("path format for smooth part shape") :
+      ("path format for smooth part shape like '%s-shape-soft.jpeg'") :
 
    opt knead [] ["output-shape-hard"]
       (flip ReqArg "FORMAT" $ \str flags ->
          return $ flags{outputShapeHard = Just str})
-      ("path format for hard part shape") :
+      ("path format for hard part shape like '%s-shape-hard.jpeg'") :
 
    opt generic [] ["quality"]
       (flip ReqArg "PERCENTAGE" $ \str flags ->
