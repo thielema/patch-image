@@ -516,7 +516,7 @@ findOptimalRotation = do
    return $ \angles pic ->
       fmap (fst . List.maximumBy (comparing snd)) $
       forM angles $ \angle ->
-         (,) angle <$> scoreRotation (angle * (pi/180)) pic
+         (,) angle <$> scoreRotation (Arith.radianFromDegree angle) pic
 
 
 
@@ -1523,7 +1523,7 @@ processOverlapRotate args picAngles pairs = do
       map
          (\(d,r) ->
             printf "%s, %s (%7.5f, %6.2f)" (show d) (show r)
-               (Complex.magnitude r) (Complex.phase r * 180/pi))
+               (Complex.magnitude r) (Arith.degreeFromRadian $ Complex.phase r))
          posRots
 
    info "\ncompare position differences with pair displacements"
@@ -1569,7 +1569,7 @@ process args = do
                Just angle -> return angle
                Nothing -> findOptRot angles pic
          info $ printf "%s %f\176\n" path angle
-         return (path, (angle*pi/180, pic))
+         return (path, (Arith.radianFromDegree angle, pic))
 
    notice "\nfind relative placements"
    prepOverlapMatching <- prepareOverlapMatching

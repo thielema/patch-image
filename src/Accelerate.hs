@@ -8,6 +8,8 @@ import LinearAlgebra (
    absolutePositionsFromPairDisplacements, layoutFromPairDisplacements,
    )
 import Arithmetic (
+   radianFromDegree,
+   degreeFromRadian,
    Point2,
    rotateStretchMovePoint,
    rotateStretchMoveBackPoint,
@@ -320,7 +322,7 @@ analyseRotations :: [Float] -> Array DIM3 Word8 -> IO ()
 analyseRotations angles pic = do
    histograms <-
       forM angles $ \degree -> do
-         let (rotated, histogram) = rotateHistogram (degree * pi/180) pic
+         let (rotated, histogram) = rotateHistogram (Arith.radianFromDegree degree) pic
          let stem = printf "rotated%+07.2f" degree
          writeImage 90 ("/tmp/" ++ stem ++ ".jpeg") rotated
          let diffHistogram = map abs $ mapAdjacent (-) $ A.toList histogram
@@ -361,7 +363,7 @@ scoreRotation =
 
 findOptimalRotation :: [Float] -> Array DIM3 Word8 -> Float
 findOptimalRotation angles pic =
-   Key.maximum (flip scoreRotation pic . (* (pi/180))) angles
+   Key.maximum (flip scoreRotation pic . radianFromDegree) angles
 
 
 magnitudeSqr :: (A.Elt a, A.IsNum a) => Exp (Complex a) -> Exp a
@@ -442,10 +444,10 @@ radonAngle (minAngle,maxAngle) pic = do
       CUDAForeign.inDefaultContext $
       CUFFT.plan2D CUFFT.forwardReal shape
    let height2 = fromIntegral (div height 2)
-   let slope w = tan (w*pi/180) * height2
+   let slope w = tan (radianFromDegree w) * height2
    let minX = floor $ slope minAngle
    let maxX = ceiling $ slope maxAngle
-   let angle s = atan (s/height2) * 180/pi
+   let angle s = degreeFromRadian $ atan (s/height2)
    let trans =
           Run.with CUDA.run1 $ \arr ->
              A.map A.snd $ argmaximum $
@@ -1509,7 +1511,7 @@ processOverlapRotate args picAngles pairs = do
       map
          (\(d,r) ->
             printf "%s, %s (%7.5f, %6.2f)" (show d) (show r)
-               (HComplex.magnitude r) (HComplex.phase r * 180/pi))
+               (HComplex.magnitude r) (degreeFromRadian $ HComplex.phase r))
          posRots
 
    info "\ncompare position differences with pair displacements"
@@ -1559,7 +1561,7 @@ process args = do
                     then radonAngle (-maxAngle, maxAngle) pic
                     else return $ findOptimalRotation angles pic
          info $ printf "%s %f\176\n" path angle
-         return (path, (angle*pi/180, pic))
+         return (path, (radianFromDegree angle, pic))
 
    notice "\nfind relative placements"
    let rotated =

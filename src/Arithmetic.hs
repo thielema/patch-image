@@ -14,6 +14,12 @@ import Data.Tuple.HT (mapPair, fst3, thd3)
 import Text.Printf (PrintfArg, printf)
 
 
+radianFromDegree :: (Floating a) => a -> a
+radianFromDegree angle = angle*pi/180
+
+degreeFromRadian :: (Floating a) => a -> a
+degreeFromRadian angle = angle*180/pi
+
 inBox ::
    (Ord a, Num a) =>
    (a, a) ->
