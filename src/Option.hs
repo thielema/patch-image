@@ -1,6 +1,7 @@
 module Option where
 
 import Option.Utility (exitFailureMsg, parseNumber, fmapOptDescr)
+import Arithmetic (Degree(Degree, getDegree))
 
 import qualified System.Console.GetOpt as Opt
 import qualified System.Environment as Env
@@ -44,7 +45,7 @@ data Option =
       outputShape :: Maybe String,
       outputShapeHard :: Maybe String,
       quality :: Int,
-      maximumAbsoluteAngle :: Float,
+      maximumAbsoluteAngle :: Degree Float,
       numberAngleSteps :: Int,
       radonTransform :: Bool,
       smooth :: Int,
@@ -71,7 +72,7 @@ defltOption =
       outputShape = Nothing,
       outputShapeHard = Nothing,
       quality = 99,
-      maximumAbsoluteAngle = 1,
+      maximumAbsoluteAngle = Degree 1,
       numberAngleSteps = 40,
       radonTransform = False,
       smooth = 20,
@@ -88,7 +89,7 @@ defltOption =
 
 data Image =
    Image {
-      angle :: Maybe Float
+      angle :: Maybe (Degree Float)
    }
    deriving (Eq)
 
@@ -190,10 +191,10 @@ optionDescription desc =
 
    opt generic [] ["maximum-absolute-angle"] -- "max-abs-angle"
       (flip ReqArg "DEGREE" $ \str flags ->
-         fmap (\x -> flags{maximumAbsoluteAngle = x}) $
+         fmap (\x -> flags{maximumAbsoluteAngle = Degree x}) $
          parseNumber "maximum absolute angle" (0<=) "non-negative" str)
       (printf "Maximum absolute angle for test rotations, default: %f"
-         (maximumAbsoluteAngle defltOption)) :
+         (getDegree $ maximumAbsoluteAngle defltOption)) :
 
    opt generic [] ["number-angles"] -- "num-angles"
       (flip ReqArg "NATURAL" $ \str flags ->
@@ -280,10 +281,10 @@ description desc =
 
    opt generic [] ["hint-angle"]
       (flip ReqArg "DEGREE" $ \str (image, args) ->
-         fmap (\x -> (image{angle = Just x}, args)) $
+         fmap (\x -> (image{angle = Just (Degree x)}, args)) $
          parseNumber "angle" (\w -> -1000<=w && w<=1000) "degree" str)
       (printf "Angle of the next image in first phase, default: %s" $
-       maybe "automatic estimation" show (angle defltImage)) :
+       maybe "automatic estimation" (show . getDegree) (angle defltImage)) :
 
    []
 

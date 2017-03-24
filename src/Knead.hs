@@ -12,6 +12,7 @@ import LinearAlgebra (
 import KneadShape
          (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Index2, Ix2,
           verticalVal, horizontalVal)
+import Arithmetic (Degree)
 
 import qualified Math.FFT as FFT
 import Math.FFT.Base (FFTWReal)
@@ -510,7 +511,7 @@ runScoreRotation = do
    score <- RenderP.run scoreHistogram
    return $ \ angle img -> score =<< rot (cos angle, sin angle) img
 
-findOptimalRotation :: IO ([Float] -> ColorImage8 -> IO Float)
+findOptimalRotation :: IO ([Degree Float] -> ColorImage8 -> IO (Degree Float))
 findOptimalRotation = do
    scoreRotation <- runScoreRotation
    return $ \angles pic ->
@@ -1523,7 +1524,8 @@ processOverlapRotate args picAngles pairs = do
       map
          (\(d,r) ->
             printf "%s, %s (%7.5f, %6.2f)" (show d) (show r)
-               (Complex.magnitude r) (Arith.degreeFromRadian $ Complex.phase r))
+               (Complex.magnitude r)
+               (Arith.getDegree $ Arith.degreeFromRadian $ Complex.phase r))
          posRots
 
    info "\ncompare position differences with pair displacements"
@@ -1561,14 +1563,12 @@ process args = do
       forM paths $ \(imageOption, path) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
-         let angles =
-                Arith.linearScale (Option.numberAngleSteps opt)
-                   (-maxAngle, maxAngle)
+         let angles = Arith.angleScale (Option.numberAngleSteps opt) maxAngle
          angle <-
             case Option.angle imageOption of
                Just angle -> return angle
                Nothing -> findOptRot angles pic
-         info $ printf "%s %f\176\n" path angle
+         info $ printf "%s %f\176\n" path (Arith.getDegree angle)
          return (path, (Arith.radianFromDegree angle, pic))
 
    notice "\nfind relative placements"
