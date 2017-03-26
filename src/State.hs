@@ -5,7 +5,10 @@ import Arithmetic (Degree(Degree))
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Csv as Csv
-import Data.Csv ((.=))
+import Data.Vector (Vector)
+import Data.Csv ((.=), (.:))
+
+import Control.Applicative ((<$>), (<*>))
 
 
 newtype File = File FilePath
@@ -41,3 +44,16 @@ instance Csv.DefaultOrdered Position where
 
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()
 write path = BL.writeFile path . Csv.encodeDefaultOrderedByName
+
+
+
+data Proposed = Proposed FilePath (Maybe (Degree Float))
+
+instance Csv.FromNamedRecord Proposed where
+   parseNamedRecord m =
+      Proposed <$> m .: imageId <*> (fmap Degree <$> m .: angleId)
+
+read :: FilePath -> IO (Vector Proposed)
+read path =
+   either (ioError . userError) (return . snd) . Csv.decodeByName
+      =<< BL.readFile path

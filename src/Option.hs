@@ -1,5 +1,6 @@
 module Option where
 
+import qualified State
 import Option.Utility (exitFailureMsg, parseNumber, fmapOptDescr)
 import Arithmetic (Degree(Degree, getDegree))
 
@@ -12,6 +13,8 @@ import qualified System.Exit as Exit
 import Control.Monad (when)
 
 import qualified Data.EnumSet as EnumSet
+import qualified Data.Vector as Vector
+import Data.Vector (Vector)
 import Data.Tuple.HT (mapSnd)
 import Data.Monoid ((<>))
 import Data.Word (Word8)
@@ -36,6 +39,7 @@ defltArgs = Args {option = defltOption, inputs = []}
 data Option =
    Option {
       verbosity :: Verbosity,
+      state :: Vector State.Proposed,
       output :: Maybe FilePath,
       outputHard :: Maybe FilePath,
       outputShaped :: Maybe FilePath,
@@ -64,6 +68,7 @@ defltOption :: Option
 defltOption =
    Option {
       verbosity = Verbosity.verbose,
+      state = Vector.empty,
       output = Nothing,
       outputHard = Nothing,
       outputShaped = Nothing,
@@ -143,6 +148,12 @@ optionDescription desc =
             Left msg -> exitFailureMsg msg)
       (printf "verbosity level: 0..3, default: %d"
          (fromEnum $ verbosity defltOption)) :
+
+   opt generic [] ["state"]
+      (flip ReqArg "PATH" $ \path flags -> do
+         xs <- State.read path
+         return $ flags{state = xs})
+      ("CSV file with predefined parameters") :
 
    opt generic [] ["output"]
       (flip ReqArg "PATH" $ \str flags ->
@@ -315,6 +326,11 @@ get engine = do
    when (lastImage /= defltImage) $
       exitFailureMsg "unused trailing image options"
 
-   case inputs parsedArgs of
+   let images =
+         (map (\(State.Proposed path ang) -> (Image ang, path)) $
+          Vector.toList $ state $ option parsedArgs)
+         ++
+         (reverse $ inputs parsedArgs)
+   case images of
       [] -> exitFailureMsg "no input files"
-      images -> return $ parsedArgs {inputs = reverse images}
+      _ -> return $ parsedArgs {inputs = images}
