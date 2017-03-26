@@ -62,6 +62,7 @@ import Control.Monad (liftM2, when, foldM, (<=<))
 import Control.Applicative (pure, (<$>), (<*>))
 
 import qualified Data.List as List
+import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (catMaybes, isJust)
 import Data.List.HT (tails)
@@ -458,12 +459,12 @@ rotate vec rot img =
          img
 
 
-runRotate :: IO (Float -> ColorImage8 -> IO ColorImage8)
+runRotate :: IO (Degree Float -> ColorImage8 -> IO ColorImage8)
 runRotate = do
    rot <-
       RenderP.run $ \rot ->
          colorImageByteFromFloat . rotate vecYUV rot . colorImageFloatFromByte
-   return $ \ angle img -> rot (cos angle, sin angle) img
+   return $ \ angle img -> rot (Arith.cisDegree angle) img
 
 
 brightnessValue :: Exp (YUV a) -> Exp a
@@ -504,21 +505,20 @@ scoreHistogram :: (MultiValue.PseudoRing a) => Symb.Array Dim1 a -> Exp a
 scoreHistogram = fold1All Expr.add . Symb.map Expr.sqr . differentiate
 
 
-runScoreRotation :: IO (Float -> ColorImage8 -> IO Float)
+runScoreRotation :: IO (Degree Float -> ColorImage8 -> IO Float)
 runScoreRotation = do
    rot <-
       RenderP.run $ \rot ->
          rowHistogram . rotate vecYUV rot . colorImageFloatFromByte
    score <- RenderP.run scoreHistogram
-   return $ \ angle img -> score =<< rot (cos angle, sin angle) img
+   return $ \ angle img -> score =<< rot (Arith.cisDegree angle) img
 
 findOptimalRotation :: IO ([Degree Float] -> ColorImage8 -> IO (Degree Float))
 findOptimalRotation = do
    scoreRotation <- runScoreRotation
    return $ \angles pic ->
       fmap (fst . List.maximumBy (comparing snd)) $
-      forM angles $ \angle ->
-         (,) angle <$> scoreRotation (Arith.radianFromDegree angle) pic
+      forM angles $ \angle -> (,) angle <$> scoreRotation angle pic
 
 
 
@@ -674,14 +674,14 @@ fixArray :: Id (Symb.Array sh a)
 fixArray = id
 
 prepareOverlapMatching ::
-   IO (Int -> (Float, ColorImage8) -> IO ((Float, Float), Plane Float))
+   IO (Int -> (Degree Float, ColorImage8) -> IO ((Float, Float), Plane Float))
 prepareOverlapMatching = do
    bright <- RenderP.run $ brightnessPlane . colorImageFloatFromByte . fixArray
    hp <- highpassMulti
    rotat <- RenderP.run $ rotate Arith.vecScalar
    return $ \radius (angle, img) ->
       let Vec2 height width = Phys.shape img
-          rot = (cos angle, sin angle)
+          rot = Arith.cisDegree angle
           ((left, _right), (top, _bottom)) =
             Arith.boundingBoxOfRotated rot
                (fromIntegral width, fromIntegral height)
@@ -1015,7 +1015,7 @@ overlap2 vec (dx,dy) (a,b) =
 
 composeOverlap ::
    IO ((Size, Size) ->
-       ((Float, ColorImage8), (Float, ColorImage8)) ->
+       ((Degree Float, ColorImage8), (Degree Float, ColorImage8)) ->
        IO ColorImage8)
 composeOverlap = do
    over <-
@@ -1024,9 +1024,9 @@ composeOverlap = do
          overlap2 vecYUV displacement
            (rotate vecYUV ra $ colorImageFloatFromByte picA,
             rotate vecYUV rb $ colorImageFloatFromByte picB)
-   let cis angle = (cos angle, sin angle)
    return $ \displacement ((angleA,picA), (angleB,picB)) ->
-      over displacement (cis angleA, picA) (cis angleB, picB)
+      over displacement
+         (Arith.cisDegree angleA, picA) (Arith.cisDegree angleB, picB)
 
 
 
@@ -1396,7 +1396,7 @@ finalizeWeightedCanvas =
 
 processOverlap ::
    Option.Args ->
-   [(Float, ColorImage8)] ->
+   [(Degree Float, ColorImage8)] ->
    [((Int, (FilePath, ((Float, Float), Plane Float))),
      (Int, (FilePath, ((Float, Float), Plane Float))))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
@@ -1482,7 +1482,7 @@ processOverlap args picAngles pairs = do
 
 processOverlapRotate ::
    Option.Args ->
-   [(Float, ColorImage8)] ->
+   [(Degree Float, ColorImage8)] ->
    [((Int, (FilePath, ((Float, Float), Plane Float))),
      (Int, (FilePath, ((Float, Float), Plane Float))))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
@@ -1557,7 +1557,7 @@ process args = do
 
    notice "\nfind rotation angles"
    findOptRot <- findOptimalRotation
-   picDegrees <-
+   picAngles <-
       forM paths $ \(imageOption, path) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
@@ -1571,8 +1571,7 @@ process args = do
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "angle") $
-         map (uncurry State.Angle . mapSnd fst) picDegrees
-   let picAngles = map (mapSnd (mapFst Arith.radianFromDegree)) picDegrees
+         map (uncurry State.Angle . mapSnd fst) picAngles
 
    notice "\nfind relative placements"
    prepOverlapMatching <- prepareOverlapMatching
@@ -1594,7 +1593,7 @@ process args = do
       zipWith3
          (\(path, (angle, _)) (rot, _) pos ->
             State.Position path
-               (Arith.degreeFromRadian $ angle + Complex.phase rot) pos)
+               (angle <> Arith.degreeFromRadian (Complex.phase rot)) pos)
          picAngles picRots floatPoss
 
    notice "\ncompose all parts"
@@ -1602,7 +1601,9 @@ process args = do
          Arith.canvasShape colorImageExtent floatPoss $
          zipWith
             (\(_, (angle, _)) (rot,pic) ->
-               (Arith.pairFromComplex $ Complex.cis angle * rot, pic))
+               (Arith.pairFromComplex $
+                   Complex.cis (Arith.radianFromDegree angle) * rot,
+                pic))
             picAngles picRots
    let canvasShape = shape2 canvasHeight canvasWidth
    mapM_ info canvasMsgs
@@ -1708,14 +1709,14 @@ rotateTest = do
    forM_ [0..11] $ \k -> do
       let path = printf "/tmp/rotated/%04d.jpeg" k
       putStrLn path
-      writeImage 100 path =<< rot (fromInteger k * pi/6) img
+      writeImage 100 path =<< rot (Arith.Degree $ fromInteger k * 30) img
 
 scoreTest :: IO ()
 scoreTest = do
    score <- runScoreRotation
    img <- readImage Verbosity.normal "/tmp/bild/artikel0005.jpeg"
    forM_ [-10..10] $ \k -> do
-      print =<< score (fromInteger k * 2*pi/(360*10)) img
+      print =<< score (Arith.Degree $ fromInteger k / 10) img
 
 main :: IO ()
 main = process =<< Option.get Option.Knead
