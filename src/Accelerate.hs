@@ -307,7 +307,7 @@ rowHistogram = A.fold (+) 0 . brightnessPlane
 
 
 rotateHistogram ::
-   Float -> Array DIM3 Word8 -> (Array DIM3 Word8, Array DIM1 Float)
+   Degree Float -> Array DIM3 Word8 -> (Array DIM3 Word8, Array DIM1 Float)
 rotateHistogram =
    let rot =
           Run.with CUDA.run1 $ \orient arr ->
@@ -316,14 +316,14 @@ rotateHistogram =
                     separateChannels $ imageFloatFromByte arr
              in  (imageByteFromFloat $ interleaveChannels rotated,
                   rowHistogram rotated)
-   in  \angle arr -> rot (cos angle, sin angle) arr
+   in  \angle arr -> rot (Degree.cis angle) arr
 
 
 analyseRotations :: [Degree Float] -> Array DIM3 Word8 -> IO ()
 analyseRotations angles pic = do
    histograms <-
       forM angles $ \degree -> do
-         let (rotated, histogram) = rotateHistogram (Degree.toRadian degree) pic
+         let (rotated, histogram) = rotateHistogram degree pic
          let stem = printf "rotated%+07.2f" $ getDegree degree
          writeImage 90 ("/tmp/" ++ stem ++ ".jpeg") rotated
          let diffHistogram = map abs $ mapAdjacent (-) $ A.toList histogram
@@ -354,17 +354,17 @@ differentiate arr =
    in  A.generate (A.index1 (size-1)) $ \i ->
           arr ! (A.index1 $ A.unindex1 i + 1) - arr ! i
 
-scoreRotation :: Float -> Array DIM3 Word8 -> Float
+scoreRotation :: Degree Float -> Array DIM3 Word8 -> Float
 scoreRotation =
    let rot =
           Run.with CUDA.run1 $ \orient arr ->
              A.sum $ A.map (^(2::Int)) $ differentiate $ rowHistogram $
              rotate orient $ separateChannels $ imageFloatFromByte arr
-   in  \angle arr -> Acc.the $ rot (cos angle, sin angle) arr
+   in  \angle arr -> Acc.the $ rot (Degree.cis angle) arr
 
 findOptimalRotation :: [Degree Float] -> Array DIM3 Word8 -> Degree Float
 findOptimalRotation angles pic =
-   Key.maximum (flip scoreRotation pic . Degree.toRadian) angles
+   Key.maximum (flip scoreRotation pic) angles
 
 
 magnitudeSqr :: (A.Elt a, A.IsNum a) => Exp (Complex a) -> Exp a
@@ -461,16 +461,16 @@ radonAngle (minAngle,maxAngle) pic = do
    return $ angle $ fromIntegral $ Acc.the (trans pic) + minX
 
 
-rotateManifest :: Float -> Array DIM3 Word8 -> Array DIM3 Float
+rotateManifest :: Degree Float -> Array DIM3 Word8 -> Array DIM3 Float
 rotateManifest =
    let rot =
           Run.with CUDA.run1 $ \orient arr ->
              rotate orient $ separateChannels $ imageFloatFromByte arr
-   in  \angle arr -> rot (cos angle, sin angle) arr
+   in  \angle arr -> rot (Degree.cis angle) arr
 
 
 prepareOverlapMatching ::
-   Int -> (Float, Array DIM3 Word8) -> ((Float,Float), Channel Z Float)
+   Int -> (Degree Float, Array DIM3 Word8) -> ((Float,Float), Channel Z Float)
 prepareOverlapMatching =
    let rot =
           Run.with CUDA.run1 $ \radius orient arr ->
@@ -481,7 +481,7 @@ prepareOverlapMatching =
              brightnessPlane $ separateChannels $ imageFloatFromByte arr
    in  \radius (angle, arr) ->
           mapFst (mapPair (Acc.the, Acc.the)) $
-          rot radius (cos angle, sin angle) arr
+          rot radius (Degree.cis angle) arr
 
 
 ceilingPow2 :: Exp Int -> Exp Int
@@ -945,16 +945,16 @@ overlap2 (dx,dy) (a,b) =
 
 composeOverlap ::
    (Int, Int) ->
-   ((Float, Array DIM3 Word8), (Float, Array DIM3 Word8)) ->
+   ((Degree Float, Array DIM3 Word8), (Degree Float, Array DIM3 Word8)) ->
    Array DIM3 Word8
 composeOverlap =
-   let rot (angle,pic) =
-          rotate (cos angle, sin angle) $
-          separateChannels $ imageFloatFromByte pic
-   in  Run.with CUDA.run1 $
+   let rotat (rot,pic) =
+          rotate rot $ separateChannels $ imageFloatFromByte pic
+   in  (\f d (a,b) -> f d (mapFst Degree.cis a, mapFst Degree.cis b)) $
+       Run.with CUDA.run1 $
        \(dx,dy) (a,b) ->
           imageByteFromFloat $ interleaveChannels $
-          overlap2 (dx, dy) (rot a, rot b)
+          overlap2 (dx, dy) (rotat a, rotat b)
 
 
 emptyCountCanvas ::
@@ -1390,7 +1390,7 @@ finalizeWeightedCanvas =
 
 processOverlap ::
    Option.Args ->
-   [(Float, Array DIM3 Word8)] ->
+   [(Degree Float, Array DIM3 Word8)] ->
    [((Int, (FilePath, ((Float, Float), Channel Z Float))),
      (Int, (FilePath, ((Float, Float), Channel Z Float))))] ->
    IO ([(Float, Float)], [((Float, Float), Array DIM3 Word8)])
@@ -1462,8 +1462,7 @@ processOverlap args picAngles pairs = do
       ++
       printf "maximum vertical error: %f\n" errdy
 
-   let picRots =
-          map (mapFst (\angle -> (cos angle, sin angle))) picAngles
+   let picRots = map (mapFst Degree.cis) picAngles
        floatPoss = map (mapPair (realToFrac, realToFrac)) poss
 
    return (floatPoss, picRots)
@@ -1471,7 +1470,7 @@ processOverlap args picAngles pairs = do
 
 processOverlapRotate ::
    Option.Args ->
-   [(Float, Array DIM3 Word8)] ->
+   [(Degree Float, Array DIM3 Word8)] ->
    [((Int, (FilePath, ((Float, Float), Channel Z Float))),
      (Int, (FilePath, ((Float, Float), Channel Z Float))))] ->
    IO ([(Float, Float)], [((Float, Float), Array DIM3 Word8)])
@@ -1528,7 +1527,7 @@ processOverlapRotate args picAngles pairs = do
           zipWith
              (\(angle,pic) rot ->
                 (pairFromComplex $
-                    HComplex.cis angle * mapComplex realToFrac rot,
+                    uncurry (:+) (Degree.cis angle) * mapComplex realToFrac rot,
                  pic))
              picAngles (map snd posRots)
        floatPoss = map (mapPair (realToFrac, realToFrac) . fst) posRots
@@ -1547,7 +1546,7 @@ process args = do
    let info = CmdLine.info (Option.verbosity opt)
 
    notice "\nfind rotation angles"
-   picDegrees <-
+   picAngles <-
       forM paths $ \(imageOption, path) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
@@ -1566,8 +1565,7 @@ process args = do
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "angle") $
-         map (uncurry State.Angle . mapSnd fst) picDegrees
-   let picAngles = map (mapSnd (mapFst Degree.toRadian)) picDegrees
+         map (uncurry State.Angle . mapSnd fst) picAngles
 
    notice "\nfind relative placements"
    let rotated =
@@ -1606,7 +1604,7 @@ process args = do
       State.write (printf format "position") $
       zipWith
          (\(path, (angle, _)) pos -> State.Position path angle pos)
-         picDegrees floatPoss
+         picAngles floatPoss
 
    notice "\ncompose all parts"
    let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =
