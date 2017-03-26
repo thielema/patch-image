@@ -6,7 +6,7 @@ import qualified Data.Packed.ST as PackST
 import qualified Numeric.Container as Container
 import Numeric.Container ((<\>), (<>))
 
-import qualified Data.Complex as HComplex
+import Data.Complex (Complex((:+)))
 
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
@@ -83,7 +83,7 @@ Otherwise they are weighted much more than the rotation.
 -}
 layoutFromPairDisplacements ::
    Int -> [((Int, (Float, Float)), (Int, (Float, Float)))] ->
-   ([((Double,Double), HComplex.Complex Double)],
+   ([((Double,Double), Complex Double)],
     [(Double,Double)])
 layoutFromPairDisplacements numPics correspondences =
    let {-
@@ -127,7 +127,7 @@ layoutFromPairDisplacements numPics correspondences =
           leastSquaresSelected matrix
              (take (4*numPics) $
               map Just [0,0,1,0] ++ repeat Nothing)
-   in  (map (\[dx,dy,rx,ry] -> ((weight*dx,weight*dy), rx HComplex.:+ ry)) $
+   in  (map (\[dx,dy,rx,ry] -> ((weight*dx,weight*dy), rx :+ ry)) $
         ListHT.sliceVertical 4 solution,
         map (\[x,y] -> (x,y)) $
         ListHT.sliceVertical 2 projection)
