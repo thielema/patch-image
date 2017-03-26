@@ -2,6 +2,7 @@
 module Main where
 
 import qualified Option
+import qualified State
 
 import qualified MatchImageBorders
 import qualified Arithmetic as Arith
@@ -1559,7 +1560,7 @@ process args = do
 
    notice "\nfind rotation angles"
    findOptRot <- findOptimalRotation
-   picAngles <-
+   picDegrees <-
       forM paths $ \(imageOption, path) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
@@ -1569,7 +1570,12 @@ process args = do
                Just angle -> return angle
                Nothing -> findOptRot angles pic
          info $ printf "%s %f\176\n" path (Arith.getDegree angle)
-         return (path, (Arith.radianFromDegree angle, pic))
+         return (path, (angle, pic))
+
+   forM_ (Option.outputState opt) $ \format ->
+      State.write (printf format "angle") $
+         map (uncurry State.Angle . mapSnd fst) picDegrees
+   let picAngles = map (mapSnd (mapFst Arith.radianFromDegree)) picDegrees
 
    notice "\nfind relative placements"
    prepOverlapMatching <- prepareOverlapMatching
@@ -1585,6 +1591,12 @@ process args = do
          then processOverlapRotate
          else processOverlap)
             args (map snd picAngles) pairs
+
+   forM_ (Option.outputState opt) $ \format ->
+      State.write (printf format "position") $
+      zipWith
+         (\(path, (angle, _)) pos -> State.Position path angle pos)
+         picDegrees floatPoss
 
    notice "\ncompose all parts"
    let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =

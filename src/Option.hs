@@ -44,6 +44,7 @@ data Option =
       outputDistanceMap :: Maybe String,
       outputShape :: Maybe String,
       outputShapeHard :: Maybe String,
+      outputState :: Maybe String,
       quality :: Int,
       maximumAbsoluteAngle :: Degree Float,
       numberAngleSteps :: Int,
@@ -71,6 +72,7 @@ defltOption =
       outputDistanceMap = Nothing,
       outputShape = Nothing,
       outputShapeHard = Nothing,
+      outputState = Nothing,
       quality = 99,
       maximumAbsoluteAngle = Degree 1,
       numberAngleSteps = 40,
@@ -181,6 +183,11 @@ optionDescription desc =
       (flip ReqArg "FORMAT" $ \str flags ->
          return $ flags{outputShapeHard = Just str})
       ("path format for hard part shape like '%s-shape-hard.jpeg'") :
+
+   opt generic [] ["output-state"]
+      (flip ReqArg "FORMAT" $ \str flags ->
+         return $ flags{outputState = Just str})
+      ("path format for program states like 'patch-state-%s.csv'") :
 
    opt generic [] ["quality"]
       (flip ReqArg "PERCENTAGE" $ \str flags ->

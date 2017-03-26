@@ -2,6 +2,7 @@
 module Main where
 
 import qualified Option
+import qualified State
 
 import qualified Arithmetic as Arith
 import LinearAlgebra (
@@ -1548,7 +1549,7 @@ process args = do
    let info = CmdLine.info (Option.verbosity opt)
 
    notice "\nfind rotation angles"
-   picAngles <-
+   picDegrees <-
       forM paths $ \(imageOption, path) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
@@ -1563,7 +1564,12 @@ process args = do
                     then radonAngle (fmap negate maxAngle, maxAngle) pic
                     else return $ findOptimalRotation angles pic
          info $ printf "%s %f\176\n" path (getDegree angle)
-         return (path, (radianFromDegree angle, pic))
+         return (path, (angle, pic))
+
+   forM_ (Option.outputState opt) $ \format ->
+      State.write (printf format "angle") $
+         map (uncurry State.Angle . mapSnd fst) picDegrees
+   let picAngles = map (mapSnd (mapFst Arith.radianFromDegree)) picDegrees
 
    notice "\nfind relative placements"
    let rotated =
@@ -1597,6 +1603,12 @@ process args = do
          then processOverlapRotate
          else processOverlap)
             args (map snd picAngles) pairs
+
+   forM_ (Option.outputState opt) $ \format ->
+      State.write (printf format "position") $
+      zipWith
+         (\(path, (angle, _)) pos -> State.Position path angle pos)
+         picDegrees floatPoss
 
    notice "\ncompose all parts"
    let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =
