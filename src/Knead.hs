@@ -1594,9 +1594,11 @@ process args = do
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $
-      zipWith
-         (\(path, (angle, _)) pos -> State.Position path angle pos)
-         picDegrees floatPoss
+      zipWith3
+         (\(_, path) (rot, _) pos ->
+            State.Position path
+               (Arith.degreeFromRadian $ uncurry (flip atan2) rot) pos)
+         paths picRots floatPoss
 
    notice "\ncompose all parts"
    let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =
