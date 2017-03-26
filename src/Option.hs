@@ -29,7 +29,7 @@ import Text.Printf (printf)
 data Args =
    Args {
       option :: Option,
-      inputs :: [(Image, FilePath)]
+      inputs :: [State.Proposed]
    }
 
 defltArgs :: Args
@@ -308,8 +308,8 @@ description desc =
 
 
 addFile :: FilePath -> ((Image, Args) -> IO (Image, Args))
-addFile path (image, args) =
-   return (defltImage, args {inputs = (image,path) : inputs args})
+addFile path (Image ang, args) =
+   return (defltImage, args {inputs = State.Proposed path ang : inputs args})
 
 
 
@@ -327,8 +327,7 @@ get engine = do
       exitFailureMsg "unused trailing image options"
 
    let images =
-         (map (\(State.Proposed path ang) -> (Image ang, path)) $
-          Vector.toList $ state $ option parsedArgs)
+         (Vector.toList $ state $ option parsedArgs)
          ++
          (reverse $ inputs parsedArgs)
    case images of

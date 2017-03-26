@@ -1544,14 +1544,14 @@ process args = do
 
    notice "\nfind rotation angles"
    picAngles <-
-      forM paths $ \(imageOption, path) -> do
+      forM paths $ \(State.Proposed path maybeAngle) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
          let angles = Degree.linearScale (Option.numberAngleSteps opt) maxAngle
          when False $ analyseRotations angles pic
          when False $ fourierTransformation opt path pic
          angle <-
-            case Option.angle imageOption of
+            case maybeAngle of
                Just angle -> return angle
                Nothing ->
                   if Option.radonTransform opt
