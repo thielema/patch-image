@@ -1599,13 +1599,8 @@ process args = do
 
    notice "\ncompose all parts"
    let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =
-         Arith.canvasShape colorImageExtent floatPoss $
-         zipWith
-            (\(_, (angle, _)) (rot,pic) ->
-               (Arith.pairFromComplex $
-                   Complex.cis (Degree.toRadian angle) * rot,
-                pic))
-            picAngles picRots
+         Arith.canvasShape colorImageExtent floatPoss
+            (map (Degree.toRadian . fst . snd) picAngles) picRots
    let canvasShape = shape2 canvasHeight canvasWidth
    mapM_ info canvasMsgs
 

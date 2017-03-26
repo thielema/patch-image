@@ -22,8 +22,6 @@ import Arithmetic (
    distance,
    linearScale,
    divUp,
-   pairFromComplex,
-   mapComplex,
    )
 
 import qualified Data.Array.Accelerate.Fourier.Real as FourierReal
@@ -69,6 +67,7 @@ import Text.Printf (printf)
 import qualified Data.List.Key as Key
 import Control.Monad.HT (void)
 import Control.Monad (liftM2, when)
+import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (catMaybes)
 import Data.List.HT (mapAdjacent, tails)
@@ -1393,7 +1392,7 @@ processOverlap ::
    [(Degree Float, Array DIM3 Word8)] ->
    [((Int, (FilePath, ((Float, Float), Channel Z Float))),
      (Int, (FilePath, ((Float, Float), Channel Z Float))))] ->
-   IO ([(Float, Float)], [((Float, Float), Array DIM3 Word8)])
+   IO ([(Float, Float)], [(Complex Float, Array DIM3 Word8)])
 processOverlap args picAngles pairs = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
@@ -1462,7 +1461,7 @@ processOverlap args picAngles pairs = do
       ++
       printf "maximum vertical error: %f\n" errdy
 
-   let picRots = map (mapFst Degree.cis) picAngles
+   let picRots = map (mapFst (const 1)) picAngles
        floatPoss = map (mapPair (realToFrac, realToFrac)) poss
 
    return (floatPoss, picRots)
@@ -1473,7 +1472,7 @@ processOverlapRotate ::
    [(Degree Float, Array DIM3 Word8)] ->
    [((Int, (FilePath, ((Float, Float), Channel Z Float))),
      (Int, (FilePath, ((Float, Float), Channel Z Float))))] ->
-   IO ([(Float, Float)], [((Float, Float), Array DIM3 Word8)])
+   IO ([(Float, Float)], [(Complex Float, Array DIM3 Word8)])
 processOverlapRotate args picAngles pairs = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
@@ -1525,11 +1524,9 @@ processOverlapRotate args picAngles pairs = do
 
    let picRots =
           zipWith
-             (\(angle,pic) rot ->
-                (pairFromComplex $
-                    uncurry (:+) (Degree.cis angle) * mapComplex realToFrac rot,
-                 pic))
-             picAngles (map snd posRots)
+             (\(_angle,pic) (_pos,rot) ->
+                (Arith.mapComplex realToFrac rot, pic))
+             picAngles posRots
        floatPoss = map (mapPair (realToFrac, realToFrac) . fst) posRots
 
    return (floatPoss, picRots)
@@ -1602,13 +1599,16 @@ process args = do
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $
-      zipWith
-         (\(path, (angle, _)) pos -> State.Position path angle pos)
-         picAngles floatPoss
+      zipWith3
+         (\(path, (angle, _)) (rot, _) pos ->
+            State.Position path
+               (angle <> Degree.fromRadian (HComplex.phase rot)) pos)
+         picAngles picRots floatPoss
 
    notice "\ncompose all parts"
    let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =
-         Arith.canvasShape colorImageExtent floatPoss picRots
+         Arith.canvasShape colorImageExtent floatPoss
+            (map (Degree.toRadian . fst . snd) picAngles) picRots
    mapM_ info canvasMsgs
 
    forM_ (Option.outputHard opt) $ \path ->
