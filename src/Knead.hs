@@ -1399,7 +1399,7 @@ processOverlap ::
    [(Float, ColorImage8)] ->
    [((Int, (FilePath, ((Float, Float), Plane Float))),
      (Int, (FilePath, ((Float, Float), Plane Float))))] ->
-   IO ([(Float, Float)], [((Float, Float), ColorImage8)])
+   IO ([(Float, Float)], [(Complex Float, ColorImage8)])
 processOverlap args picAngles pairs = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
@@ -1474,8 +1474,7 @@ processOverlap args picAngles pairs = do
       ++
       printf "maximum vertical error: %f\n" errdy
 
-   let picRots =
-          map (mapFst (\angle -> (cos angle, sin angle))) picAngles
+   let picRots = map (mapFst (const 1)) picAngles
        floatPoss = map (mapPair (realToFrac, realToFrac)) poss
 
    return (floatPoss, picRots)
@@ -1486,7 +1485,7 @@ processOverlapRotate ::
    [(Float, ColorImage8)] ->
    [((Int, (FilePath, ((Float, Float), Plane Float))),
      (Int, (FilePath, ((Float, Float), Plane Float))))] ->
-   IO ([(Float, Float)], [((Float, Float), ColorImage8)])
+   IO ([(Float, Float)], [(Complex Float, ColorImage8)])
 processOverlapRotate args picAngles pairs = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
@@ -1538,11 +1537,9 @@ processOverlapRotate args picAngles pairs = do
 
    let picRots =
           zipWith
-             (\(angle,pic) rot ->
-                (Arith.pairFromComplex $
-                    Complex.cis angle * Arith.mapComplex realToFrac rot,
-                 pic))
-             picAngles (map snd posRots)
+             (\(_angle,pic) (_pos,rot) ->
+                (Arith.mapComplex realToFrac rot, pic))
+             picAngles posRots
        floatPoss = map (mapPair (realToFrac, realToFrac) . fst) posRots
 
    return (floatPoss, picRots)
@@ -1595,14 +1592,18 @@ process args = do
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $
       zipWith3
-         (\(_, path) (rot, _) pos ->
+         (\(path, (angle, _)) (rot, _) pos ->
             State.Position path
-               (Arith.degreeFromRadian $ uncurry (flip atan2) rot) pos)
-         paths picRots floatPoss
+               (Arith.degreeFromRadian $ angle + Complex.phase rot) pos)
+         picAngles picRots floatPoss
 
    notice "\ncompose all parts"
    let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =
-         Arith.canvasShape colorImageExtent floatPoss picRots
+         Arith.canvasShape colorImageExtent floatPoss $
+         zipWith
+            (\(_, (angle, _)) (rot,pic) ->
+               (Arith.pairFromComplex $ Complex.cis angle * rot, pic))
+            picAngles picRots
    let canvasShape = shape2 canvasHeight canvasWidth
    mapM_ info canvasMsgs
 
