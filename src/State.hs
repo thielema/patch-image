@@ -1,6 +1,6 @@
 module State where
 
-import Arithmetic (Degree(Degree))
+import Degree (Degree(Degree))
 
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Char8 as B

@@ -5,14 +5,12 @@ import qualified Option
 import qualified State
 
 import qualified Arithmetic as Arith
+import qualified Degree
 import LinearAlgebra (
    absolutePositionsFromPairDisplacements, layoutFromPairDisplacements,
    )
+import Degree (Degree, getDegree)
 import Arithmetic (
-   Degree,
-   getDegree,
-   radianFromDegree,
-   degreeFromRadian,
    Point2,
    rotateStretchMovePoint,
    rotateStretchMoveBackPoint,
@@ -325,7 +323,7 @@ analyseRotations :: [Degree Float] -> Array DIM3 Word8 -> IO ()
 analyseRotations angles pic = do
    histograms <-
       forM angles $ \degree -> do
-         let (rotated, histogram) = rotateHistogram (Arith.radianFromDegree degree) pic
+         let (rotated, histogram) = rotateHistogram (Degree.toRadian degree) pic
          let stem = printf "rotated%+07.2f" $ getDegree degree
          writeImage 90 ("/tmp/" ++ stem ++ ".jpeg") rotated
          let diffHistogram = map abs $ mapAdjacent (-) $ A.toList histogram
@@ -366,7 +364,7 @@ scoreRotation =
 
 findOptimalRotation :: [Degree Float] -> Array DIM3 Word8 -> Degree Float
 findOptimalRotation angles pic =
-   Key.maximum (flip scoreRotation pic . radianFromDegree) angles
+   Key.maximum (flip scoreRotation pic . Degree.toRadian) angles
 
 
 magnitudeSqr :: (A.Elt a, A.IsNum a) => Exp (Complex a) -> Exp a
@@ -448,10 +446,10 @@ radonAngle (minAngle,maxAngle) pic = do
       CUDAForeign.inDefaultContext $
       CUFFT.plan2D CUFFT.forwardReal shape
    let height2 = fromIntegral (div height 2)
-   let slope w = tan (radianFromDegree w) * height2
+   let slope w = tan (Degree.toRadian w) * height2
    let minX = floor $ slope minAngle
    let maxX = ceiling $ slope maxAngle
-   let angle s = degreeFromRadian $ atan (s/height2)
+   let angle s = Degree.fromRadian $ atan (s/height2)
    let trans =
           Run.with CUDA.run1 $ \arr ->
              A.map A.snd $ argmaximum $
@@ -1516,7 +1514,7 @@ processOverlapRotate args picAngles pairs = do
          (\(d,r) ->
             printf "%s, %s (%7.5f, %6.2f)" (show d) (show r)
                (HComplex.magnitude r)
-               (getDegree $ degreeFromRadian $ HComplex.phase r))
+               (getDegree $ Degree.fromRadian $ HComplex.phase r))
          posRots
 
    info "\ncompare position differences with pair displacements"
@@ -1553,7 +1551,7 @@ process args = do
       forM paths $ \(imageOption, path) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
-         let angles = Arith.angleScale (Option.numberAngleSteps opt) maxAngle
+         let angles = Degree.linearScale (Option.numberAngleSteps opt) maxAngle
          when False $ analyseRotations angles pic
          when False $ fourierTransformation opt path pic
          angle <-
@@ -1569,7 +1567,7 @@ process args = do
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "angle") $
          map (uncurry State.Angle . mapSnd fst) picDegrees
-   let picAngles = map (mapSnd (mapFst Arith.radianFromDegree)) picDegrees
+   let picAngles = map (mapSnd (mapFst Degree.toRadian)) picDegrees
 
    notice "\nfind relative placements"
    let rotated =

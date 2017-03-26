@@ -10,36 +10,8 @@ import qualified Data.List as List
 import qualified Data.Bits as Bit
 import Data.Maybe (catMaybes)
 import Data.Tuple.HT (mapPair, fst3, thd3)
-import Data.Monoid (Monoid, mempty, mappend)
 
 import Text.Printf (PrintfArg, printf)
-
-
-newtype Degree a = Degree {getDegree :: a}
-   deriving (Eq)
-
-instance (Num a) => Monoid (Degree a) where
-   mempty = Degree 0
-   mappend (Degree x) (Degree y) = Degree $ x+y
-
-instance Functor Degree where
-   fmap f (Degree x) = Degree $ f x
-
-radianFromDegree :: (Floating a) => Degree a -> a
-radianFromDegree (Degree angle) = angle*pi/180
-
-degreeFromRadian :: (Floating a) => a -> Degree a
-degreeFromRadian angle = Degree $ angle*180/pi
-
-angleScale :: (Fractional a) => Int -> Degree a -> [Degree a]
-angleScale num (Degree maxAngle) =
-   map Degree $ linearScale num (-maxAngle, maxAngle)
-
-cisDegree :: (Floating a) => Degree a -> (a,a)
-cisDegree deg =
-   case radianFromDegree deg of
-      rad -> (cos rad, sin rad)
-
 
 
 inBox ::

@@ -6,6 +6,7 @@ import qualified State
 
 import qualified MatchImageBorders
 import qualified Arithmetic as Arith
+import qualified Degree
 import MatchImageBorders (arrayCFromKnead, arrayKneadFromC)
 import LinearAlgebra (
    absolutePositionsFromPairDisplacements, layoutFromPairDisplacements,
@@ -13,7 +14,7 @@ import LinearAlgebra (
 import KneadShape
          (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Index2, Ix2,
           verticalVal, horizontalVal)
-import Arithmetic (Degree)
+import Degree (Degree(Degree), getDegree)
 
 import qualified Math.FFT as FFT
 import Math.FFT.Base (FFTWReal)
@@ -464,7 +465,7 @@ runRotate = do
    rot <-
       RenderP.run $ \rot ->
          colorImageByteFromFloat . rotate vecYUV rot . colorImageFloatFromByte
-   return $ \ angle img -> rot (Arith.cisDegree angle) img
+   return $ \ angle img -> rot (Degree.cis angle) img
 
 
 brightnessValue :: Exp (YUV a) -> Exp a
@@ -511,7 +512,7 @@ runScoreRotation = do
       RenderP.run $ \rot ->
          rowHistogram . rotate vecYUV rot . colorImageFloatFromByte
    score <- RenderP.run scoreHistogram
-   return $ \ angle img -> score =<< rot (Arith.cisDegree angle) img
+   return $ \ angle img -> score =<< rot (Degree.cis angle) img
 
 findOptimalRotation :: IO ([Degree Float] -> ColorImage8 -> IO (Degree Float))
 findOptimalRotation = do
@@ -681,7 +682,7 @@ prepareOverlapMatching = do
    rotat <- RenderP.run $ rotate Arith.vecScalar
    return $ \radius (angle, img) ->
       let Vec2 height width = Phys.shape img
-          rot = Arith.cisDegree angle
+          rot = Degree.cis angle
           ((left, _right), (top, _bottom)) =
             Arith.boundingBoxOfRotated rot
                (fromIntegral width, fromIntegral height)
@@ -1026,7 +1027,7 @@ composeOverlap = do
             rotate vecYUV rb $ colorImageFloatFromByte picB)
    return $ \displacement ((angleA,picA), (angleB,picB)) ->
       over displacement
-         (Arith.cisDegree angleA, picA) (Arith.cisDegree angleB, picB)
+         (Degree.cis angleA, picA) (Degree.cis angleB, picB)
 
 
 
@@ -1525,7 +1526,7 @@ processOverlapRotate args picAngles pairs = do
          (\(d,r) ->
             printf "%s, %s (%7.5f, %6.2f)" (show d) (show r)
                (Complex.magnitude r)
-               (Arith.getDegree $ Arith.degreeFromRadian $ Complex.phase r))
+               (getDegree $ Degree.fromRadian $ Complex.phase r))
          posRots
 
    info "\ncompare position differences with pair displacements"
@@ -1561,12 +1562,12 @@ process args = do
       forM paths $ \(imageOption, path) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
-         let angles = Arith.angleScale (Option.numberAngleSteps opt) maxAngle
+         let angles = Degree.linearScale (Option.numberAngleSteps opt) maxAngle
          angle <-
             case Option.angle imageOption of
                Just angle -> return angle
                Nothing -> findOptRot angles pic
-         info $ printf "%s %f\176\n" path (Arith.getDegree angle)
+         info $ printf "%s %f\176\n" path (getDegree angle)
          return (path, (angle, pic))
 
    forM_ (Option.outputState opt) $ \format ->
@@ -1593,7 +1594,7 @@ process args = do
       zipWith3
          (\(path, (angle, _)) (rot, _) pos ->
             State.Position path
-               (angle <> Arith.degreeFromRadian (Complex.phase rot)) pos)
+               (angle <> Degree.fromRadian (Complex.phase rot)) pos)
          picAngles picRots floatPoss
 
    notice "\ncompose all parts"
@@ -1602,7 +1603,7 @@ process args = do
          zipWith
             (\(_, (angle, _)) (rot,pic) ->
                (Arith.pairFromComplex $
-                   Complex.cis (Arith.radianFromDegree angle) * rot,
+                   Complex.cis (Degree.toRadian angle) * rot,
                 pic))
             picAngles picRots
    let canvasShape = shape2 canvasHeight canvasWidth
@@ -1709,14 +1710,14 @@ rotateTest = do
    forM_ [0..11] $ \k -> do
       let path = printf "/tmp/rotated/%04d.jpeg" k
       putStrLn path
-      writeImage 100 path =<< rot (Arith.Degree $ fromInteger k * 30) img
+      writeImage 100 path =<< rot (Degree $ fromInteger k * 30) img
 
 scoreTest :: IO ()
 scoreTest = do
    score <- runScoreRotation
    img <- readImage Verbosity.normal "/tmp/bild/artikel0005.jpeg"
    forM_ [-10..10] $ \k -> do
-      print =<< score (Arith.Degree $ fromInteger k / 10) img
+      print =<< score (Degree $ fromInteger k / 10) img
 
 main :: IO ()
 main = process =<< Option.get Option.Knead

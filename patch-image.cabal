@@ -61,6 +61,7 @@ Executable patch-image-llvm
     KneadShape
     LinearAlgebra
     Arithmetic
+    Degree
     Option.Utility
     Option
   Hs-Source-Dirs: src
@@ -97,6 +98,7 @@ Executable patch-image-cuda
   Other-Modules:
     LinearAlgebra
     Arithmetic
+    Degree
     Option.Utility
     Option
   Hs-Source-Dirs: src

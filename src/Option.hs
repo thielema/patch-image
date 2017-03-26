@@ -2,7 +2,7 @@ module Option where
 
 import qualified State
 import Option.Utility (exitFailureMsg, parseNumber, fmapOptDescr)
-import Arithmetic (Degree(Degree, getDegree))
+import Degree (Degree(Degree, getDegree))
 
 import qualified System.Console.GetOpt as Opt
 import qualified System.Environment as Env
