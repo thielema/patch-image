@@ -10,6 +10,8 @@ import Data.Complex (Complex((:+)))
 
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
+import Data.Tuple.HT (mapSnd)
+
 import Control.Monad (zipWithM_)
 
 
@@ -18,8 +20,7 @@ absolutePositionsFromPairDisplacements ::
    Int -> [((Int, Int), (Float, Float))] ->
    ([(Double,Double)], [(Double,Double)])
 absolutePositionsFromPairDisplacements numPics displacements =
-   let (is, ds) = unzip displacements
-       (dxs, dys) = unzip ds
+   let (is, (dxs, dys)) = mapSnd unzip $ unzip displacements
        {-
        We fix the first image to position (0,0)
        in order to make the solution unique.
