@@ -7,11 +7,10 @@ import qualified State
 import qualified Arithmetic as Arith
 import qualified Degree
 import LinearAlgebra (
-   absolutePositionsFromPairDisplacements,
-   layoutFromPairDisplacements,
-   fixAtLeastOnePosition,
+   absolutePositionsFromPairDisplacements, fixAtLeastOnePosition,
+   layoutFromPairDisplacements, fixAtLeastOneAnglePosition,
    )
-import Degree (Degree, getDegree)
+import Degree (Degree(Degree), getDegree)
 import Arithmetic (
    Point2,
    rotateStretchMovePoint,
@@ -1391,7 +1390,8 @@ finalizeWeightedCanvas =
 
 processOverlap ::
    Option.Args ->
-   [((Maybe Float, Maybe Float), (Degree Float, Array DIM3 Word8))] ->
+   [((Maybe (Degree Float), (Maybe Float, Maybe Float)),
+     (Degree Float, Array DIM3 Word8))] ->
    [((Int, (FilePath, ((Float, Float), Channel Z Float))),
      (Int, (FilePath, ((Float, Float), Channel Z Float))))] ->
    IO ([(Float, Float)], [(Complex Float, Array DIM3 Word8)])
@@ -1439,7 +1439,8 @@ processOverlap args picAngles pairs = do
 
    let (poss, dps) =
           absolutePositionsFromPairDisplacements
-             (fixAtLeastOnePosition (0,0) $ map fst picAngles) displacements
+             (fixAtLeastOnePosition (0,0) $ map (snd.fst) picAngles)
+             displacements
    info "\nabsolute positions"
    info $ unlines $ map show poss
 
@@ -1471,7 +1472,8 @@ processOverlap args picAngles pairs = do
 
 processOverlapRotate ::
    Option.Args ->
-   [((Maybe Float, Maybe Float), (Degree Float, Array DIM3 Word8))] ->
+   [((Maybe (Degree Float), (Maybe Float, Maybe Float)),
+     (Degree Float, Array DIM3 Word8))] ->
    [((Int, (FilePath, ((Float, Float), Channel Z Float))),
      (Int, (FilePath, ((Float, Float), Channel Z Float))))] ->
    IO ([(Float, Float)], [(Complex Float, Array DIM3 Word8)])
@@ -1508,7 +1510,10 @@ processOverlapRotate args picAngles pairs = do
 
    let (posRots, dps) =
           layoutFromPairDisplacements
-             (fixAtLeastOnePosition (0,0) $ map fst picAngles) displacements
+             (map (mapFst (fmap Degree.cis)) $
+              fixAtLeastOneAnglePosition (Degree 0, (0,0)) $
+              map fst picAngles)
+             displacements
    info "\nabsolute positions and rotations: place, rotation (magnitude, phase)"
    info $ unlines $
       map
@@ -1547,7 +1552,7 @@ process args = do
 
    notice "\nfind rotation angles"
    picAngles <-
-      forM paths $ \(State.Proposed path maybeAngle maybePos) -> do
+      forM paths $ \(State.Proposed path (maybeAngle, maybeDAngle) maybePos) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
          let angles = Degree.linearScale (Option.numberAngleSteps opt) maxAngle
@@ -1561,7 +1566,7 @@ process args = do
                     then radonAngle (fmap negate maxAngle, maxAngle) pic
                     else return $ findOptimalRotation angles pic
          info $ printf "%s %f\176\n" path (getDegree angle)
-         return (path, (maybePos, (angle, pic)))
+         return (path, ((maybeDAngle, maybePos), (angle, pic)))
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "angle") $

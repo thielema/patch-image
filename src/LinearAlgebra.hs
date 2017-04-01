@@ -35,7 +35,18 @@ which is somehow ugly.
 fixAtLeastOnePosition ::
    (a,b) -> [(Maybe a, Maybe b)] -> [(Maybe a, Maybe b)]
 fixAtLeastOnePosition (a,b) =
-   uncurry zip . mapPair (fixAtLeastOne a, fixAtLeastOne b) . unzip
+   parallel (fixAtLeastOne a, fixAtLeastOne b)
+
+fixAtLeastOneAnglePosition ::
+   (angle, (a,b)) ->
+   [(Maybe angle, (Maybe a, Maybe b))] ->
+   [(Maybe angle, (Maybe a, Maybe b))]
+fixAtLeastOneAnglePosition (angle, ab) =
+   parallel (fixAtLeastOne angle, fixAtLeastOnePosition ab)
+
+parallel :: ([a0] -> [a1], [b0] -> [b1]) -> ([(a0,b0)] -> [(a1,b1)])
+parallel fs = uncurry zip . mapPair fs . unzip
+
 
 absolutePositionsFromPairDisplacements ::
    [(Maybe Float, Maybe Float)] -> [((Int, Int), (Float, Float))] ->
@@ -107,12 +118,12 @@ for under-constrained equation systems.
 This is usually not the case.
 -}
 layoutFromPairDisplacements ::
-   [(Maybe Float, Maybe Float)] ->
+   [(Maybe (Float, Float), (Maybe Float, Maybe Float))] ->
    [((Int, (Float, Float)), (Int, (Float, Float)))] ->
    ([((Double,Double), Complex Double)],
     [(Double,Double)])
-layoutFromPairDisplacements mxys correspondences =
-   let numPics = length mxys
+layoutFromPairDisplacements mrxys correspondences =
+   let numPics = length mrxys
        weight =
           let xs =
                  concatMap
@@ -144,11 +155,12 @@ layoutFromPairDisplacements mxys correspondences =
        (solution, projection) =
           leastSquaresSelected matrix
              (concatMap
-                (\((mx,my), mr) ->
+                (\(mr, (mx,my)) ->
                    [(/weight) . realToFrac <$> mx,
                     (/weight) . realToFrac <$> my,
-                    fst <$> mr, snd <$> mr]) $
-              zip mxys $ Just (1,0) : repeat Nothing)
+                    realToFrac . fst <$> mr,
+                    realToFrac . snd <$> mr]) $
+              mrxys)
              (Container.constant 0 (2 * length correspondences))
    in  (map (\[dx,dy,rx,ry] -> ((weight*dx,weight*dy), rx :+ ry)) $
         ListHT.sliceVertical 4 solution,
