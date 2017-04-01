@@ -57,8 +57,8 @@ Executable patch-image-llvm
   Main-Is: Knead.hs
   Other-Modules:
     MatchImageBorders
-    State
     KneadShape
+    State
     LinearAlgebra
     Arithmetic
     Degree
@@ -97,6 +97,7 @@ Executable patch-image-llvm
 Executable patch-image-cuda
   Main-Is: Accelerate.hs
   Other-Modules:
+    State
     LinearAlgebra
     Arithmetic
     Degree
