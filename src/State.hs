@@ -2,13 +2,14 @@ module State where
 
 import Degree (Degree(Degree))
 
+import qualified Data.Csv as Csv
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Char8 as B
-import qualified Data.Csv as Csv
-import Data.Vector (Vector)
 import Data.Csv ((.=), (.:))
+import Data.Vector (Vector)
 
-import Control.Applicative ((<$>), (<*>))
+import Control.Applicative (pure, (<$>), (<*>))
 
 
 newtype File = File FilePath
@@ -47,11 +48,23 @@ write path = BL.writeFile path . Csv.encodeDefaultOrderedByName
 
 
 
+{-
+(.:) accepts missing fields and (.:?) accepts even missing columns.
+
+Warning: This implementation would also accept ill-formated cells:
+(.:?) m field = (m.:field) <|> pure Nothing
+-}
+(.:?) ::
+   Csv.FromField a => Csv.NamedRecord -> B.ByteString -> Csv.Parser (Maybe a)
+(.:?) m field =
+   maybe (pure Nothing) Csv.parseField $ HashMap.lookup field m
+
+
 data Proposed = Proposed FilePath (Maybe (Degree Float))
 
 instance Csv.FromNamedRecord Proposed where
    parseNamedRecord m =
-      Proposed <$> m .: imageId <*> (fmap Degree <$> m .: angleId)
+      Proposed <$> m .: imageId <*> (fmap Degree <$> m .:? angleId)
 
 read :: FilePath -> IO (Vector Proposed)
 read path =
