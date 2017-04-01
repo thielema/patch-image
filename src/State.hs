@@ -67,7 +67,7 @@ data
 instance Csv.FromNamedRecord Proposed where
    parseNamedRecord m =
       Proposed <$> m .: imageId
-         <*> (fmap Degree <$> m .:? angleId)
+         <*> m .:? angleId
          <*> liftA2 (,) (m .:? xId) (m .:? yId)
 
 read :: FilePath -> IO (Vector Proposed)

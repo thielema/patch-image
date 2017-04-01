@@ -2,6 +2,7 @@ module Degree where
 
 import qualified Arithmetic as Arith
 
+import qualified Data.Csv as Csv
 import Data.Monoid (Monoid, mempty, mappend)
 
 
@@ -14,6 +15,9 @@ instance (Num a) => Monoid (Degree a) where
 
 instance Functor Degree where
    fmap f (Degree x) = Degree $ f x
+
+instance Csv.FromField a => Csv.FromField (Degree a) where
+   parseField s = fmap Degree $ Csv.parseField s
 
 toRadian :: (Floating a) => Degree a -> a
 toRadian (Degree angle) = angle*pi/180
