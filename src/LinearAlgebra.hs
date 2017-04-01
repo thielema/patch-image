@@ -32,9 +32,9 @@ the solver will center all solutions around zero.
 However, there will not necessarily be an image with a zero coordinate,
 which is somehow ugly.
 -}
-fixAtLeastOneDisplacement ::
+fixAtLeastOnePosition ::
    (a,b) -> [(Maybe a, Maybe b)] -> [(Maybe a, Maybe b)]
-fixAtLeastOneDisplacement (a,b) =
+fixAtLeastOnePosition (a,b) =
    uncurry zip . mapPair (fixAtLeastOne a, fixAtLeastOne b) . unzip
 
 absolutePositionsFromPairDisplacements ::

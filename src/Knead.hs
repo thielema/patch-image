@@ -11,7 +11,7 @@ import MatchImageBorders (arrayCFromKnead, arrayKneadFromC)
 import LinearAlgebra (
    absolutePositionsFromPairDisplacements,
    layoutFromPairDisplacements,
-   fixAtLeastOneDisplacement,
+   fixAtLeastOnePosition,
    )
 import KneadShape
          (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Index2, Ix2,
@@ -1453,7 +1453,7 @@ processOverlap args picAngles pairs = do
 
    let (poss, dps) =
           absolutePositionsFromPairDisplacements
-             (fixAtLeastOneDisplacement (0,0) $ map fst picAngles) displacements
+             (fixAtLeastOnePosition (0,0) $ map fst picAngles) displacements
    info "\nabsolute positions"
    info $ unlines $ map show poss
 
@@ -1522,7 +1522,7 @@ processOverlapRotate args picAngles pairs = do
 
    let (posRots, dps) =
           layoutFromPairDisplacements
-             (fixAtLeastOneDisplacement (0,0) $ map fst picAngles) displacements
+             (fixAtLeastOnePosition (0,0) $ map fst picAngles) displacements
    info "\nabsolute positions and rotations: place, rotation (magnitude, phase)"
    info $ unlines $
       map
