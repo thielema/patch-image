@@ -311,3 +311,11 @@ mapComplex f (r Complex.:+ i)  =  f r Complex.:+ f i
 
 mulConj :: (RealFloat a) => Complex a -> Complex a -> Complex a
 mulConj x y = x * Complex.conjugate y
+
+
+-- ToDo: move to a new utility module
+pairs :: [a] -> [(a,a)]
+pairs xs = do
+   (a:as) <- ListHT.tails xs
+   b <- as
+   return (a,b)

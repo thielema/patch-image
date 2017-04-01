@@ -8,6 +8,7 @@ import qualified MatchImageBorders
 import qualified Arithmetic as Arith
 import qualified Degree
 import MatchImageBorders (arrayCFromKnead, arrayKneadFromC)
+import Arithmetic (pairs)
 import LinearAlgebra (
    absolutePositionsFromPairDisplacements, fixAtLeastOnePosition,
    layoutFromPairDisplacements, fixAtLeastOneAnglePosition,
@@ -67,7 +68,6 @@ import qualified Data.List as List
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (catMaybes, isJust)
-import Data.List.HT (tails)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
@@ -1400,10 +1400,9 @@ processOverlap ::
    Option.Args ->
    [((Maybe (Degree Float), (Maybe Float, Maybe Float)),
      (Degree Float, ColorImage8))] ->
-   [((Int, (FilePath, ((Float, Float), Plane Float))),
-     (Int, (FilePath, ((Float, Float), Plane Float))))] ->
+   [(Int, (FilePath, ((Float, Float), Plane Float)))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
-processOverlap args picAngles pairs = do
+processOverlap args picAngles planes = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
@@ -1428,7 +1427,8 @@ processOverlap args picAngles pairs = do
    overlapDiff <- overlapDifferenceRun
    displacements <-
       fmap catMaybes $
-      forM pairs $ \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
+      forM (pairs planes) $
+            \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
          forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when True $
             writeGrey (Option.quality opt)
                (printf "/tmp/%s-%s-score.jpeg"
@@ -1488,10 +1488,9 @@ processOverlapRotate ::
    Option.Args ->
    [((Maybe (Degree Float), (Maybe Float, Maybe Float)),
      (Degree Float, ColorImage8))] ->
-   [((Int, (FilePath, ((Float, Float), Plane Float))),
-     (Int, (FilePath, ((Float, Float), Plane Float))))] ->
+   [(Int, (FilePath, ((Float, Float), Plane Float)))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
-processOverlapRotate args picAngles pairs = do
+processOverlapRotate args picAngles planes = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
@@ -1507,7 +1506,8 @@ processOverlapRotate args picAngles pairs = do
 
    displacements <-
       fmap concat $
-      forM pairs $ \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
+      forM (pairs planes) $
+            \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
          let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
          correspondences <-
             map
@@ -1588,16 +1588,12 @@ process args = do
       mapM
          (FuncHT.mapSnd (prepOverlapMatching (Option.smooth opt) . snd))
          picAngles
-   let pairs = do
-          (a:as) <- tails $ zip [0..] rotated
-          b <- as
-          return (a,b)
 
    (floatPoss, picRots) <-
       (if Option.finetuneRotate opt
          then processOverlapRotate
          else processOverlap)
-            args (map snd picAngles) pairs
+            args (map snd picAngles) (zip [0..] rotated)
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $
