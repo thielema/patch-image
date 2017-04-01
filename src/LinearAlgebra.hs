@@ -24,6 +24,14 @@ fixAtLeastOne zero ms =
       (False, _:nothings) -> Just zero : nothings
       (False, []) -> error "fixAtLeastOne: empty image list"
 
+{- |
+If no coordinate is fixed, then the first one will be fixed to the given value.
+This is not strictly necessary.
+Without a fixed coordinate,
+the solver will center all solutions around zero.
+However, there will not necessarily be an image with a zero coordinate,
+which is somehow ugly.
+-}
 fixAtLeastOneDisplacement ::
    (a,b) -> [(Maybe a, Maybe b)] -> [(Maybe a, Maybe b)]
 fixAtLeastOneDisplacement (a,b) =
