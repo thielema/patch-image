@@ -10,23 +10,33 @@ import Data.Complex (Complex((:+)))
 
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
-import Data.Tuple.HT (mapSnd)
+import Data.Tuple.HT (mapPair, mapSnd)
+import Data.Maybe (isJust)
 
 import Control.Monad (zipWithM_)
+import Control.Applicative ((<$>))
 
 
--- we cannot use leastSquaresSelected here, because the right-hand side is not zero
+fixAtLeastOne :: a -> [Maybe a] -> [Maybe a]
+fixAtLeastOne zero ms =
+   case (any isJust ms, ms) of
+      (True, _) -> ms
+      (False, _:nothings) -> Just zero : nothings
+      (False, []) -> error "fixAtLeastOne: empty image list"
+
+fixAtLeastOneDisplacement ::
+   (a,b) -> [(Maybe a, Maybe b)] -> [(Maybe a, Maybe b)]
+fixAtLeastOneDisplacement (a,b) =
+   uncurry zip . mapPair (fixAtLeastOne a, fixAtLeastOne b) . unzip
+
 absolutePositionsFromPairDisplacements ::
-   Int -> [((Int, Int), (Float, Float))] ->
+   [(Maybe Float, Maybe Float)] -> [((Int, Int), (Float, Float))] ->
    ([(Double,Double)], [(Double,Double)])
-absolutePositionsFromPairDisplacements numPics displacements =
-   let (is, (dxs, dys)) = mapSnd unzip $ unzip displacements
-       {-
-       We fix the first image to position (0,0)
-       in order to make the solution unique.
-       To this end I drop the first column from matrix.
-       -}
-       matrix = Matrix.dropColumns 1 $ PackST.runSTMatrix $ do
+absolutePositionsFromPairDisplacements mxys displacements =
+   let numPics = length mxys
+       (mxs, mys) = unzip mxys
+       (is, (dxs, dys)) = mapSnd unzip $ unzip displacements
+       matrix = PackST.runSTMatrix $ do
           mat <- PackST.newMatrix 0 (length is) numPics
           zipWithM_
              (\k (ia,ib) -> do
@@ -34,16 +44,19 @@ absolutePositionsFromPairDisplacements numPics displacements =
                 PackST.writeMatrix mat k ib 1)
              [0..] is
           return mat
-       pxs = matrix <\> Vector.fromList (map realToFrac dxs)
-       pys = matrix <\> Vector.fromList (map realToFrac dys)
-   in  (zip (0 : Vector.toList pxs) (0 : Vector.toList pys),
-        zip (Vector.toList $ matrix <> pxs) (Vector.toList $ matrix <> pys))
+       solve ms ds =
+          leastSquaresSelected matrix
+             (map (fmap realToFrac) ms)
+             (Vector.fromList (map realToFrac ds))
+       (pxs, achievedDxs) = solve mxs dxs
+       (pys, achievedDys) = solve mys dys
+   in  (zip pxs pys, zip achievedDxs achievedDys)
 
 
 leastSquaresSelected ::
-   Matrix.Matrix Double -> [Maybe Double] ->
+   Matrix.Matrix Double -> [Maybe Double] -> Vector.Vector Double ->
    ([Double], [Double])
-leastSquaresSelected m mas =
+leastSquaresSelected m mas rhs0 =
    let (lhsCols,rhsCols) =
           ListHT.unzipEithers $
           zipWith
@@ -54,7 +67,7 @@ leastSquaresSelected m mas =
              (Matrix.toColumns m) mas
        lhs = Matrix.fromColumns lhsCols
        rhs = foldl1 Container.add rhsCols
-       sol = lhs <\> Container.scale (-1) rhs
+       sol = lhs <\> Container.sub rhs0 rhs
    in  (snd $
         List.mapAccumL
            (curry $ \x ->
@@ -83,11 +96,13 @@ Maybe, dx and dy should be scaled down.
 Otherwise they are weighted much more than the rotation.
 -}
 layoutFromPairDisplacements ::
-   Int -> [((Int, (Float, Float)), (Int, (Float, Float)))] ->
+   [(Maybe Float, Maybe Float)] ->
+   [((Int, (Float, Float)), (Int, (Float, Float)))] ->
    ([((Double,Double), Complex Double)],
     [(Double,Double)])
-layoutFromPairDisplacements numPics correspondences =
-   let {-
+layoutFromPairDisplacements mxys correspondences =
+   let numPics = length mxys
+       {-
        The weight will only influence the result
        for under-constrained equation systems.
        This is usually not the case.
@@ -120,14 +135,15 @@ layoutFromPairDisplacements numPics correspondences =
                 PackST.writeMatrix mat (k+1) (4*ib+3) xb)
              [0,2..] correspondences
           return mat
-       {-
-       We fix the first image to position (0,0) and rotation (1,0)
-       in order to make the solution unique.
-       -}
        (solution, projection) =
           leastSquaresSelected matrix
-             (take (4*numPics) $
-              map Just [0,0,1,0] ++ repeat Nothing)
+             (concatMap
+                (\((mx,my), mr) ->
+                   [(/weight) . realToFrac <$> mx,
+                    (/weight) . realToFrac <$> my,
+                    fst <$> mr, snd <$> mr]) $
+              zip mxys $ Just (1,0) : repeat Nothing)
+             (Container.constant 0 (2 * length correspondences))
    in  (map (\[dx,dy,rx,ry] -> ((weight*dx,weight*dy), rx :+ ry)) $
         ListHT.sliceVertical 4 solution,
         map (\[x,y] -> (x,y)) $

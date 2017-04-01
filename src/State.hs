@@ -9,7 +9,7 @@ import qualified Data.ByteString.Char8 as B
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
 
-import Control.Applicative (pure, (<$>), (<*>))
+import Control.Applicative (pure, liftA2, (<$>), (<*>))
 
 
 newtype File = File FilePath
@@ -60,11 +60,15 @@ Warning: This implementation would also accept ill-formated cells:
    maybe (pure Nothing) Csv.parseField $ HashMap.lookup field m
 
 
-data Proposed = Proposed FilePath (Maybe (Degree Float))
+data
+   Proposed =
+      Proposed FilePath (Maybe (Degree Float)) (Maybe Float, Maybe Float)
 
 instance Csv.FromNamedRecord Proposed where
    parseNamedRecord m =
-      Proposed <$> m .: imageId <*> (fmap Degree <$> m .:? angleId)
+      Proposed <$> m .: imageId
+         <*> (fmap Degree <$> m .:? angleId)
+         <*> liftA2 (,) (m .:? xId) (m .:? yId)
 
 read :: FilePath -> IO (Vector Proposed)
 read path =

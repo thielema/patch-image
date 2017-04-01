@@ -309,7 +309,9 @@ description desc =
 
 addFile :: FilePath -> ((Image, Args) -> IO (Image, Args))
 addFile path (Image ang, args) =
-   return (defltImage, args {inputs = State.Proposed path ang : inputs args})
+   return
+      (defltImage,
+       args {inputs = State.Proposed path ang (Nothing, Nothing) : inputs args})
 
 
 
