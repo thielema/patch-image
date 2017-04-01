@@ -6,13 +6,18 @@ import qualified Data.Csv as Csv
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Char8 as B
+import qualified Data.Foldable as Fold
+import qualified Data.List as List
+import qualified Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
 import Data.Maybe (fromMaybe)
 
-import Control.Monad (join)
+import Control.Monad (when, join)
 import Control.Applicative (liftA2, (<$>), (<$), (<*>))
+
+import qualified System.IO as IO
 
 
 newtype File = File FilePath
@@ -84,6 +89,15 @@ instance Csv.FromNamedRecord Proposed where
          <*> liftA2 (,) (join <$> m .:? xId) (join <$> m .:? yId)
 
 read :: FilePath -> IO (Vector Proposed)
-read path =
-   either (ioError . userError) (return . snd) . Csv.decodeByName
-      =<< BL.readFile path
+read path = do
+   (headers, body) <-
+      either (ioError . userError) return . Csv.decodeByName
+         =<< BL.readFile path
+   let ignored =
+         Set.toList $
+         Set.difference
+            (Set.fromList $ Fold.toList headers)
+            (Set.fromList [imageId, angleId, dAngleId, xId, yId])
+   when (not $ null ignored) $ IO.hPutStrLn IO.stderr $
+      "ignore unknown columns: " ++ List.intercalate ", " (map B.unpack ignored)
+   return body
