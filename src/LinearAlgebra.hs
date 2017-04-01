@@ -100,8 +100,11 @@ y1 = dy + s*x0 + c*y0
 \0 1 y0  x0/   |c |   \y1/
                \s /
 
-Maybe, dx and dy should be scaled down.
+We try to scale dx and dy down using 'weight'.
 Otherwise they are weighted much more than the rotation.
+However the weight will only influence the result
+for under-constrained equation systems.
+This is usually not the case.
 -}
 layoutFromPairDisplacements ::
    [(Maybe Float, Maybe Float)] ->
@@ -110,11 +113,6 @@ layoutFromPairDisplacements ::
     [(Double,Double)])
 layoutFromPairDisplacements mxys correspondences =
    let numPics = length mxys
-       {-
-       The weight will only influence the result
-       for under-constrained equation systems.
-       This is usually not the case.
-       -}
        weight =
           let xs =
                  concatMap
