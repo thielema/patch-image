@@ -60,11 +60,13 @@ import qualified Distribution.Verbosity as Verbosity
 import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
+import qualified Control.Monad.HT as MonadHT
 import qualified Control.Functor.HT as FuncHT
 import Control.Monad (liftM2, when, foldM, (<=<))
 import Control.Applicative (pure, (<$>), (<*>))
 
 import qualified Data.List as List
+import Data.Function.HT (Id)
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (catMaybes, isJust)
@@ -543,13 +545,10 @@ lowpassVert img =
 
 lowpass = transpose . lowpassVert . transpose . lowpassVert
 
-nestM :: Monad m => Int -> (a -> m a) -> a -> m a
-nestM n f x0 = foldM (\x () -> f x) x0 (replicate n ())
-
 lowpassMulti :: IO (Int -> Plane Float -> IO (Plane Float))
 lowpassMulti = do
    lp <- RenderP.run lowpass
-   return $ \n -> nestM n lp
+   return $ \n -> MonadHT.nest n lp
 
 
 highpassMulti :: IO (Int -> Plane Float -> IO (Plane Float))
@@ -669,8 +668,6 @@ liftCArray2 f a b =
       (arrayCFromKnead a)
       (arrayCFromKnead b)
 
-
-type Id a = a -> a
 
 fixArray :: Id (Symb.Array sh a)
 fixArray = id
