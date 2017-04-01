@@ -13,7 +13,6 @@ import qualified Data.List as List
 import Data.Tuple.HT (mapPair, mapSnd)
 import Data.Maybe (isJust)
 
-import Control.Monad (zipWithM_)
 import Control.Applicative ((<$>))
 
 
@@ -48,6 +47,17 @@ parallel :: ([a0] -> [a1], [b0] -> [b1]) -> ([(a0,b0)] -> [(a1,b1)])
 parallel fs = uncurry zip . mapPair fs . unzip
 
 
+sparseMatrix :: Int -> Int -> [((Int, Int), Double)] -> Matrix.Matrix Double
+sparseMatrix numRows numCols xs =
+   PackST.runSTMatrix $ do
+      mat <- PackST.newMatrix 0 numRows numCols
+      mapM_ (\((r,c), x) -> PackST.writeMatrix mat r c x) xs
+      return mat
+
+elm :: Int -> Int -> a -> ((Int, Int), a)
+elm row col x = ((row, col), x)
+
+
 absolutePositionsFromPairDisplacements ::
    [(Maybe Float, Maybe Float)] -> [((Int, Int), (Float, Float))] ->
    ([(Double,Double)], [(Double,Double)])
@@ -55,14 +65,9 @@ absolutePositionsFromPairDisplacements mxys displacements =
    let numPics = length mxys
        (mxs, mys) = unzip mxys
        (is, (dxs, dys)) = mapSnd unzip $ unzip displacements
-       matrix = PackST.runSTMatrix $ do
-          mat <- PackST.newMatrix 0 (length is) numPics
-          zipWithM_
-             (\k (ia,ib) -> do
-                PackST.writeMatrix mat k ia (-1)
-                PackST.writeMatrix mat k ib 1)
-             [0..] is
-          return mat
+       matrix =
+          sparseMatrix (length is) numPics $ concat $
+          zipWith (\k (ia,ib) -> [elm k ia (-1), elm k ib 1]) [0..] is
        solve ms ds =
           leastSquaresSelected matrix
              (map (fmap realToFrac) ms)
@@ -130,28 +135,28 @@ layoutFromPairDisplacements mrxys correspondences =
                     (\((_ia,(xai,yai)),(_ib,(xbi,ybi))) -> [xai, yai, xbi, ybi])
                     correspondences
           in  realToFrac $ maximum xs - minimum xs
-       matrix = PackST.runSTMatrix $ do
-          mat <- PackST.newMatrix 0 (2 * length correspondences) (4*numPics)
-          zipWithM_
-             (\k ((ia,(xai,yai)),(ib,(xbi,ybi))) -> do
+       matrix =
+          sparseMatrix (2 * length correspondences) (4*numPics) $ concat $
+          zipWith
+             (\k ((ia,(xai,yai)),(ib,(xbi,ybi))) ->
                 let xa = realToFrac xai
-                let xb = realToFrac xbi
-                let ya = realToFrac yai
-                let yb = realToFrac ybi
-                PackST.writeMatrix mat (k+0) (4*ia+0) (-weight)
-                PackST.writeMatrix mat (k+1) (4*ia+1) (-weight)
-                PackST.writeMatrix mat (k+0) (4*ia+2) (-xa)
-                PackST.writeMatrix mat (k+0) (4*ia+3) ya
-                PackST.writeMatrix mat (k+1) (4*ia+2) (-ya)
-                PackST.writeMatrix mat (k+1) (4*ia+3) (-xa)
-                PackST.writeMatrix mat (k+0) (4*ib+0) weight
-                PackST.writeMatrix mat (k+1) (4*ib+1) weight
-                PackST.writeMatrix mat (k+0) (4*ib+2) xb
-                PackST.writeMatrix mat (k+0) (4*ib+3) (-yb)
-                PackST.writeMatrix mat (k+1) (4*ib+2) yb
-                PackST.writeMatrix mat (k+1) (4*ib+3) xb)
+                    xb = realToFrac xbi
+                    ya = realToFrac yai
+                    yb = realToFrac ybi
+                in  elm (k+0) (4*ia+0) (-weight) :
+                    elm (k+1) (4*ia+1) (-weight) :
+                    elm (k+0) (4*ia+2) (-xa) :
+                    elm (k+0) (4*ia+3) ya :
+                    elm (k+1) (4*ia+2) (-ya) :
+                    elm (k+1) (4*ia+3) (-xa) :
+                    elm (k+0) (4*ib+0) weight :
+                    elm (k+1) (4*ib+1) weight :
+                    elm (k+0) (4*ib+2) xb :
+                    elm (k+0) (4*ib+3) (-yb) :
+                    elm (k+1) (4*ib+2) yb :
+                    elm (k+1) (4*ib+3) xb :
+                    [])
              [0,2..] correspondences
-          return mat
        (solution, projection) =
           leastSquaresSelected matrix
              (concatMap
