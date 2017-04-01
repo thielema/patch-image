@@ -74,7 +74,7 @@ leastSquaresSelected m mas rhs0 =
                    Just a -> Right $ Container.scale a col)
              (Matrix.toColumns m) mas
        lhs = Matrix.fromColumns lhsCols
-       rhs = foldl1 Container.add rhsCols
+       rhs = foldl Container.add (Container.scale 0 rhs0) rhsCols
        sol = lhs <\> Container.sub rhs0 rhs
    in  (snd $
         List.mapAccumL
