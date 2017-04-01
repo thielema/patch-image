@@ -1429,7 +1429,7 @@ processOverlap args picAngles planes = do
       fmap catMaybes $
       forM (pairs planes) $
             \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
-         forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when True $
+         forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when False $
             writeGrey (Option.quality opt)
                (printf "/tmp/%s-%s-score.jpeg"
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB))
