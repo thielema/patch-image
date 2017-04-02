@@ -1585,10 +1585,7 @@ process args = do
       let pic0 : pic1 : _ = map (snd . snd) rotated
           size = (Z:.512:.1024 :: DIM2)
       writeGrey (Option.quality opt) "/tmp/padded.jpeg" $
-         CUDA.run1
-            (imageByteFromFloat .
-             pad 0 (A.lift size)) $
-         pic0
+         CUDA.run1 (imageByteFromFloat . pad 0 (A.lift size)) pic0
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" $
          CUDA.run $ imageByteFromFloat $ A.map AComplex.magnitude $
          fft2DPlain CUFFT.forwardReal $
