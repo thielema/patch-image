@@ -65,6 +65,7 @@ import qualified Control.Functor.HT as FuncHT
 import Control.Monad (liftM2, when, foldM, (<=<))
 import Control.Applicative (pure, (<$>), (<*>))
 
+import qualified Data.Vector as Vector
 import qualified Data.List as List
 import Data.Function.HT (Id)
 import Data.Monoid ((<>))
@@ -1422,6 +1423,7 @@ processOverlap args picAngles planes = do
    composeOver <- composeOverlap
    overlapDiff <- overlapDifferenceRun
    let open = map (\((mx,my), _) -> isNothing mx || isNothing my) picAngles
+   let picArray = Vector.fromList $ map snd picAngles
    displacements <-
       fmap catMaybes $
       forM (guardedPairs open planes) $
@@ -1444,8 +1446,7 @@ processOverlap args picAngles planes = do
             writeImage (Option.quality opt)
                (printf format
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB))
-               -- ToDo: avoid (!!)
-            =<< composeOver doffset (snd $ picAngles!!ia, snd $ picAngles!!ib)
+            =<< composeOver doffset (picArray Vector.! ia, picArray Vector.! ib)
          return $ toMaybe overlapping ((ia,ib), d)
 
    let (poss, dps) =

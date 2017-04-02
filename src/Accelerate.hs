@@ -67,6 +67,7 @@ import qualified Distribution.Simple.Utils as CmdLine
 import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
+import qualified Data.Vector as Vector
 import qualified Data.List.Key as Key
 import Control.Monad.HT (void)
 import Control.Monad (liftM2, when)
@@ -1416,6 +1417,7 @@ processOverlap args picAngles planes = do
                      optimalOverlap padExtent (Option.minimumOverlap opt))
 
    let open = map (\((mx,my), _) -> isNothing mx || isNothing my) picAngles
+   let picArray = Vector.fromList $ map snd picAngles
    displacements <-
       fmap catMaybes $
       forM (guardedPairs open planes) $
@@ -1438,7 +1440,8 @@ processOverlap args picAngles planes = do
             writeImage (Option.quality opt)
                (printf format
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-               composeOverlap doffset (snd $ picAngles!!ia, snd $ picAngles!!ib)
+               composeOverlap doffset
+                  (picArray Vector.! ia, picArray Vector.! ib)
          return $ toMaybe overlapping ((ia,ib), d)
 
    let (poss, dps) =
