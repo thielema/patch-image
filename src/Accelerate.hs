@@ -81,7 +81,9 @@ import Data.Word (Word8)
 import System.IO.Unsafe (unsafePerformIO)
 
 
-readImage :: Verbosity -> FilePath -> IO (Array DIM3 Word8)
+type ColorImage8 = Array DIM3 Word8
+
+readImage :: Verbosity -> FilePath -> IO ColorImage8
 readImage verbosity path = do
    epic <- Pic.readImage path
    case epic of
@@ -101,7 +103,7 @@ readImage verbosity path = do
                      ((), dat)
             _ -> ioError $ userError "unsupported image type"
 
-writeImage :: Int -> FilePath -> Array DIM3 Word8 -> IO ()
+writeImage :: Int -> FilePath -> ColorImage8 -> IO ()
 writeImage quality path arr = do
    let (Z :. height :. width :. 3) = A.arrayShape arr
    Pic.saveJpgImage quality path $ Pic.ImageYCbCr8 $
@@ -121,7 +123,7 @@ writeGrey quality path arr = do
          Pic.imageData = snd $ AIO.toVectors arr
       }
 
-colorImageExtent :: Array DIM3 Word8 -> (Int, Int)
+colorImageExtent :: ColorImage8 -> (Int, Int)
 colorImageExtent pic =
    case A.arrayShape pic of Z:.height:.width:._chans -> (width, height)
 
@@ -308,7 +310,7 @@ rowHistogram = A.fold (+) 0 . brightnessPlane
 
 
 rotateHistogram ::
-   Degree Float -> Array DIM3 Word8 -> (Array DIM3 Word8, Array DIM1 Float)
+   Degree Float -> ColorImage8 -> (ColorImage8, Array DIM1 Float)
 rotateHistogram =
    let rot =
           Run.with CUDA.run1 $ \orient arr ->
@@ -320,7 +322,7 @@ rotateHistogram =
    in  \angle arr -> rot (Degree.cis angle) arr
 
 
-analyseRotations :: [Degree Float] -> Array DIM3 Word8 -> IO ()
+analyseRotations :: [Degree Float] -> ColorImage8 -> IO ()
 analyseRotations angles pic = do
    histograms <-
       forM angles $ \degree -> do
@@ -355,7 +357,7 @@ differentiate arr =
    in  A.generate (A.index1 (size-1)) $ \i ->
           arr ! (A.index1 $ A.unindex1 i + 1) - arr ! i
 
-scoreRotation :: Degree Float -> Array DIM3 Word8 -> Float
+scoreRotation :: Degree Float -> ColorImage8 -> Float
 scoreRotation =
    let rot =
           Run.with CUDA.run1 $ \orient arr ->
@@ -363,7 +365,7 @@ scoreRotation =
              rotate orient $ separateChannels $ imageFloatFromByte arr
    in  \angle arr -> Acc.the $ rot (Degree.cis angle) arr
 
-findOptimalRotation :: [Degree Float] -> Array DIM3 Word8 -> Degree Float
+findOptimalRotation :: [Degree Float] -> ColorImage8 -> Degree Float
 findOptimalRotation angles pic =
    Key.maximum (flip scoreRotation pic) angles
 
@@ -372,7 +374,7 @@ magnitudeSqr :: (A.Elt a, A.IsNum a) => Exp (Complex a) -> Exp a
 magnitudeSqr =
    Exp.modify (expr:+expr) $ \(r:+i) -> r*r+i*i
 
-fourierTransformationRun :: Array DIM3 Word8 -> IO (Array DIM2 Word8)
+fourierTransformationRun :: ColorImage8 -> IO (Array DIM2 Word8)
 fourierTransformationRun pic = do
    let (shape@(Z:.height:.width):._) = A.arrayShape pic
    plan <-
@@ -397,7 +399,7 @@ fourierTransformationRun pic = do
              imageFloatFromByte arr
    return $ trans pic
 
-fourierTransformation :: Option.Option -> FilePath -> Array DIM3 Word8 -> IO ()
+fourierTransformation :: Option.Option -> FilePath -> ColorImage8 -> IO ()
 fourierTransformation opt path pic = do
    let stem = FilePath.takeBaseName path
    spec <- fourierTransformationRun pic
@@ -440,7 +442,7 @@ scoreSlopes (minX, maxX) arr =
           in  linearIp (z0,z1) frac
 
 radonAngle ::
-   (Degree Float, Degree Float) -> Array DIM3 Word8 -> IO (Degree Float)
+   (Degree Float, Degree Float) -> ColorImage8 -> IO (Degree Float)
 radonAngle (minAngle,maxAngle) pic = do
    let (shape@(Z :. height :. _width):._) = A.arrayShape pic
    plan <-
@@ -462,7 +464,7 @@ radonAngle (minAngle,maxAngle) pic = do
    return $ angle $ fromIntegral $ Acc.the (trans pic) + minX
 
 
-rotateManifest :: Degree Float -> Array DIM3 Word8 -> Array DIM3 Float
+rotateManifest :: Degree Float -> ColorImage8 -> Array DIM3 Float
 rotateManifest =
    let rot =
           Run.with CUDA.run1 $ \orient arr ->
@@ -471,7 +473,7 @@ rotateManifest =
 
 
 prepareOverlapMatching ::
-   Int -> (Degree Float, Array DIM3 Word8) -> ((Float,Float), Channel Z Float)
+   Int -> (Degree Float, ColorImage8) -> ((Float,Float), Channel Z Float)
 prepareOverlapMatching =
    let rot =
           Run.with CUDA.run1 $ \radius orient arr ->
@@ -946,8 +948,8 @@ overlap2 (dx,dy) (a,b) =
 
 composeOverlap ::
    (Int, Int) ->
-   ((Degree Float, Array DIM3 Word8), (Degree Float, Array DIM3 Word8)) ->
-   Array DIM3 Word8
+   ((Degree Float, ColorImage8), (Degree Float, ColorImage8)) ->
+   ColorImage8
 composeOverlap =
    let rotat (rot,pic) =
           rotate rot $ separateChannels $ imageFloatFromByte pic
@@ -981,7 +983,7 @@ addToCountCanvas (mask, pic) (count, canvas) =
     A.map (A.fromIntegral . A.boolToInt) mask)
 
 updateCountCanvas ::
-   ((Float,Float), (Float,Float), Array DIM3 Word8) ->
+   ((Float,Float), (Float,Float), ColorImage8) ->
    (Channel Z Int, Channel DIM1 Float) ->
    (Channel Z Int, Channel DIM1 Float)
 updateCountCanvas =
@@ -992,7 +994,7 @@ updateCountCanvas =
           separateChannels $ imageFloatFromByte pic)
          (count,canvas)
 
-finalizeCountCanvas :: (Channel Z Int, Channel DIM1 Float) -> Array DIM3 Word8
+finalizeCountCanvas :: (Channel Z Int, Channel DIM1 Float) -> ColorImage8
 finalizeCountCanvas =
    Run.with CUDA.run1 $
    \(count, canvas) ->
@@ -1307,7 +1309,7 @@ updateWeightedCanvasMerged ::
    Geometry Float ->
    [Geometry Float] ->
    [Point2 Float] ->
-   Array DIM3 Word8 ->
+   ColorImage8 ->
    (Channel Z Float, Channel DIM1 Float) ->
    (Channel Z Float, Channel DIM1 Float)
 updateWeightedCanvasMerged =
@@ -1332,7 +1334,7 @@ updateWeightedCanvas ::
    Geometry Float ->
    [Geometry Float] ->
    [Point2 Float] ->
-   Array DIM3 Word8 ->
+   ColorImage8 ->
    (Channel Z Float, Channel DIM1 Float) ->
    (Channel Z Float, Channel DIM1 Float)
 updateWeightedCanvas =
@@ -1359,7 +1361,7 @@ updateWeightedCanvasSplit ::
    Geometry Float ->
    [Geometry Float] ->
    [Point2 Float] ->
-   Array DIM3 Word8 ->
+   ColorImage8 ->
    (Channel Z Float, Channel DIM1 Float) ->
    (Channel Z Float, Channel DIM1 Float)
 updateWeightedCanvasSplit =
@@ -1380,7 +1382,7 @@ updateWeightedCanvasSplit =
 
 
 finalizeWeightedCanvas ::
-   (Channel Z Float, Channel DIM1 Float) -> Array DIM3 Word8
+   (Channel Z Float, Channel DIM1 Float) -> ColorImage8
 finalizeWeightedCanvas =
    Run.with CUDA.run1 $
    \(weightSum, canvas) ->
@@ -1392,9 +1394,9 @@ finalizeWeightedCanvas =
 processOverlap ::
    Option.Args ->
    [((Maybe (Degree Float), (Maybe Float, Maybe Float)),
-     (Degree Float, Array DIM3 Word8))] ->
+     (Degree Float, ColorImage8))] ->
    [(Int, (FilePath, ((Float, Float), Channel Z Float)))] ->
-   IO ([(Float, Float)], [(Complex Float, Array DIM3 Word8)])
+   IO ([(Float, Float)], [(Complex Float, ColorImage8)])
 processOverlap args picAngles planes = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
@@ -1474,9 +1476,9 @@ processOverlap args picAngles planes = do
 processOverlapRotate ::
    Option.Args ->
    [((Maybe (Degree Float), (Maybe Float, Maybe Float)),
-     (Degree Float, Array DIM3 Word8))] ->
+     (Degree Float, ColorImage8))] ->
    [(Int, (FilePath, ((Float, Float), Channel Z Float)))] ->
-   IO ([(Float, Float)], [(Complex Float, Array DIM3 Word8)])
+   IO ([(Float, Float)], [(Complex Float, ColorImage8)])
 processOverlapRotate args picAngles planes = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
