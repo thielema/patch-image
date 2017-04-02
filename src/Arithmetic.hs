@@ -5,6 +5,7 @@ import Data.Complex (Complex, )
 
 import Control.Monad (liftM2, guard)
 
+import qualified Data.NonEmpty as NonEmpty
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import qualified Data.Bits as Bit
@@ -314,8 +315,19 @@ mulConj x y = x * Complex.conjugate y
 
 
 -- ToDo: move to a new utility module
-pairs :: [a] -> [(a,a)]
-pairs xs = do
-   (a:as) <- ListHT.tails xs
-   b <- as
+{-
+This helps to compare only those pairs of images,
+where at least one parameter is open to be determined.
+Omitting pairs with completely fixed parameters
+only accelerates the computation,
+but the optimum will be the same.
+-}
+guardedPairs :: [Bool] -> [a] -> [(a,a)]
+guardedPairs cs xs = do
+   ((takeA,a):as) <- ListHT.tails $ zip cs xs
+   (takeB,b) <- as
+   guard $ takeA || takeB
    return (a,b)
+
+maximum0 :: (Num a, Ord a) => [a] -> a
+maximum0 = NonEmpty.maximum . NonEmpty.cons 0

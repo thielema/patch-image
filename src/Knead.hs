@@ -8,7 +8,7 @@ import qualified MatchImageBorders
 import qualified Arithmetic as Arith
 import qualified Degree
 import MatchImageBorders (arrayCFromKnead, arrayKneadFromC)
-import Arithmetic (pairs)
+import Arithmetic (guardedPairs, maximum0)
 import LinearAlgebra (
    absolutePositionsFromPairDisplacements, fixAtLeastOnePosition,
    layoutFromPairDisplacements, fixAtLeastOneAnglePosition,
@@ -69,7 +69,7 @@ import qualified Data.List as List
 import Data.Function.HT (Id)
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
-import Data.Maybe (catMaybes, isJust)
+import Data.Maybe (catMaybes, isJust, isNothing)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
@@ -1421,9 +1421,10 @@ processOverlap args picAngles planes = do
 
    composeOver <- composeOverlap
    overlapDiff <- overlapDifferenceRun
+   let open = map (\((mx,my), _) -> isNothing mx || isNothing my) picAngles
    displacements <-
       fmap catMaybes $
-      forM (pairs planes) $
+      forM (guardedPairs open planes) $
             \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
          forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when False $
             writeGrey (Option.quality opt)
@@ -1461,7 +1462,7 @@ processOverlap args picAngles planes = do
             printf "(%f,%f) (%f,%f)" dpx dpy dx dy)
          dps (map snd displacements)
    let (errdx,errdy) =
-          mapPair (maximum,maximum) $ unzip $
+          mapPair (maximum0, maximum0) $ unzip $
           zipWith
              (\(dpx,dpy) (dx,dy) ->
                 (abs $ dpx - realToFrac dx, abs $ dpy - realToFrac dy))
@@ -1500,9 +1501,14 @@ processOverlapRotate args picAngles planes = do
       <*> pure (Option.maximumDifference opt)
       <*> pure (Option.minimumOverlap opt)
 
+   let open =
+         map
+            (\((ma, (mx,my)), _) ->
+               isNothing ma || isNothing mx || isNothing my)
+            picAngles
    displacements <-
       fmap concat $
-      forM (pairs planes) $
+      forM (guardedPairs open planes) $
             \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
          let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
          correspondences <-
