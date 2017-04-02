@@ -28,7 +28,7 @@ import Arithmetic (
 
 import qualified Data.Array.Accelerate.Fourier.Real as FourierReal
 import qualified Data.Array.Accelerate.CUFFT.Single as CUFFT
-import qualified Data.Array.Accelerate.Data.Complex as Complex
+import qualified Data.Array.Accelerate.Data.Complex as AComplex
 import qualified Data.Array.Accelerate.CUDA.Foreign as CUDAForeign
 import qualified Data.Array.Accelerate.CUDA as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
@@ -53,7 +53,7 @@ import qualified Graphics.Gnuplot.LineSpecification as LineSpec
 import qualified Graphics.Gnuplot.Plot.TwoDimensional as Plot2D
 import qualified Graphics.Gnuplot.Graph.TwoDimensional as Graph2D
 
-import qualified Data.Complex as HComplex
+import qualified Data.Complex as Complex
 
 import qualified Codec.Picture as Pic
 
@@ -505,7 +505,7 @@ pad a sh arr =
 mulConj ::
    (A.Elt a, A.IsFloating a) =>
    Exp (Complex a) -> Exp (Complex a) -> Exp (Complex a)
-mulConj x y = x * Complex.conjugate y
+mulConj x y = x * AComplex.conjugate y
 
 
 fft2DGen ::
@@ -1522,8 +1522,8 @@ processOverlapRotate args picAngles planes = do
       map
          (\(d,r) ->
             printf "%s, %s (%7.5f, %6.2f)" (show d) (show r)
-               (HComplex.magnitude r)
-               (getDegree $ Degree.fromRadian $ HComplex.phase r))
+               (Complex.magnitude r)
+               (getDegree $ Degree.fromRadian $ Complex.phase r))
          posRots
 
    info "\ncompare position differences with pair displacements"
@@ -1591,7 +1591,7 @@ process args = do
              pad 0 (A.lift size)) $
          pic0
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" $
-         CUDA.run $ imageByteFromFloat $ A.map Complex.magnitude $
+         CUDA.run $ imageByteFromFloat $ A.map AComplex.magnitude $
          fft2DPlain CUFFT.forwardReal $
          CUDA.run1 (pad 0 (A.lift size)) $
          pic0
@@ -1610,7 +1610,7 @@ process args = do
       zipWith3
          (\(path, (_, (angle, _))) (rot, _) pos ->
             State.Position path
-               (angle <> Degree.fromRadian (HComplex.phase rot)) pos)
+               (angle <> Degree.fromRadian (Complex.phase rot)) pos)
          picAngles picRots floatPoss
 
    notice "\ncompose all parts"
