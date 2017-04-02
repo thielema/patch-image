@@ -11,7 +11,7 @@ import Data.Complex (Complex((:+)))
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import Data.Tuple.HT (mapPair, mapSnd)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, fromMaybe)
 
 import Control.Applicative ((<$>))
 
@@ -92,7 +92,8 @@ leastSquaresSelected m mas rhs0 =
        lhs = Matrix.fromColumns lhsCols
        rhs = foldl Container.add (Container.scale 0 rhs0) rhsCols
        sol = lhs <\> Container.sub rhs0 rhs
-   in  (snd $
+   in  if Vector.dim rhs0 == 0 then (map (fromMaybe 0) mas, []) else
+       (snd $
         List.mapAccumL
            (curry $ \x ->
                case x of
@@ -102,6 +103,12 @@ leastSquaresSelected m mas rhs0 =
            (Vector.toList sol) mas,
         Vector.toList $
         Container.add (lhs <> sol) rhs)
+
+
+zeroVector, _zeroVector :: Int -> Vector.Vector Double
+zeroVector n = Vector.fromList $ replicate n 0
+-- fails for vectors of size 0
+_zeroVector n = Container.constant 0 n
 
 {-
 Approximate rotation from point correspondences.
@@ -134,7 +141,7 @@ layoutFromPairDisplacements mrxys correspondences =
                  concatMap
                     (\((_ia,(xai,yai)),(_ib,(xbi,ybi))) -> [xai, yai, xbi, ybi])
                     correspondences
-          in  realToFrac $ maximum xs - minimum xs
+          in  if null xs then 1 else realToFrac $ maximum xs - minimum xs
        matrix =
           sparseMatrix (2 * length correspondences) (4*numPics) $ concat $
           zipWith
@@ -166,7 +173,7 @@ layoutFromPairDisplacements mrxys correspondences =
                     realToFrac . fst <$> mr,
                     realToFrac . snd <$> mr]) $
               mrxys)
-             (Container.constant 0 (2 * length correspondences))
+             (zeroVector (2 * length correspondences))
    in  (map (\[dx,dy,rx,ry] -> ((weight*dx,weight*dy), rx :+ ry)) $
         ListHT.sliceVertical 4 solution,
         map (\[x,y] -> (x,y)) $
