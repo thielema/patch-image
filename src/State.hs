@@ -13,11 +13,10 @@ import qualified Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
-import Data.Bool.HT (if')
 import Data.Maybe (fromMaybe)
 
 import Control.Monad (when, join)
-import Control.Applicative (liftA2, (<$>), (<$), (<*>))
+import Control.Applicative (pure, liftA2, (<$>), (<$), (<*>), empty)
 
 import qualified System.IO as IO
 
@@ -26,7 +25,7 @@ newtype File = File FilePath
 
 data Angle = Angle FilePath (Degree Float)
 
-data Overlap = Overlap FilePath (Degree Float) [Maybe Bool]
+data Overlap = Overlap FilePath (Degree Float) [Maybe Relation]
 
 data Position = Position FilePath (Degree Float) (Float, Float)
 
@@ -56,7 +55,21 @@ instance Csv.ToNamedRecord Overlap where
    toNamedRecord (Overlap path (Degree angle) xs) =
       Csv.namedRecord $
          [imageId .= path, angleId .= angle] ++
-         zipWith (\k mx -> overId k .= fmap (\x -> if' x 'X' '-') mx) [0..] xs
+         zipWith (\k mx -> overId k .= mx) [0..] xs
+
+data Relation = NonOverlapping | Overlapping
+   deriving (Eq, Ord, Enum)
+
+instance Csv.ToField Relation where
+   toField NonOverlapping = B.singleton '-'
+   toField Overlapping = B.singleton 'X'
+
+instance Csv.FromField Relation where
+   parseField bstr =
+      case B.unpack bstr of
+         "-" -> pure NonOverlapping
+         "X" -> pure Overlapping
+         _ -> empty
 
 overlapHeader :: Int -> Csv.Header
 overlapHeader n =

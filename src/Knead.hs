@@ -1453,13 +1453,17 @@ processOverlap args picAngles planes = do
    forM_ (Option.outputState opt) $ \format -> do
       let unrelated =
             Set.fromList $ map (fst . snd) $ filter (not . fst) displacements
+      let toOverlap i =
+            if Set.member i unrelated
+              then State.NonOverlapping
+              else State.Overlapping
       let n = length $ drop 1 picAngles
       State.writeWithHeader (printf format "overlap") (State.overlapHeader n) $
          zipWith
             (\(k, (path, _)) (_,(angle,_)) ->
                State.Overlap path angle $
                ListHT.padRight Nothing n $ take k $
-               map (Just . flip Set.notMember unrelated . flip (,) k) [0..])
+               map (Just . toOverlap . flip (,) k) [0..])
             planes picAngles
 
    let overlaps = catMaybes $ map (uncurry toMaybe) displacements
