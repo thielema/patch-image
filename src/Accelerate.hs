@@ -1579,11 +1579,10 @@ process args = do
    let rotated =
           map (mapSnd (prepareOverlapMatching (Option.smooth opt) . snd))
              picAngles
-   let prepared = map (snd . snd) rotated
 
    when False $ do
       notice "write fft"
-      let pic0 : pic1 : _ = prepared
+      let pic0 : pic1 : _ = map (snd . snd) rotated
           size = (Z:.512:.1024 :: DIM2)
       writeGrey (Option.quality opt) "/tmp/padded.jpeg" $
          CUDA.run1
