@@ -3,12 +3,14 @@ module Arithmetic where
 import qualified Data.Complex as Complex
 import Data.Complex (Complex, )
 
+import qualified Control.Functor.HT as FuncHT
 import Control.Monad (liftM2, guard)
 
 import qualified Data.NonEmpty as NonEmpty
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import qualified Data.Bits as Bit
+import Data.NonEmpty ((!:))
 import Data.Maybe (catMaybes)
 import Data.Tuple.HT (mapPair, fst3, thd3)
 
@@ -51,13 +53,14 @@ boundingBoxOfRotatedGen ::
    (Num a) => (a -> a -> a, a -> a -> a) -> (a,a) -> (a,a) -> ((a,a), (a,a))
 boundingBoxOfRotatedGen (mini,maxi) rot (w,h) =
    let (xs,ys) =
-          unzip $
-          rotatePoint rot (0,0) :
+          FuncHT.unzip $
+          rotatePoint rot (0,0) !:
           rotatePoint rot (w,0) :
           rotatePoint rot (0,h) :
           rotatePoint rot (w,h) :
           []
-   in  ((foldl1 mini xs, foldl1 maxi xs), (foldl1 mini ys, foldl1 maxi ys))
+   in  ((NonEmpty.foldBalanced mini xs, NonEmpty.foldBalanced maxi xs),
+        (NonEmpty.foldBalanced mini ys, NonEmpty.foldBalanced maxi ys))
 
 canvasShape ::
    (RealFloat a, Integral i,
