@@ -7,11 +7,13 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Foldable as Fold
+import qualified Data.Vector as Vector
 import qualified Data.List as List
 import qualified Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
+import Data.Bool.HT (if')
 import Data.Maybe (fromMaybe)
 
 import Control.Monad (when, join)
@@ -24,6 +26,8 @@ newtype File = File FilePath
 
 data Angle = Angle FilePath (Degree Float)
 
+data Overlap = Overlap FilePath (Degree Float) [Maybe Bool]
+
 data Position = Position FilePath (Degree Float) (Float, Float)
 
 
@@ -33,6 +37,9 @@ angleId = B.pack "Angle"
 dAngleId = B.pack "DAngle"
 xId = B.pack "X"
 yId = B.pack "Y"
+
+overId :: Int -> B.ByteString
+overId k = B.pack $ "Over" ++ show k
 
 instance Csv.ToNamedRecord File where
    toNamedRecord (File path) = Csv.namedRecord [imageId .= path]
@@ -45,6 +52,16 @@ instance Csv.ToNamedRecord Angle where
 instance Csv.DefaultOrdered Angle where
    headerOrder _ = Csv.header [imageId, angleId]
 
+instance Csv.ToNamedRecord Overlap where
+   toNamedRecord (Overlap path (Degree angle) xs) =
+      Csv.namedRecord $
+         [imageId .= path, angleId .= angle] ++
+         zipWith (\k mx -> overId k .= fmap (\x -> if' x 'X' '-') mx) [0..] xs
+
+overlapHeader :: Int -> Csv.Header
+overlapHeader n =
+   Vector.fromList $ [State.imageId, State.angleId] ++ map overId (take n [0..])
+
 instance Csv.ToNamedRecord Position where
    toNamedRecord (Position path (Degree angle) (x,y)) =
       Csv.namedRecord [imageId .= path, angleId .= angle, xId .= x, yId .= y]
@@ -54,6 +71,10 @@ instance Csv.DefaultOrdered Position where
 
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()
 write path = BL.writeFile path . Csv.encodeDefaultOrderedByName
+
+writeWithHeader ::
+   (Csv.ToNamedRecord a) => FilePath -> Csv.Header -> [a] -> IO ()
+writeWithHeader path header = BL.writeFile path . Csv.encodeByName header
 
 
 

@@ -66,7 +66,9 @@ import Control.Monad (liftM2, when, foldM, (<=<))
 import Control.Applicative (pure, (<$>), (<*>))
 
 import qualified Data.Vector as Vector
+import qualified Data.List.HT as ListHT
 import qualified Data.List as List
+import qualified Data.Set as Set
 import Data.Function.HT (Id)
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
@@ -1425,7 +1427,6 @@ processOverlap args picAngles planes = do
    let open = map (\((mx,my), _) -> isNothing mx || isNothing my) picAngles
    let picArray = Vector.fromList $ map snd picAngles
    displacements <-
-      fmap catMaybes $
       forM (guardedPairs open planes) $
             \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
          forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when False $
@@ -1447,12 +1448,24 @@ processOverlap args picAngles planes = do
                (printf format
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB))
             =<< composeOver doffset (picArray Vector.! ia, picArray Vector.! ib)
-         return $ toMaybe overlapping ((ia,ib), d)
+         return (overlapping, ((ia,ib), d))
 
+   forM_ (Option.outputState opt) $ \format -> do
+      let unrelated =
+            Set.fromList $ map (fst . snd) $ filter (not . fst) displacements
+      let n = length $ drop 1 picAngles
+      State.writeWithHeader (printf format "overlap") (State.overlapHeader n) $
+         zipWith
+            (\(k, (path, _)) (_,(angle,_)) ->
+               State.Overlap path angle $
+               ListHT.padRight Nothing n $ take k $
+               map (Just . flip Set.notMember unrelated . flip (,) k) [0..])
+            planes picAngles
+
+   let overlaps = catMaybes $ map (uncurry toMaybe) displacements
    let (poss, dps) =
           absolutePositionsFromPairDisplacements
-             (fixAtLeastOnePosition (0,0) $ map fst picAngles)
-             displacements
+             (fixAtLeastOnePosition (0,0) $ map fst picAngles) overlaps
    info "\nabsolute positions"
    info $ unlines $ map show poss
 
@@ -1461,13 +1474,13 @@ processOverlap args picAngles planes = do
       zipWith
          (\(dpx,dpy) (dx,dy) ->
             printf "(%f,%f) (%f,%f)" dpx dpy dx dy)
-         dps (map snd displacements)
+         dps (map snd overlaps)
    let (errdx,errdy) =
           mapPair (maximum0, maximum0) $ unzip $
           zipWith
              (\(dpx,dpy) (dx,dy) ->
                 (abs $ dpx - realToFrac dx, abs $ dpy - realToFrac dy))
-             dps (map snd displacements)
+             dps (map snd overlaps)
 
    info $
       "\n"
