@@ -1395,8 +1395,7 @@ finalizeWeightedCanvas =
 
 processOverlap ::
    Option.Args ->
-   [((Maybe (Degree Float), (Maybe Float, Maybe Float)),
-     (Degree Float, ColorImage8))] ->
+   [((Maybe Float, Maybe Float), (Degree Float, ColorImage8))] ->
    [(Int, (FilePath, ((Float, Float), Plane Float)))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
 processOverlap args picAngles planes = do
@@ -1450,7 +1449,7 @@ processOverlap args picAngles planes = do
 
    let (poss, dps) =
           absolutePositionsFromPairDisplacements
-             (fixAtLeastOnePosition (0,0) $ map (snd.fst) picAngles)
+             (fixAtLeastOnePosition (0,0) $ map fst picAngles)
              displacements
    info "\nabsolute positions"
    info $ unlines $ map show poss
@@ -1588,9 +1587,9 @@ process args = do
 
    (floatPoss, picRots) <-
       (if Option.finetuneRotate opt
-         then processOverlapRotate
-         else processOverlap)
-            args (map snd picAngles) (zip [0..] rotated)
+         then processOverlapRotate args (map snd picAngles)
+         else processOverlap args (map (mapFst snd . snd) picAngles))
+            (zip [0..] rotated)
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $
