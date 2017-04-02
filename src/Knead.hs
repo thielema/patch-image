@@ -72,7 +72,7 @@ import qualified Data.Set as Set
 import Data.Function.HT (Id)
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
-import Data.Maybe (catMaybes, isJust, isNothing)
+import Data.Maybe (mapMaybe, isJust, isNothing)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
@@ -1448,11 +1448,11 @@ processOverlap args picAngles planes = do
                (printf format
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB))
             =<< composeOver doffset (picArray Vector.! ia, picArray Vector.! ib)
-         return (overlapping, ((ia,ib), d))
+         return ((ia,ib), toMaybe overlapping d)
 
    forM_ (Option.outputState opt) $ \format -> do
       let unrelated =
-            Set.fromList $ map (fst . snd) $ filter (not . fst) displacements
+            Set.fromList $ map fst $ filter (isNothing . snd) displacements
       let toOverlap i =
             if Set.member i unrelated
               then State.NonOverlapping
@@ -1466,7 +1466,7 @@ processOverlap args picAngles planes = do
                map (Just . toOverlap . flip (,) k) [0..])
             planes picAngles
 
-   let overlaps = catMaybes $ map (uncurry toMaybe) displacements
+   let overlaps = mapMaybe (\(i,md) -> (,) i <$> md) displacements
    let (poss, dps) =
           absolutePositionsFromPairDisplacements
              (fixAtLeastOnePosition (0,0) $ map fst picAngles) overlaps
