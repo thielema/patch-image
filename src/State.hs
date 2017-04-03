@@ -109,26 +109,41 @@ parseAngle zero m =
       (\a mda -> (a, fromMaybe (zero <$ a) mda))
       (join <$> m .:? angleId) (m .:? dAngleId)
 
+parseRelations :: (Csv.FromField a) => Csv.NamedRecord -> Csv.Parser [a]
+parseRelations m =
+   let go k =
+         case HashMap.lookup (overId k) m of
+            Nothing -> pure []
+            Just str -> liftA2 (:) (Csv.parseField str) (go (k+1))
+   in  go 0
+
 
 data
    Proposed =
       Proposed FilePath
          (Maybe (Degree Float), Maybe (Degree Float))
          (Maybe Float, Maybe Float)
+         [Maybe Relation]
 
 instance Csv.FromNamedRecord Proposed where
    parseNamedRecord m =
       Proposed <$> m .: imageId
          <*> parseAngle (Degree 0) m
          <*> liftA2 (,) (join <$> m .:? xId) (join <$> m .:? yId)
+         <*> parseRelations m
 
 read :: FilePath -> IO (Vector Proposed)
 read path = do
    (headers, body) <-
       either (ioError . userError) return . Csv.decodeByName
          =<< BL.readFile path
+   let deleteOver k set =
+         if Set.member (overId k) set
+           then deleteOver (k+1) $! Set.delete (overId k) set
+           else set
    let ignored =
          Set.toList $
+         deleteOver 0 $
          Set.difference
             (Set.fromList $ Fold.toList headers)
             (Set.fromList [imageId, angleId, dAngleId, xId, yId])

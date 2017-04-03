@@ -68,11 +68,12 @@ import Control.Applicative (pure, (<$>), (<*>))
 import qualified Data.Vector as Vector
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
+import qualified Data.Map as Map; import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Function.HT (Id)
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
-import Data.Maybe (mapMaybe, isJust, isNothing)
+import Data.Maybe (catMaybes, mapMaybe, isJust, isNothing)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
@@ -1398,10 +1399,11 @@ finalizeWeightedCanvas =
 
 processOverlap ::
    Option.Args ->
+   Map (Int,Int) State.Relation ->
    [((Maybe Float, Maybe Float), (Degree Float, ColorImage8))] ->
    [(Int, (FilePath, ((Float, Float), Plane Float)))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
-processOverlap args picAngles planes = do
+processOverlap args relations picAngles planes = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
@@ -1435,20 +1437,32 @@ processOverlap args picAngles planes = do
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB))
             =<< allOverlapsShared picA picB
 
-         doffset@(dox,doy) <- snd <$> optimalOverlapShared picA picB
-         diff <- overlapDiff doffset picA picB
-         let overlapping = diff < Option.maximumDifference opt
-         let d = (fromIntegral dox + fst leftTopA - fst leftTopB,
-                  fromIntegral doy + snd leftTopA - snd leftTopB)
-         info $
-            printf "%s - %s, %s, difference %f%s\n" pathA pathB (show d) diff
-               (if overlapping then "" else " unrelated -> ignoring")
-         forM_ (Option.outputOverlap opt) $ \format ->
-            writeImage (Option.quality opt)
-               (printf format
-                  (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB))
-            =<< composeOver doffset (picArray Vector.! ia, picArray Vector.! ib)
-         return ((ia,ib), toMaybe overlapping d)
+         let related = Map.lookup (ia,ib) relations
+         md <-
+            if related == Just State.NonOverlapping
+              then return Nothing
+              else do
+                  doffset@(dox,doy) <- snd <$> optimalOverlapShared picA picB
+                  diff <- overlapDiff doffset picA picB
+                  let overlapping =
+                        related == Just State.Overlapping
+                        ||
+                        diff < Option.maximumDifference opt
+                  let d = (fromIntegral dox + fst leftTopA - fst leftTopB,
+                           fromIntegral doy + snd leftTopA - snd leftTopB)
+                  info $
+                     printf "%s - %s, %s, difference %f%s\n"
+                        pathA pathB (show d) diff
+                        (if overlapping then "" else " unrelated -> ignoring")
+                  forM_ (Option.outputOverlap opt) $ \format ->
+                     writeImage (Option.quality opt)
+                        (printf format
+                           (FilePath.takeBaseName pathA)
+                           (FilePath.takeBaseName pathB))
+                     =<< composeOver doffset
+                           (picArray Vector.! ia, picArray Vector.! ib)
+                  return $ toMaybe overlapping d
+         return ((ia,ib), md)
 
    forM_ (Option.outputState opt) $ \format -> do
       let unrelated =
@@ -1587,7 +1601,7 @@ process args = do
    notice "\nfind rotation angles"
    findOptRot <- findOptimalRotation
    picAngles <-
-      forM paths $ \(State.Proposed path (maybeAngle, maybeDAngle) maybePos) -> do
+      forM paths $ \(State.Proposed path (maybeAngle, maybeDAngle) maybePos _) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
          let angles = Degree.linearScale (Option.numberAngleSteps opt) maxAngle
@@ -1609,10 +1623,17 @@ process args = do
          (FuncHT.mapSnd (prepOverlapMatching (Option.smooth opt) . snd))
          picAngles
 
+
+   let relations =
+         Map.fromList $ catMaybes $ concat $
+         zipWith
+            (\k (State.Proposed _ _ _ rs) ->
+               zipWith (\j r -> (,) (j,k) <$> r) [0..] rs)
+            [0..] paths
    (floatPoss, picRots) <-
       (if Option.finetuneRotate opt
          then processOverlapRotate args (map snd picAngles)
-         else processOverlap args (map (mapFst snd . snd) picAngles))
+         else processOverlap args relations (map (mapFst snd . snd) picAngles))
             (zip [0..] rotated)
 
    forM_ (Option.outputState opt) $ \format ->
