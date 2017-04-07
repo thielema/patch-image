@@ -29,6 +29,8 @@ data Overlap = Overlap FilePath (Degree Float) [Maybe Relation]
 
 data Position = Position FilePath (Degree Float) (Float, Float)
 
+data Displacement = Displacement FilePath FilePath Relation (Maybe (Float, Float))
+
 
 imageId, angleId, dAngleId, xId, yId :: B.ByteString
 imageId = B.pack "Image"
@@ -36,6 +38,13 @@ angleId = B.pack "Angle"
 dAngleId = B.pack "DAngle"
 xId = B.pack "X"
 yId = B.pack "Y"
+
+imageAId, imageBId, relationId, dxId, dyId :: B.ByteString
+imageAId = B.pack "ImageA"
+imageBId = B.pack "ImageB"
+relationId = B.pack "Rel"
+dxId = B.pack "DX"
+dyId = B.pack "DY"
 
 overId :: Int -> B.ByteString
 overId k = B.pack $ "Over" ++ show k
@@ -80,6 +89,14 @@ instance Csv.ToNamedRecord Position where
       Csv.namedRecord [imageId .= path, angleId .= angle, xId .= x, yId .= y]
 instance Csv.DefaultOrdered Position where
    headerOrder _ = Csv.header [imageId, angleId, xId, yId]
+
+instance Csv.ToNamedRecord Displacement where
+   toNamedRecord (Displacement pathA pathB rel disp) =
+      Csv.namedRecord
+         [imageAId .= pathA, imageBId .= pathB,
+          relationId .= rel, dxId .= fmap fst disp, dyId .= fmap snd disp]
+instance Csv.DefaultOrdered Displacement where
+   headerOrder _ = Csv.header [imageAId, imageBId, relationId, dxId, dyId]
 
 
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()

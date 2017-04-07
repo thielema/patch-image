@@ -1480,6 +1480,15 @@ processOverlap args relations picAngles planes = do
                map (Just . toOverlap . flip (,) k) [0..])
             planes picAngles
 
+      let pathArray = Vector.fromList $ map (fst.snd) planes
+      State.write (printf format "relation") $
+         map
+            (\(i@(ia,ib), md) ->
+               State.Displacement
+                  (pathArray Vector.! ia) (pathArray  Vector.! ib)
+                  (toOverlap i) md)
+            displacements
+
    let overlaps = mapMaybe (\(i,md) -> (,) i <$> md) displacements
    let (poss, dps) =
           absolutePositionsFromPairDisplacements
