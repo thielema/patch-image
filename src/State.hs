@@ -29,7 +29,8 @@ data Overlap = Overlap FilePath (Degree Float) [Maybe Relation]
 
 data Position = Position FilePath (Degree Float) (Float, Float)
 
-data Displacement = Displacement FilePath FilePath Relation (Maybe (Float, Float))
+data Displacement =
+      Displacement FilePath FilePath (Maybe Relation) (Maybe (Float, Float))
 
 
 imageId, angleId, dAngleId, xId, yId :: B.ByteString
@@ -97,6 +98,14 @@ instance Csv.ToNamedRecord Displacement where
           relationId .= rel, dxId .= fmap fst disp, dyId .= fmap snd disp]
 instance Csv.DefaultOrdered Displacement where
    headerOrder _ = Csv.header [imageAId, imageBId, relationId, dxId, dyId]
+
+instance Csv.FromNamedRecord Displacement where
+   parseNamedRecord m =
+      Displacement
+         <$> m .: imageAId
+         <*> m .: imageBId
+         <*> m .: relationId
+         <*> liftA2 (liftA2 (,)) (m .: dxId) (m .: dyId)
 
 
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()
@@ -167,3 +176,8 @@ read path = do
    when (not $ null ignored) $ IO.hPutStrLn IO.stderr $
       "ignore unknown columns: " ++ List.intercalate ", " (map B.unpack ignored)
    return body
+
+readGen :: (Csv.FromNamedRecord a) => FilePath -> IO (Vector a)
+readGen path =
+   either (ioError . userError) (return . snd) . Csv.decodeByName
+      =<< BL.readFile path

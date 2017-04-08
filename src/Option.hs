@@ -40,6 +40,7 @@ data Option =
    Option {
       verbosity :: Verbosity,
       state :: Vector State.Proposed,
+      relations :: Maybe FilePath,
       output :: Maybe FilePath,
       outputHard :: Maybe FilePath,
       outputShaped :: Maybe FilePath,
@@ -69,6 +70,7 @@ defltOption =
    Option {
       verbosity = Verbosity.verbose,
       state = Vector.empty,
+      relations = Nothing,
       output = Nothing,
       outputHard = Nothing,
       outputShaped = Nothing,
@@ -154,6 +156,11 @@ optionDescription desc =
          xs <- State.read path
          return $ flags{state = xs})
       ("CSV file with predefined parameters") :
+
+   opt generic [] ["relations"]
+      (flip ReqArg "PATH" $ \str flags ->
+         return $ flags{output = Just str})
+      ("CSV file with image pairs") :
 
    opt generic [] ["output"]
       (flip ReqArg "PATH" $ \str flags ->

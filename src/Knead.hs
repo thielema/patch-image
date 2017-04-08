@@ -62,18 +62,18 @@ import Text.Printf (printf)
 
 import qualified Control.Monad.HT as MonadHT
 import qualified Control.Functor.HT as FuncHT
-import Control.Monad (liftM2, when, foldM, (<=<))
+import Control.Monad (liftM2, when, join, foldM, (<=<))
 import Control.Applicative (pure, (<$>), (<*>))
 
 import qualified Data.Vector as Vector
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
-import qualified Data.Map as Map; import Data.Map (Map)
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Function.HT (Id)
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
-import Data.Maybe (catMaybes, mapMaybe, isJust, isNothing)
+import Data.Maybe (mapMaybe, isJust, isNothing)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
@@ -1399,11 +1399,10 @@ finalizeWeightedCanvas =
 
 processOverlap ::
    Option.Args ->
-   Map (Int,Int) State.Relation ->
    [((Maybe Float, Maybe Float), (Degree Float, ColorImage8))] ->
    [(Int, (FilePath, ((Float, Float), Plane Float)))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
-processOverlap args relations picAngles planes = do
+processOverlap args picAngles planes = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
@@ -1424,6 +1423,12 @@ processOverlap args relations picAngles planes = do
                (Just $ allOverlapsIO (Option.minimumOverlap opt),
                 overlap (Option.minimumOverlap opt))
 
+   relationsPlain <-
+      maybe (return Vector.empty) State.readGen (Option.relations opt)
+   let relations =
+         Map.fromList $
+         map (\(State.Displacement pathA pathB rel d) -> ((pathA,pathB), (rel,d))) $
+         Vector.toList relationsPlain
    composeOver <- composeOverlap
    overlapDiff <- overlapDifferenceRun
    let open = map (\((mx,my), _) -> isNothing mx || isNothing my) picAngles
@@ -1437,7 +1442,8 @@ processOverlap args relations picAngles planes = do
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB))
             =<< allOverlapsShared picA picB
 
-         let related = Map.lookup (ia,ib) relations
+         let relation = Map.lookup (pathA,pathB) relations
+         let related = join $ fmap fst relation
          md <-
             if related == Just State.NonOverlapping
               then return Nothing
@@ -1486,7 +1492,7 @@ processOverlap args relations picAngles planes = do
             (\(i@(ia,ib), md) ->
                State.Displacement
                   (pathArray Vector.! ia) (pathArray  Vector.! ib)
-                  (toOverlap i) md)
+                  (Just $ toOverlap i) md)
             displacements
 
    let overlaps = mapMaybe (\(i,md) -> (,) i <$> md) displacements
@@ -1633,16 +1639,10 @@ process args = do
          picAngles
 
 
-   let relations =
-         Map.fromList $ catMaybes $ concat $
-         zipWith
-            (\k (State.Proposed _ _ _ rs) ->
-               zipWith (\j r -> (,) (j,k) <$> r) [0..] rs)
-            [0..] paths
    (floatPoss, picRots) <-
       (if Option.finetuneRotate opt
          then processOverlapRotate args (map snd picAngles)
-         else processOverlap args relations (map (mapFst snd . snd) picAngles))
+         else processOverlap args (map (mapFst snd . snd) picAngles))
             (zip [0..] rotated)
 
    forM_ (Option.outputState opt) $ \format ->
