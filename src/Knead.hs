@@ -1443,11 +1443,11 @@ processOverlap args picAngles planes = do
             =<< allOverlapsShared picA picB
 
          let relation = Map.lookup (pathA,pathB) relations
-         let related = join $ fmap fst relation
          md <-
-            if related == Just State.NonOverlapping
-              then return Nothing
-              else do
+            case (join $ fmap fst relation, join $ fmap snd relation) of
+               (Just State.NonOverlapping, _) -> return Nothing
+               (Just State.Overlapping, Just d) -> return $ Just d
+               (related, _) -> do
                   doffset@(dox,doy) <- snd <$> optimalOverlapShared picA picB
                   diff <- overlapDiff doffset picA picB
                   let overlapping =
