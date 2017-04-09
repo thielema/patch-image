@@ -15,6 +15,7 @@ import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
 import Data.Maybe (fromMaybe)
 
+import qualified Control.Applicative.HT as AppHT
 import Control.Monad (when, join)
 import Control.Applicative (pure, liftA2, (<$>), (<$), (<*>), empty)
 
@@ -31,6 +32,10 @@ data Position = Position FilePath (Degree Float) (Float, Float)
 
 data Displacement =
       Displacement FilePath FilePath (Maybe Relation) (Maybe (Float, Float))
+
+data Rotated =
+      Rotated FilePath FilePath (Maybe Relation)
+         [((Float, Float), (Float, Float))]
 
 
 imageId, angleId, dAngleId, xId, yId :: B.ByteString
@@ -49,6 +54,13 @@ dyId = B.pack "DY"
 
 overId :: Int -> B.ByteString
 overId k = B.pack $ "Over" ++ show k
+
+xaId, yaId, xbId, ybId :: Int -> B.ByteString
+xaId k = B.pack $ "XA" ++ show k
+yaId k = B.pack $ "YA" ++ show k
+xbId k = B.pack $ "XB" ++ show k
+ybId k = B.pack $ "YB" ++ show k
+
 
 instance Csv.ToNamedRecord File where
    toNamedRecord (File path) = Csv.namedRecord [imageId .= path]
@@ -83,7 +95,7 @@ instance Csv.FromField Relation where
 
 overlapHeader :: Int -> Csv.Header
 overlapHeader n =
-   Vector.fromList $ [State.imageId, State.angleId] ++ map overId (take n [0..])
+   Vector.fromList $ [imageId, angleId] ++ map overId (take n [0..])
 
 instance Csv.ToNamedRecord Position where
    toNamedRecord (Position path (Degree angle) (x,y)) =
@@ -106,6 +118,52 @@ instance Csv.FromNamedRecord Displacement where
          <*> m .: imageBId
          <*> m .: relationId
          <*> liftA2 (liftA2 (,)) (m .: dxId) (m .: dyId)
+
+
+rotatedHeader :: Int -> Csv.Header
+rotatedHeader n =
+   Vector.fromList $
+      [imageAId, imageBId, relationId]
+      ++
+      concatMap (\k -> map ($k) [xaId, yaId, xbId, ybId]) (take n [0..])
+
+instance Csv.ToNamedRecord Rotated where
+   toNamedRecord (Rotated pathA pathB rel rot) =
+      Csv.namedRecord $
+         [imageAId .= pathA, imageBId .= pathB, relationId .= rel]
+         ++
+         (concat $
+          zipWith
+            (\k ((xa,ya), (xb,yb)) ->
+               [xaId k .= xa, yaId k .= ya, xbId k .= xb, ybId k .= yb])
+            [0..] rot)
+
+parseRotated ::
+   (Csv.FromField a) => Csv.NamedRecord -> Csv.Parser [((a,a),(a,a))]
+parseRotated m =
+   let look ident = HashMap.lookup ident m
+       go k =
+         case
+            liftA2 (,)
+               (liftA2 (,) (look (xaId k)) (look (yaId k)))
+               (liftA2 (,) (look (xbId k)) (look (ybId k))) of
+            Nothing -> pure []
+            Just strs ->
+               liftA2 (:)
+                  (AppHT.mapPair
+                     (AppHT.mapPair (Csv.parseField, Csv.parseField),
+                      AppHT.mapPair (Csv.parseField, Csv.parseField))
+                     strs)
+                  (go (k+1))
+   in  go 0
+
+instance Csv.FromNamedRecord Rotated where
+   parseNamedRecord m =
+      Rotated
+         <$> m .: imageAId
+         <*> m .: imageBId
+         <*> m .: relationId
+         <*> parseRotated m
 
 
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()
