@@ -50,9 +50,6 @@ relationId = B.pack "Rel"
 dxId = B.pack "DX"
 dyId = B.pack "DY"
 
-overId :: Int -> B.ByteString
-overId k = B.pack $ "Over" ++ show k
-
 xaId, yaId, xbId, ybId :: Int -> B.ByteString
 xaId k = B.pack $ "XA" ++ show k
 yaId k = B.pack $ "YA" ++ show k
@@ -199,13 +196,8 @@ read path = do
    (headers, body) <-
       either (ioError . userError) return . Csv.decodeByName
          =<< BL.readFile path
-   let deleteOver k set =
-         if Set.member (overId k) set
-           then deleteOver (k+1) $! Set.delete (overId k) set
-           else set
    let ignored =
          Set.toList $
-         deleteOver 0 $
          Set.difference
             (Set.fromList $ Fold.toList headers)
             (Set.fromList [imageId, angleId, dAngleId, xId, yId])
