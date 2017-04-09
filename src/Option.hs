@@ -319,7 +319,7 @@ addFile path (Image ang, args) =
    return
       (defltImage,
        args {inputs =
-               State.Proposed path (ang, Nothing) (Nothing, Nothing) [] :
+               State.Proposed path (ang, Nothing) (Nothing, Nothing) :
                inputs args})
 
 

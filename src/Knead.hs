@@ -1626,7 +1626,7 @@ process args = do
    notice "\nfind rotation angles"
    findOptRot <- findOptimalRotation
    picAngles <-
-      forM paths $ \(State.Proposed path (maybeAngle, maybeDAngle) maybePos _) -> do
+      forM paths $ \(State.Proposed path (maybeAngle, maybeDAngle) maybePos) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
          let angles = Degree.linearScale (Option.numberAngleSteps opt) maxAngle
