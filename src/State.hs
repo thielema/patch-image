@@ -26,8 +26,6 @@ newtype File = File FilePath
 
 data Angle = Angle FilePath (Degree Float)
 
-data Overlap = Overlap FilePath (Degree Float) [Maybe Relation]
-
 data Position = Position FilePath (Degree Float) (Float, Float)
 
 data Displacement =
@@ -73,12 +71,6 @@ instance Csv.ToNamedRecord Angle where
 instance Csv.DefaultOrdered Angle where
    headerOrder _ = Csv.header [imageId, angleId]
 
-instance Csv.ToNamedRecord Overlap where
-   toNamedRecord (Overlap path (Degree angle) xs) =
-      Csv.namedRecord $
-         [imageId .= path, angleId .= angle] ++
-         zipWith (\k mx -> overId k .= mx) [0..] xs
-
 data Relation = NonOverlapping | Overlapping
    deriving (Eq, Ord, Enum)
 
@@ -92,10 +84,6 @@ instance Csv.FromField Relation where
          "-" -> pure NonOverlapping
          "X" -> pure Overlapping
          _ -> empty
-
-overlapHeader :: Int -> Csv.Header
-overlapHeader n =
-   Vector.fromList $ [imageId, angleId] ++ map overId (take n [0..])
 
 instance Csv.ToNamedRecord Position where
    toNamedRecord (Position path (Degree angle) (x,y)) =

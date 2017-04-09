@@ -66,7 +66,6 @@ import Control.Monad (liftM2, when, join, foldM, (<=<))
 import Control.Applicative (pure, (<$>), (<*>))
 
 import qualified Data.Vector as Vector
-import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -1477,15 +1476,6 @@ processOverlap args picAngles planes = do
             if Set.member i unrelated
               then State.NonOverlapping
               else State.Overlapping
-      let n = length $ drop 1 picAngles
-      State.writeWithHeader (printf format "overlap") (State.overlapHeader n) $
-         zipWith
-            (\(k, (path, _)) (_,(angle,_)) ->
-               State.Overlap path angle $
-               ListHT.padRight Nothing n $ take k $
-               map (Just . toOverlap . flip (,) k) [0..])
-            planes picAngles
-
       let pathArray = Vector.fromList $ map (fst.snd) planes
       State.write (printf format "relation") $
          map
