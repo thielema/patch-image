@@ -7,6 +7,7 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Foldable as Fold
+import qualified Data.Vector as Vector
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import qualified Data.Set as Set
@@ -179,13 +180,18 @@ data
          (Maybe (Degree Float), Maybe (Degree Float))
          (Maybe Float, Maybe Float)
 
+instance Csv.DefaultOrdered Proposed where
+   headerOrder _ = Csv.header [imageId, angleId, dAngleId, xId, yId]
+
 instance Csv.FromNamedRecord Proposed where
    parseNamedRecord m =
       Proposed <$> m .: imageId
          <*> parseAngle (Degree 0) m
          <*> liftA2 (,) (join <$> m .:? xId) (join <$> m .:? yId)
 
-read :: FilePath -> IO (Vector Proposed)
+read ::
+   (Csv.FromNamedRecord a, Csv.DefaultOrdered a) =>
+   FilePath -> IO (Vector a)
 read path = do
    (headers, body) <-
       either (ioError . userError) return . Csv.decodeByName
@@ -194,12 +200,8 @@ read path = do
          Set.toList $
          Set.difference
             (Set.fromList $ Fold.toList headers)
-            (Set.fromList [imageId, angleId, dAngleId, xId, yId])
+            (Set.fromList $ Fold.toList $
+             Csv.headerOrder $ Vector.head body)
    when (not $ null ignored) $ IO.hPutStrLn IO.stderr $
       "ignore unknown columns: " ++ List.intercalate ", " (map B.unpack ignored)
    return body
-
-readGen :: (Csv.FromNamedRecord a) => FilePath -> IO (Vector a)
-readGen path =
-   either (ioError . userError) (return . snd) . Csv.decodeByName
-      =<< BL.readFile path

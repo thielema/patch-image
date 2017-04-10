@@ -1424,7 +1424,7 @@ processOverlap args picAngles planes = do
                 overlap (Option.minimumOverlap opt))
 
    relationsPlain <-
-      maybe (return Vector.empty) State.readGen (Option.relations opt)
+      maybe (return Vector.empty) State.read (Option.relations opt)
    let relations =
          Map.fromList $
          map (\(State.Displacement pathA pathB rel d) -> ((pathA,pathB), (rel,d))) $
@@ -1540,7 +1540,7 @@ processOverlapRotate args picAngles planes = do
       <*> pure (Option.minimumOverlap opt)
 
    relationsPlain <-
-      maybe (return Vector.empty) State.readGen (Option.relations opt)
+      maybe (return Vector.empty) State.read (Option.relations opt)
    let relations =
          Map.fromList $ State.segmentRotated $
          Vector.toList relationsPlain
