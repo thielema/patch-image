@@ -7,7 +7,6 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Foldable as Fold
-import qualified Data.Vector as Vector
 import qualified Data.List as List
 import qualified Data.Set as Set
 import Data.Traversable (traverse)
@@ -15,7 +14,6 @@ import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
 import Data.Maybe (fromMaybe)
 
-import qualified Control.Applicative.HT as AppHT
 import Control.Monad (when, join)
 import Control.Applicative (pure, liftA2, (<$>), (<$), (<*>), empty)
 
@@ -32,8 +30,9 @@ data Displacement =
       Displacement FilePath FilePath (Maybe Relation) (Maybe (Float, Float))
 
 data Rotated =
-      Rotated FilePath FilePath (Maybe Relation)
-         [((Float, Float), (Float, Float))]
+      Rotated
+         (Maybe (FilePath, FilePath)) (Maybe Relation)
+         (Maybe ((Float, Float), (Float, Float)))
 
 
 imageId, angleId, dAngleId, xId, yId :: B.ByteString
@@ -50,11 +49,11 @@ relationId = B.pack "Rel"
 dxId = B.pack "DX"
 dyId = B.pack "DY"
 
-xaId, yaId, xbId, ybId :: Int -> B.ByteString
-xaId k = B.pack $ "XA" ++ show k
-yaId k = B.pack $ "YA" ++ show k
-xbId k = B.pack $ "XB" ++ show k
-ybId k = B.pack $ "YB" ++ show k
+xaId, yaId, xbId, ybId :: B.ByteString
+xaId = B.pack "XA"
+yaId = B.pack "YA"
+xbId = B.pack "XB"
+ybId = B.pack "YB"
 
 
 instance Csv.ToNamedRecord File where
@@ -105,50 +104,29 @@ instance Csv.FromNamedRecord Displacement where
          <*> liftA2 (liftA2 (,)) (m .: dxId) (m .: dyId)
 
 
-rotatedHeader :: Int -> Csv.Header
-rotatedHeader n =
-   Vector.fromList $
-      [imageAId, imageBId, relationId]
-      ++
-      concatMap (\k -> map ($k) [xaId, yaId, xbId, ybId]) (take n [0..])
-
 instance Csv.ToNamedRecord Rotated where
-   toNamedRecord (Rotated pathA pathB rel rot) =
+   toNamedRecord (Rotated paths rel rot) =
       Csv.namedRecord $
-         [imageAId .= pathA, imageBId .= pathB, relationId .= rel]
-         ++
-         (concat $
-          zipWith
-            (\k ((xa,ya), (xb,yb)) ->
-               [xaId k .= xa, yaId k .= ya, xbId k .= xb, ybId k .= yb])
-            [0..] rot)
+         [imageAId .= fmap fst paths, imageBId .= fmap snd paths,
+          relationId .= rel,
+          xaId .= fmap (fst.fst) rot, yaId .= fmap (snd.fst) rot,
+          xbId .= fmap (fst.snd) rot, ybId .= fmap (snd.snd) rot]
+instance Csv.DefaultOrdered Rotated where
+   headerOrder _ =
+      Csv.header [imageAId, imageBId, relationId, xaId, yaId, xbId, ybId]
 
-parseRotated ::
-   (Csv.FromField a) => Csv.NamedRecord -> Csv.Parser [((a,a),(a,a))]
-parseRotated m =
-   let look ident = HashMap.lookup ident m
-       go k =
-         case
-            liftA2 (,)
-               (liftA2 (,) (look (xaId k)) (look (yaId k)))
-               (liftA2 (,) (look (xbId k)) (look (ybId k))) of
-            Nothing -> pure []
-            Just strs ->
-               liftA2 (:)
-                  (AppHT.mapPair
-                     (AppHT.mapPair (Csv.parseField, Csv.parseField),
-                      AppHT.mapPair (Csv.parseField, Csv.parseField))
-                     strs)
-                  (go (k+1))
-   in  go 0
+maybePair :: Maybe a -> Maybe b -> Maybe (a, b)
+maybePair = liftA2 (,)
 
 instance Csv.FromNamedRecord Rotated where
    parseNamedRecord m =
       Rotated
-         <$> m .: imageAId
-         <*> m .: imageBId
+         <$> liftA2 maybePair (m .: imageAId) (m .: imageBId)
          <*> m .: relationId
-         <*> parseRotated m
+         <*>
+            liftA2 maybePair
+               (liftA2 maybePair (m .: xaId) (m .: yaId))
+               (liftA2 maybePair (m .: xbId) (m .: ybId))
 
 
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()

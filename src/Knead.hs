@@ -1567,14 +1567,24 @@ processOverlapRotate args picAngles planes = do
             if Set.member i unrelated
               then State.NonOverlapping
               else State.Overlapping
-      let n = Option.numberStamps opt
       let pathArray = Vector.fromList $ map (fst.snd) planes
-      State.writeWithHeader (printf format "relation") (State.rotatedHeader n) $
-         map
+      State.write (printf format "relation") $
+         concatMap
             (\(i@(ia,ib), rots) ->
-               State.Rotated
-                  (pathArray Vector.! ia) (pathArray  Vector.! ib)
-                  (Just $ toOverlap i) rots)
+               case rots of
+                  [] ->
+                     [State.Rotated
+                        (Just (pathArray Vector.! ia, pathArray  Vector.! ib))
+                        (Just State.NonOverlapping)
+                        Nothing]
+                  _:_ ->
+                     zipWith
+                        (\(paths, rel) rot ->
+                           State.Rotated paths rel (Just rot))
+                        ((Just (pathArray Vector.! ia, pathArray  Vector.! ib),
+                              Just $ toOverlap i)
+                           : repeat (Nothing, Nothing))
+                        rots)
             displacements
 
    let overlaps =
