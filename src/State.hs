@@ -7,12 +7,13 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Foldable as Fold
+import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import qualified Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, catMaybes)
 
 import Control.Monad (when, join)
 import Control.Applicative (pure, liftA2, (<$>), (<$), (<*>), empty)
@@ -127,6 +128,21 @@ instance Csv.FromNamedRecord Rotated where
             liftA2 maybePair
                (liftA2 maybePair (m .: xaId) (m .: yaId))
                (liftA2 maybePair (m .: xbId) (m .: ybId))
+
+segmentRotated ::
+   [Rotated] ->
+   [((FilePath, FilePath),
+     (Maybe Relation, [((Float, Float), (Float, Float))]))]
+segmentRotated =
+   map
+      (\((mrel,mrot0,paths), rots) ->
+         (paths,
+          (mrel, catMaybes $ mrot0 : map (\(Rotated _ _ mrot) -> mrot) rots)))
+   .
+   snd
+   .
+   ListHT.segmentBeforeMaybe
+      (\(Rotated mpath mrel mrot) -> (,,) mrel mrot <$> mpath)
 
 
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()

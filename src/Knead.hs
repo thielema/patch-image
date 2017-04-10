@@ -65,6 +65,7 @@ import qualified Control.Functor.HT as FuncHT
 import Control.Monad (liftM2, when, join, foldM, (<=<))
 import Control.Applicative (pure, (<$>), (<*>))
 
+import qualified Data.Foldable as Fold
 import qualified Data.Vector as Vector
 import qualified Data.List as List
 import qualified Data.Map as Map
@@ -1538,6 +1539,11 @@ processOverlapRotate args picAngles planes = do
       <*> pure (Option.maximumDifference opt)
       <*> pure (Option.minimumOverlap opt)
 
+   relationsPlain <-
+      maybe (return Vector.empty) State.readGen (Option.relations opt)
+   let relations =
+         Map.fromList $ State.segmentRotated $
+         Vector.toList relationsPlain
    let open =
          map
             (\((ma, (mx,my)), _) ->
@@ -1546,19 +1552,26 @@ processOverlapRotate args picAngles planes = do
    displacements <-
       forM (guardedPairs open planes) $
             \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
+         let relation = Map.lookup (pathA,pathB) relations
          let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
          correspondences <-
-            map
-               (\(score,pa,pb) ->
-                  (score, (add pa leftTopA, add pb leftTopB))) <$>
-            optimalOverlapShared picA picB
-         info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
-         info $ printf "%s - %s" pathA pathB
-         forM_ correspondences $ \(score, (pa@(xa,ya),pb@(xb,yb))) ->
-            info $
-               printf "%s ~ %s, (%f,%f), %f"
-                  (show pa) (show pb) (xb-xa) (yb-ya) score
-         return ((ia,ib), map snd correspondences)
+            case (join $ fmap fst relation, Fold.fold $ fmap snd relation) of
+               (Just State.NonOverlapping, _) -> return []
+               (Just State.Overlapping, corrs@(_:_)) -> return corrs
+               (_related, _) -> do
+                  corrs <-
+                     map
+                        (\(score,pa,pb) ->
+                           (score, (add pa leftTopA, add pb leftTopB))) <$>
+                     optimalOverlapShared picA picB
+                  info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
+                  info $ printf "%s - %s" pathA pathB
+                  forM_ corrs $ \(score, (pa@(xa,ya),pb@(xb,yb))) ->
+                     info $
+                        printf "%s ~ %s, (%f,%f), %f"
+                           (show pa) (show pb) (xb-xa) (yb-ya) score
+                  return $ map snd corrs
+         return ((ia,ib), correspondences)
 
    forM_ (Option.outputState opt) $ \format -> do
       let unrelated =
