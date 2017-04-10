@@ -159,7 +159,7 @@ optionDescription desc =
 
    opt generic [] ["relations"]
       (flip ReqArg "PATH" $ \str flags ->
-         return $ flags{output = Just str})
+         return $ flags{relations = Just str})
       ("CSV file with image pairs") :
 
    opt generic [] ["output"]
