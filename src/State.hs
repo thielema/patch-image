@@ -6,18 +6,25 @@ import qualified Data.Csv as Csv
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Char8 as B
+import qualified Data.Traversable as Trav
 import qualified Data.Foldable as Fold
 import qualified Data.Vector as Vector
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
 import Data.Maybe (fromMaybe, catMaybes)
+import Data.Tuple.HT (mapSnd)
+import Data.Map (Map)
 
+import qualified Control.Monad.Exception.Synchronous as ME
 import Control.Monad (when, join)
 import Control.Applicative (pure, liftA2, (<$>), (<$), (<*>), empty)
+
+import Text.Printf (printf)
 
 import qualified System.IO as IO
 
@@ -144,6 +151,17 @@ segmentRotated =
    .
    ListHT.segmentBeforeMaybe
       (\(Rotated mpath mrel mrot) -> (,,) mrel mrot <$> mpath)
+
+imagePairMap ::
+   [((FilePath, FilePath), a)] ->
+   ME.Exceptional String (Map (FilePath, FilePath) a)
+imagePairMap =
+   Trav.sequence .
+   Map.fromListWithKey
+      (\(pathA,pathB) _ _ ->
+         ME.Exception $ printf "duplicate image pair: %s, %s" pathA pathB) .
+   map (mapSnd ME.Success)
+
 
 
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()

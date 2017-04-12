@@ -60,6 +60,7 @@ import qualified Distribution.Verbosity as Verbosity
 import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
+import qualified Control.Monad.Exception.Synchronous as ME
 import qualified Control.Monad.HT as MonadHT
 import qualified Control.Functor.HT as FuncHT
 import Control.Monad (liftM2, when, join, foldM, (<=<))
@@ -1429,14 +1430,15 @@ processOverlap args picAngles planes = do
 
    relationsPlain <-
       maybe (return Vector.empty) State.read (Option.relations opt)
-   let relations =
-         Map.fromList $
-         concatMap
-            (\(State.Displacement pathA pathB rel d) ->
-               ((pathA,pathB), (rel,d)) :
-               ((pathB,pathA), (rel, mapPair (negate,negate) <$> d)) :
-               []) $
-         Vector.toList relationsPlain
+   relations <-
+      ME.switch (ioError . userError) return $
+      State.imagePairMap $
+      concatMap
+         (\(State.Displacement pathA pathB rel d) ->
+            ((pathA,pathB), (rel,d)) :
+            ((pathB,pathA), (rel, mapPair (negate,negate) <$> d)) :
+            []) $
+      Vector.toList relationsPlain
    composeOver <- composeOverlap
    overlapDiff <- overlapDifferenceRun
    let open = map (\((mx,my), _) -> isNothing mx || isNothing my) picAngles
@@ -1548,15 +1550,16 @@ processOverlapRotate args picAngles planes = do
 
    relationsPlain <-
       maybe (return Vector.empty) State.read (Option.relations opt)
-   let relations =
-         Map.fromList $
-         concatMap
-            (\((pathA,pathB), (rel,ds)) ->
-               ((pathA,pathB), (rel,ds)) :
-               ((pathB,pathA), (rel, map swap ds)) :
-               []) $
-         State.segmentRotated $
-         Vector.toList relationsPlain
+   relations <-
+      ME.switch (ioError . userError) return $
+      State.imagePairMap $
+      concatMap
+         (\((pathA,pathB), (rel,ds)) ->
+            ((pathA,pathB), (rel,ds)) :
+            ((pathB,pathA), (rel, map swap ds)) :
+            []) $
+      State.segmentRotated $
+      Vector.toList relationsPlain
    let open =
          map
             (\((ma, (mx,my)), _) ->
