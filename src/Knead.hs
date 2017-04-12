@@ -902,7 +902,7 @@ can be used to compute corrections to rotation angles.
 -}
 optimalOverlapBigMulti ::
    Dim2 -> Dim2 -> Int ->
-   IO (Float -> Float -> Plane Float -> Plane Float ->
+   IO (Float -> Maybe Float -> Plane Float -> Plane Float ->
        IO [(Float, (Size, Size), (Size, Size))])
 optimalOverlapBigMulti padExtent (Vec2 heightStamp widthStamp) numCorrs = do
    shrnk <- RenderP.run $ shrink . Expr.decompose atomDim2
@@ -923,7 +923,7 @@ optimalOverlapBigMulti padExtent (Vec2 heightStamp widthStamp) numCorrs = do
             clipB <- clp anchorB extent b
             addCoarsePos <$> optOverlapFine minimumOverlap clipA clipB
 
-   return $ \maximumDiff minimumOverlap a b -> do
+   return $ \minimumOverlap mMaximumDiff a b -> do
       let factors@(Vec2 yk xk) =
             shrinkFactors padExtent (Phys.shape a) (Phys.shape b)
       aSmall <- shrnk factors a
@@ -935,7 +935,11 @@ optimalOverlapBigMulti padExtent (Vec2 heightStamp widthStamp) numCorrs = do
       let coarsedy = shrunkdy * yk
       let coarsed = (coarsedx,coarsedy)
 
-      diff <- overDiff shrunkd aSmall bSmall
+      doesOverlap <-
+         case mMaximumDiff of
+            Just maximumDiff ->
+               (maximumDiff>) <$> overDiff shrunkd aSmall bSmall
+            Nothing -> return True
 
       let ((leftOverlap, topOverlap),
            (rightOverlap, bottomOverlap),
@@ -945,7 +949,7 @@ optimalOverlapBigMulti padExtent (Vec2 heightStamp widthStamp) numCorrs = do
       let widthStampClip = min widthOverlap widthStamp
           heightStampClip = min heightOverlap heightStamp
 
-      (if diff < maximumDiff then id else const $ return []) $
+      (if doesOverlap then id else const $ return []) $
          mapM
             (\(x,y) ->
                overlapFine minimumOverlap a b
@@ -1536,7 +1540,6 @@ processOverlapRotate args picAngles planes = do
          (shape2 padSize padSize)
          (shape2 stampSize stampSize)
          (Option.numberStamps opt)
-      <*> pure (Option.maximumDifference opt)
       <*> pure (Option.minimumOverlap opt)
 
    relationsPlain <-
@@ -1558,12 +1561,15 @@ processOverlapRotate args picAngles planes = do
             case (join $ fmap fst relation, Fold.fold $ fmap snd relation) of
                (Just State.NonOverlapping, _) -> return []
                (Just State.Overlapping, corrs@(_:_)) -> return corrs
-               (_related, _) -> do
+               (related, _) -> do
+                  let mMaxDiff =
+                        toMaybe (related /= Just State.Overlapping) $
+                        Option.maximumDifference opt
                   corrs <-
                      map
                         (\(score,pa,pb) ->
                            (score, (add pa leftTopA, add pb leftTopB))) <$>
-                     optimalOverlapShared picA picB
+                     optimalOverlapShared mMaxDiff picA picB
                   info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
                   info $ printf "%s - %s" pathA pathB
                   forM_ corrs $ \(score, (pa@(xa,ya),pb@(xb,yb))) ->
