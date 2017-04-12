@@ -167,6 +167,15 @@ imagePairMap =
          ME.Exception $ printf "duplicate image pair: %s, %s" pathA pathB) .
    map (mapSnd ME.Success)
 
+unmatchedImages ::
+   [FilePath] -> Map (FilePath, FilePath) a -> [FilePath]
+unmatchedImages paths pairs =
+   Set.toList $
+   Set.difference
+      (Set.fromList $ concatMap (\(pathA,pathB) -> [pathA,pathB]) $
+         Map.keys pairs)
+      (Set.fromList paths)
+
 
 
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()
