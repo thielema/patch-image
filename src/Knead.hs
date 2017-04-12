@@ -1552,14 +1552,14 @@ processOverlapRotate args picAngles planes = do
       maybe (return Vector.empty) State.read (Option.relations opt)
    relations <-
       ME.switch (ioError . userError) return $
-      State.imagePairMap $
+      State.imagePairMap .
       concatMap
          (\((pathA,pathB), (rel,ds)) ->
             ((pathA,pathB), (rel,ds)) :
             ((pathB,pathA), (rel, map swap ds)) :
-            []) $
-      State.segmentRotated $
-      Vector.toList relationsPlain
+            [])
+      =<<
+      State.segmentRotated (Vector.toList relationsPlain)
    let open =
          map
             (\((ma, (mx,my)), _) ->

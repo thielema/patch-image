@@ -139,15 +139,20 @@ instance Csv.FromNamedRecord Rotated where
 
 segmentRotated ::
    [Rotated] ->
-   [((FilePath, FilePath),
-     (Maybe Relation, [((Float, Float), (Float, Float))]))]
+   ME.Exceptional String
+      [((FilePath, FilePath),
+        (Maybe Relation, [((Float, Float), (Float, Float))]))]
 segmentRotated =
-   map
-      (\((mrel,mrot0,paths), rots) ->
-         (paths,
-          (mrel, catMaybes $ mrot0 : map (\(Rotated _ _ mrot) -> mrot) rots)))
-   .
-   snd
+   (\(prefix, blocks) ->
+      ME.assert "leading relations without image header" (null prefix)
+      >>
+      (ME.Success $
+       map
+         (\((mrel,mrot0,paths), rots) ->
+            (paths,
+             (mrel,
+              catMaybes $ mrot0 : map (\(Rotated _ _ mrot) -> mrot) rots)))
+         blocks))
    .
    ListHT.segmentBeforeMaybe
       (\(Rotated mpath mrel mrot) -> (,,) mrel mrot <$> mpath)
