@@ -1431,7 +1431,11 @@ processOverlap args picAngles planes = do
       maybe (return Vector.empty) State.read (Option.relations opt)
    let relations =
          Map.fromList $
-         map (\(State.Displacement pathA pathB rel d) -> ((pathA,pathB), (rel,d))) $
+         concatMap
+            (\(State.Displacement pathA pathB rel d) ->
+               ((pathA,pathB), (rel,d)) :
+               ((pathB,pathA), (rel, mapPair (negate,negate) <$> d)) :
+               []) $
          Vector.toList relationsPlain
    composeOver <- composeOverlap
    overlapDiff <- overlapDifferenceRun
@@ -1545,7 +1549,13 @@ processOverlapRotate args picAngles planes = do
    relationsPlain <-
       maybe (return Vector.empty) State.read (Option.relations opt)
    let relations =
-         Map.fromList $ State.segmentRotated $
+         Map.fromList $
+         concatMap
+            (\((pathA,pathB), (rel,ds)) ->
+               ((pathA,pathB), (rel,ds)) :
+               ((pathB,pathA), (rel, map swap ds)) :
+               []) $
+         State.segmentRotated $
          Vector.toList relationsPlain
    let open =
          map
