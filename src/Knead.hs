@@ -1617,8 +1617,7 @@ processOverlapRotate args picAngles planes = do
             (\(i@(ia,ib), rots) ->
                State.Rotated
                   (Just (pathArray Vector.! ia, pathArray  Vector.! ib))
-                  (Just $
-                   if null rots then State.NonOverlapping else toOverlap i)
+                  (Just $ toOverlap i)
                   Nothing
                :
                map (\rot -> State.Rotated Nothing Nothing (Just rot)) rots)
