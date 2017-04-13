@@ -53,6 +53,91 @@ Wir können in CSV-Tabellen bestimmte Winkel und Positionen vorgeben
       'F' - lege fest, dass sich Bilder überlappen und lege auch Versatz fest
             anhand der folgenden Spalten
 
+MatchImageBorders: denkbare Verbesserungen
+   Ist es sinnvoll und möglich, weniger ausgefranste Umrisse zu erhalten?
+      Bestrafe auf irgendeine Weise die Entfernung von Punkten,
+         wenn sie zu längeren Umrissen führt.
+      Man könnte alle 256 möglichen 8er-Umgebungen
+         irgendwie mit der Länge der Linien bewerten
+         und das Gewicht geringer machen, je länger die Linien sind.
+      Oder einfach so:
+         Bestrafe die Anzahl _innerer_ Punkte,
+         die nach Entfernen des Punktes
+         neu in die Warteschlange aufgenommen werden müsste.
+         So hält man auch die Warteschlange klein.
+      Sobald ein Punkt aus Warteschlange entfernt wird,
+         müssen aber die Prioritäten für alle Punkte in Umgebung angepasst werden.
+      D.h. wir brauchen eine Prioritätenwarteschlange mit Suche (psqueues).
+   beziehe in Differenz auch die Farbkomponenten ein
+   wenn ein Punkt entfernt wird,
+      passe Differenz zu Mittelwert der verbleibenden Punktwerte
+      an der gleichen Stelle an
+
+MatchImageBorders.shapeParts
+   könnte statt auf Liste von Feldern
+      auch auf einem dreidimensionalen Feld arbeiten
+
+MatchImageBorders
+   glätte abgeknabberte Umrisse
+   optimal wäre, wenn ein Glättungsschritt das Bild um eine Bildpunktzeile
+   in jeder Richtung vergrößert und dabei auch in negative Indizes hineinwächst.
+
+MatchImageBorders
+   mit Physical.Array implementieren
+   benötigt wahrscheinlich Physical.scatter
+      und neue ST- oder IO-basierte veränderliche Variante
+
+MatchImageBorders
+   begrenze Teil-Bilder auf Bounding-Box der gedrehten Bilder
+   nutze dafür Felder mit Indexuntergrenzen, die verschieden von null sind
+
+besseres Überlagern der Teilbilder
+   Das Überblenden sollte möglichst in Bereichen
+   mit wenig Information passieren.
+   Da wo keine Schrift ist, sondern recht einfacher Hintergrund,
+   fällt das Überblenden am wenigsten auf.
+   Oder blende dort über,
+   wo die Differenz zwischen den übereinander liegenden Bildern gering ist.
+   Man braucht jedenfalls eine Art Gewichtsverteilung,
+   und man sollte dort überblenden, wo das Gewicht am geringsten ist.
+   Das ist aber eine recht anspruchsvolle mathematische Aufgabe.
+   Es geht darum, ein Netz von gekrümmten Wegen zu finden,
+      die die Einzelbilder beschneiden, so dass sie gekrümmte Ränder haben,
+      die genau aneinanderstoßen.
+   Ansatz:
+      Nimm Schnittpunkte von Kanten überlappender Bilder.
+      Finde zwischen diesen Schnittpunkten kürzeste Wege,
+      wobei Gebiete mit großen Bildunterschieden mit hohen Kosten belegt sind.
+      Verlaufen diese Wege teilweise zusammen?
+      Kann man daraus ein Netz spannen?
+      Man könnte den Graphen all dieser Wege
+         zu einem minimal aufspannenden Baum ausdünnen.
+   Anderer Ansatz:
+      Berechne von jedem Schnittpunkt aus
+      komplette Profile für kürzeste Entfernungen.
+      Suche den Punkt, wo die Summe der kürzesten Wege minimal ist.
+      Von diesem Punkt aus nimm alle kürzesten Wege zu den Schnittpunkten.
+      Was kommt da heraus?
+      Verlaufen dabei Wege teilweise gleich?
+   Anderer Ansatz analog zu Kruskals minimal aufspannenden Baum:
+      Beginne mit Gesamtgebiet überlappender Bereiche.
+      Entferne aus diesem Gebiet Schritt für Schritt Punkte
+      nach absteigendem Gewicht.
+      Überspringe Entfernung von Punkten,
+      wenn dadurch der Graph irgendwie ungünstig zerfallen würde.
+      Manchmal ist es ganz gut, wenn eine Verbindung gekappt wird,
+      aber manchmal auch nicht.
+      Was ist das genaue Kriterium?
+   Daran anküpfend:
+      Knabbere überall da von den Rändern der Bilder etwas weg,
+      wo mehrere Bilder übereinander liegen und das Gewicht sehr groß ist.
+      Der Algorithmus endet,
+      wenn an jeder Position nur noch der Bildpunkt eines Bildes zu sehen ist.
+      Überlagerung:
+         Nimm Silhouetten von abgeknabberten Bildern
+         und glätte sie mit Gaußfilter.
+         Nimm geglättete Silhouetten als Wichtung bei Überlagerung.
+
 besserer Matching-Score
    bei "Kaltes Herz" schlägt die Erkennung der optimalen relativen Verschiebung
       zwischen Teil links oben und rechts unten fehl
