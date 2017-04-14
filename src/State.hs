@@ -90,6 +90,13 @@ instance Csv.FromField Relation where
          "X" -> pure Overlapping
          _ -> empty
 
+unrelated :: Bool -> Relation
+unrelated b =
+   if b
+     then State.NonOverlapping
+     else State.Overlapping
+
+
 instance Csv.ToNamedRecord Position where
    toNamedRecord (Position path (Degree angle) (x,y)) =
       Csv.namedRecord [imageId .= path, angleId .= angle, xId .= x, yId .= y]

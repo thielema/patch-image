@@ -70,7 +70,6 @@ import qualified Data.Foldable as Fold
 import qualified Data.Vector as Vector
 import qualified Data.List as List
 import qualified Data.Map as Map; import Data.Map (Map)
-import qualified Data.Set as Set
 import Data.Function.HT (Id)
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
@@ -1488,25 +1487,17 @@ processOverlap args picAngles planes = do
                      =<< composeOver doffset
                            (picArray Vector.! ia, picArray Vector.! ib)
                   return $ toMaybe overlapping d
-         return ((ia,ib), md)
+         return ((ia,ib), (pathA,pathB), md)
 
    forM_ (Option.outputState opt) $ \format -> do
-      let unrelated =
-            Set.fromList $ map fst $ filter (isNothing . snd) displacements
-      let toOverlap i =
-            if Set.member i unrelated
-              then State.NonOverlapping
-              else State.Overlapping
-      let pathArray = Vector.fromList $ map (fst.snd) planes
       State.write (printf format "relation") $
          map
-            (\(i@(ia,ib), md) ->
-               State.Displacement
-                  (pathArray Vector.! ia) (pathArray  Vector.! ib)
-                  (Just $ toOverlap i) md)
+            (\(_, (pathA,pathB), md) ->
+               State.Displacement pathA pathB
+                  (Just $ State.unrelated $ isNothing md) md)
             displacements
 
-   let overlaps = mapMaybe (\(i,md) -> (,) i <$> md) displacements
+   let overlaps = mapMaybe (\(i,_paths,md) -> (,) i <$> md) displacements
    let (poss, dps) =
           absolutePositionsFromPairDisplacements
              (fixAtLeastOnePosition (0,0) $ map fst picAngles) overlaps
@@ -1602,30 +1593,21 @@ processOverlapRotate args picAngles planes = do
                         printf "%s ~ %s, (%f,%f), %f"
                            (show pa) (show pb) (xb-xa) (yb-ya) score
                   return $ map snd corrs
-         return ((ia,ib), correspondences)
+         return ((ia,ib), (pathA,pathB), correspondences)
 
    forM_ (Option.outputState opt) $ \format -> do
-      let unrelated =
-            Set.fromList $ map fst $ filter (null . snd) displacements
-      let toOverlap i =
-            if Set.member i unrelated
-              then State.NonOverlapping
-              else State.Overlapping
-      let pathArray = Vector.fromList $ map (fst.snd) planes
       State.write (printf format "relation") $
          concatMap
-            (\(i@(ia,ib), rots) ->
-               State.Rotated
-                  (Just (pathArray Vector.! ia, pathArray  Vector.! ib))
-                  (Just $ toOverlap i)
-                  Nothing
+            (\(_, paths, rots) ->
+               State.Rotated (Just paths)
+                  (Just $ State.unrelated $ null rots) Nothing
                :
                map (\rot -> State.Rotated Nothing Nothing (Just rot)) rots)
             displacements
 
    let overlaps =
          concatMap
-            (\((ia,ib),ps) -> map (\(pa,pb) -> ((ia,pa), (ib,pb))) ps)
+            (\((ia,ib),_paths,ps) -> map (\(pa,pb) -> ((ia,pa), (ib,pb))) ps)
             displacements
    let (posRots, dps) =
           layoutFromPairDisplacements
