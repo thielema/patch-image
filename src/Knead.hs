@@ -1451,10 +1451,10 @@ processOverlap args picAngles planes = do
    composeOver <- composeOverlap
    overlapDiff <- overlapDifferenceRun
    let open = map (\((mx,my), _) -> isNothing mx || isNothing my) picAngles
-   let picArray = Vector.fromList $ map snd picAngles
    displacements <-
-      forM (guardedPairs open $ zip [0..] planes) $
-            \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
+      forM (guardedPairs open $ zip3 [0..] planes $ map snd picAngles) $
+            \((ia,(pathA,(leftTopA,picA)),origA),
+              (ib,(pathB,(leftTopB,picB)),origB)) -> do
          forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when False $
             writeGrey (Option.quality opt)
                (printf "/tmp/%s-%s-score.jpeg"
@@ -1484,8 +1484,7 @@ processOverlap args picAngles planes = do
                         (printf format
                            (FilePath.takeBaseName pathA)
                            (FilePath.takeBaseName pathB))
-                     =<< composeOver doffset
-                           (picArray Vector.! ia, picArray Vector.! ib)
+                     =<< composeOver doffset (origA, origB)
                   return $ toMaybe overlapping d
          return ((ia,ib), (pathA,pathB), md)
 
