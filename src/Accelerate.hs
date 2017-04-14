@@ -70,9 +70,10 @@ import Text.Printf (printf)
 import qualified Data.List.Key as Key
 import Control.Monad.HT (void)
 import Control.Monad (liftM2, when)
+import Control.Applicative ((<$>))
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
-import Data.Maybe (catMaybes, isNothing)
+import Data.Maybe (mapMaybe, isNothing)
 import Data.List.HT (mapAdjacent)
 import Data.Traversable (forM)
 import Data.Foldable (forM_, foldMap)
@@ -1417,7 +1418,6 @@ processOverlap args picAngles planes = do
 
    let open = map (\((mx,my), _) -> isNothing mx || isNothing my) picAngles
    displacements <-
-      fmap catMaybes $
       forM (guardedPairs open $ zip3 [0..] planes $ map snd picAngles) $
             \((ia,(pathA,(leftTopA,picA)),origA),
               (ib,(pathB,(leftTopB,picB)),origB)) -> do
@@ -1440,12 +1440,20 @@ processOverlap args picAngles planes = do
                (printf format
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
                composeOverlap doffset (origA, origB)
-         return $ toMaybe overlapping ((ia,ib), d)
+         return ((ia,ib), (pathA,pathB), toMaybe overlapping d)
 
+   forM_ (Option.outputState opt) $ \format -> do
+      State.write (printf format "relation") $
+         map
+            (\(_, (pathA,pathB), md) ->
+               State.Displacement pathA pathB
+                  (Just $ State.unrelated $ isNothing md) md)
+            displacements
+
+   let overlaps = mapMaybe (\(i,_paths,md) -> (,) i <$> md) displacements
    let (poss, dps) =
           absolutePositionsFromPairDisplacements
-             (fixAtLeastOnePosition (0,0) $ map fst picAngles)
-             displacements
+             (fixAtLeastOnePosition (0,0) $ map fst picAngles) overlaps
    info "\nabsolute positions"
    info $ unlines $ map show poss
 
@@ -1454,13 +1462,13 @@ processOverlap args picAngles planes = do
       zipWith
          (\(dpx,dpy) (dx,dy) ->
             printf "(%f,%f) (%f,%f)" dpx dpy dx dy)
-         dps (map snd displacements)
+         dps (map snd overlaps)
    let (errdx,errdy) =
           mapPair (maximum0, maximum0) $ unzip $
           zipWith
              (\(dpx,dpy) (dx,dy) ->
                 (abs $ dpx - realToFrac dx, abs $ dpy - realToFrac dy))
-             dps (map snd displacements)
+             dps (map snd overlaps)
 
    info $
       "\n"
@@ -1501,29 +1509,42 @@ processOverlapRotate args picAngles planes = do
                isNothing ma || isNothing mx || isNothing my)
             picAngles
    displacements <-
-      fmap concat $
       forM (guardedPairs open $ zip [0..] planes) $
             \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
          let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
          let correspondences =
                 map
                    (\(score,pa,pb) ->
-                      (score, ((ia, add pa leftTopA), (ib, add pb leftTopB)))) $
+                      (score, ((add pa leftTopA), (add pb leftTopB)))) $
                 optimalOverlapShared picA picB
          info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
          info $ printf "%s - %s" pathA pathB
-         forM_ correspondences $ \(score, ((_ia,pa@(xa,ya)),(_ib,pb@(xb,yb)))) ->
+         forM_ correspondences $ \(score, (pa@(xa,ya),pb@(xb,yb))) ->
             info $
                printf "%s ~ %s, (%f,%f), %f"
                   (show pa) (show pb) (xb-xa) (yb-ya) score
-         return $ map snd correspondences
+         return ((ia,ib), (pathA,pathB), map snd correspondences)
 
+   forM_ (Option.outputState opt) $ \format -> do
+      State.write (printf format "relation") $
+         concatMap
+            (\(_, paths, rots) ->
+               State.Rotated (Just paths)
+                  (Just $ State.unrelated $ null rots) Nothing
+               :
+               map (\rot -> State.Rotated Nothing Nothing (Just rot)) rots)
+            displacements
+
+   let overlaps =
+         concatMap
+            (\((ia,ib),_paths,ps) -> map (\(pa,pb) -> ((ia,pa), (ib,pb))) ps)
+            displacements
    let (posRots, dps) =
           layoutFromPairDisplacements
              (map (mapFst (fmap Degree.cis)) $
               fixAtLeastOneAnglePosition (Degree 0, (0,0)) $
               map fst picAngles)
-             displacements
+             overlaps
    info "\nabsolute positions and rotations: place, rotation (magnitude, phase)"
    info $ unlines $
       map
@@ -1538,7 +1559,7 @@ processOverlapRotate args picAngles planes = do
       zipWith
          (\(dpx,dpy) ((_ia,pa),(_ib,pb)) ->
             printf "(%f,%f) %s ~ %s" dpx dpy (show pa) (show pb))
-         dps displacements
+         dps overlaps
 
    let picRots =
           zipWith
