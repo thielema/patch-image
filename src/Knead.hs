@@ -62,7 +62,6 @@ import Text.Printf (printf)
 
 import qualified Control.Monad.Exception.Synchronous as ME
 import qualified Control.Monad.HT as MonadHT
-import qualified Control.Functor.HT as FuncHT
 import Control.Monad (liftM2, when, join, foldM, (<=<))
 import Control.Applicative (pure, (<$>), (<*>))
 
@@ -1408,13 +1407,24 @@ warnUnmatchedImages paths relations = do
       List.intercalate ", " unmatched
 
 
+data
+   Picture param =
+      Picture {
+         picPath :: FilePath,
+         picParam :: param,
+         picColored :: (Degree Float, ColorImage8),
+         picPlane :: ((Float, Float), Plane Float)
+      }
+
+mapPicParam :: (a -> b) -> Picture a -> Picture b
+mapPicParam f pic = pic{picParam = f $ picParam pic}
+
 
 processOverlap ::
    Option.Args ->
-   [((Maybe Float, Maybe Float), (Degree Float, ColorImage8))] ->
-   [(FilePath, ((Float, Float), Plane Float))] ->
+   [Picture (Maybe Float, Maybe Float)] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
-processOverlap args picAngles planes = do
+processOverlap args pics = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
@@ -1428,7 +1438,7 @@ processOverlap args picAngles planes = do
             let padExtent =
                    uncurry Vec2 $ swap $
                    Arith.correlationSize (Option.minimumOverlap opt) $
-                   map (colorImageExtent . snd . snd) picAngles
+                   map (colorImageExtent . snd . picColored) pics
             overlap <- optimalOverlap padExtent
             allOverlapsIO <- allOverlapsRun padExtent
             return
@@ -1446,15 +1456,15 @@ processOverlap args picAngles planes = do
             ((pathB,pathA), (rel, mapPair (negate,negate) <$> d)) :
             []) $
       Vector.toList relationsPlain
-   warnUnmatchedImages (map fst planes) relations
+   warnUnmatchedImages (map picPath pics) relations
 
    composeOver <- composeOverlap
    overlapDiff <- overlapDifferenceRun
-   let open = map (\((mx,my), _) -> isNothing mx || isNothing my) picAngles
+   let open = map ((\(mx,my) -> isNothing mx || isNothing my) . picParam) pics
    displacements <-
-      forM (guardedPairs open $ zip3 [0..] planes $ map snd picAngles) $
-            \((ia,(pathA,(leftTopA,picA)),origA),
-              (ib,(pathB,(leftTopB,picB)),origB)) -> do
+      forM (guardedPairs open $ zip [0..] pics) $
+            \((ia, Picture pathA _ origA (leftTopA,picA)),
+              (ib, Picture pathB _ origB (leftTopB,picB))) -> do
          forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when False $
             writeGrey (Option.quality opt)
                (printf "/tmp/%s-%s-score.jpeg"
@@ -1499,7 +1509,7 @@ processOverlap args picAngles planes = do
    let overlaps = mapMaybe (\(i,_paths,md) -> (,) i <$> md) displacements
    let (poss, dps) =
           absolutePositionsFromPairDisplacements
-             (fixAtLeastOnePosition (0,0) $ map fst picAngles) overlaps
+             (fixAtLeastOnePosition (0,0) $ map picParam pics) overlaps
    info "\nabsolute positions"
    info $ unlines $ map show poss
 
@@ -1523,7 +1533,7 @@ processOverlap args picAngles planes = do
       ++
       printf "maximum vertical error: %f\n" errdy
 
-   let picRots = map (mapFst (const 1) . snd) picAngles
+   let picRots = map (mapFst (const 1) . picColored) pics
        floatPoss = map (mapPair (realToFrac, realToFrac)) poss
 
    return (floatPoss, picRots)
@@ -1531,11 +1541,9 @@ processOverlap args picAngles planes = do
 
 processOverlapRotate ::
    Option.Args ->
-   [((Maybe (Degree Float), (Maybe Float, Maybe Float)),
-     (Degree Float, ColorImage8))] ->
-   [(FilePath, ((Float, Float), Plane Float))] ->
+   [Picture (Maybe (Degree Float), (Maybe Float, Maybe Float))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
-processOverlapRotate args picAngles planes = do
+processOverlapRotate args pics = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
@@ -1560,16 +1568,17 @@ processOverlapRotate args picAngles planes = do
             [])
       =<<
       State.segmentRotated (Vector.toList relationsPlain)
-   warnUnmatchedImages (map fst planes) relations
+   warnUnmatchedImages (map picPath pics) relations
 
    let open =
          map
-            (\((ma, (mx,my)), _) ->
-               isNothing ma || isNothing mx || isNothing my)
-            picAngles
+            ((\(ma, (mx,my)) -> isNothing ma || isNothing mx || isNothing my)
+             . picParam)
+            pics
    displacements <-
-      forM (guardedPairs open $ zip [0..] planes) $
-            \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
+      forM (guardedPairs open $ zip [0..] pics) $
+            \((ia, Picture pathA _ _ (leftTopA,picA)),
+              (ib, Picture pathB _ _ (leftTopB,picB))) -> do
          let relation = Map.lookup (pathA,pathB) relations
          let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
          correspondences <-
@@ -1612,7 +1621,7 @@ processOverlapRotate args picAngles planes = do
           layoutFromPairDisplacements
              (map (mapFst (fmap Degree.cis)) $
               fixAtLeastOneAnglePosition (Degree 0, (0,0)) $
-              map fst picAngles)
+              map picParam pics)
              overlaps
    info "\nabsolute positions and rotations: place, rotation (magnitude, phase)"
    info $ unlines $
@@ -1632,9 +1641,9 @@ processOverlapRotate args picAngles planes = do
 
    let picRots =
           zipWith
-             (\(_maybePos, (_angle,pic)) (_pos,rot) ->
-                (Arith.mapComplex realToFrac rot, pic))
-             picAngles posRots
+             (\pic (_pos,rot) ->
+                (Arith.mapComplex realToFrac rot, snd $ picColored pic))
+             pics posRots
        floatPoss = map (mapPair (realToFrac, realToFrac) . fst) posRots
 
    return (floatPoss, picRots)
@@ -1653,7 +1662,7 @@ process args = do
    notice "\nfind rotation angles"
    findOptRot <- findOptimalRotation
    picAngles <-
-      forM paths $ \(State.Proposed path (maybeAngle, maybeDAngle) maybePos) -> do
+      forM paths $ \(State.Proposed path (maybeAngle, _) _) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
          let angles = Degree.linearScale (Option.numberAngleSteps opt) maxAngle
@@ -1662,38 +1671,39 @@ process args = do
                Just angle -> return angle
                Nothing -> findOptRot angles pic
          info $ printf "%s %f\176\n" path (getDegree angle)
-         return (path, ((maybeDAngle, maybePos), (angle, pic)))
+         return (angle, pic)
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "angle") $
-         map (uncurry State.Angle . mapSnd (fst.snd)) picAngles
+         zipWith State.Angle (map State.propPath paths) (map fst picAngles)
 
    notice "\nfind relative placements"
    prepOverlapMatching <- prepareOverlapMatching
-   rotated <-
-      mapM
-         (FuncHT.mapSnd (prepOverlapMatching (Option.smooth opt) . snd))
-         picAngles
+   rotated <- mapM (prepOverlapMatching (Option.smooth opt)) picAngles
 
 
+   let pics =
+         zipWith3
+            (\(State.Proposed path (_,maybeDAngle) maybePos) colored plane ->
+               Picture path (maybeDAngle, maybePos) colored plane)
+            paths picAngles rotated
    (floatPoss, picRots) <-
-      (if Option.finetuneRotate opt
-         then processOverlapRotate args (map snd picAngles)
-         else processOverlap args (map (mapFst snd . snd) picAngles))
-            rotated
+      if Option.finetuneRotate opt
+        then processOverlapRotate args pics
+        else processOverlap args $ map (mapPicParam snd) pics
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $
-      zipWith3
-         (\(path, (_, (angle, _))) (rot, _) pos ->
-            State.Position path
+      List.zipWith4
+         (\prop (angle, _) (rot, _) pos ->
+            State.Position (State.propPath prop)
                (angle <> Degree.fromRadian (Complex.phase rot)) pos)
-         picAngles picRots floatPoss
+         paths picAngles picRots floatPoss
 
    notice "\ncompose all parts"
    let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =
          Arith.canvasShape colorImageExtent floatPoss
-            (map (Degree.toRadian . fst . snd . snd) picAngles) picRots
+            (map (Degree.toRadian . fst) picAngles) picRots
    let canvasShape = shape2 canvasHeight canvasWidth
    mapM_ info canvasMsgs
 
@@ -1749,7 +1759,7 @@ process args = do
       counts <- thaw . amap (fromIntegral . fst) =<< arrayCFromKnead sumImg
       shapes <- MatchImageBorders.shapeParts counts locs pqueue
 
-      let names = map (FilePath.takeBaseName . fst) picAngles
+      let names = map (FilePath.takeBaseName . State.propPath) paths
       forM_ (Option.outputShapedHard opt) $ \path -> do
          forM_ (Option.outputShapeHard opt) $ \format ->
             forM_ (zip names shapes) $ \(name,shape) ->

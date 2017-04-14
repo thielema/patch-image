@@ -219,6 +219,9 @@ data
          (Maybe (Degree Float), Maybe (Degree Float))
          (Maybe Float, Maybe Float)
 
+propPath :: Proposed -> FilePath
+propPath (Proposed path _ _) = path
+
 instance Csv.DefaultOrdered Proposed where
    headerOrder _ = Csv.header [imageId, angleId, dAngleId, xId, yId]
 
