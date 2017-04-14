@@ -1412,7 +1412,7 @@ warnUnmatchedImages paths relations = do
 processOverlap ::
    Option.Args ->
    [((Maybe Float, Maybe Float), (Degree Float, ColorImage8))] ->
-   [(Int, (FilePath, ((Float, Float), Plane Float)))] ->
+   [(FilePath, ((Float, Float), Plane Float))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
 processOverlap args picAngles planes = do
    let opt = Option.option args
@@ -1446,14 +1446,14 @@ processOverlap args picAngles planes = do
             ((pathB,pathA), (rel, mapPair (negate,negate) <$> d)) :
             []) $
       Vector.toList relationsPlain
-   warnUnmatchedImages (map (fst.snd) planes) relations
+   warnUnmatchedImages (map fst planes) relations
 
    composeOver <- composeOverlap
    overlapDiff <- overlapDifferenceRun
    let open = map (\((mx,my), _) -> isNothing mx || isNothing my) picAngles
    let picArray = Vector.fromList $ map snd picAngles
    displacements <-
-      forM (guardedPairs open planes) $
+      forM (guardedPairs open $ zip [0..] planes) $
             \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
          forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when False $
             writeGrey (Option.quality opt)
@@ -1534,7 +1534,7 @@ processOverlapRotate ::
    Option.Args ->
    [((Maybe (Degree Float), (Maybe Float, Maybe Float)),
      (Degree Float, ColorImage8))] ->
-   [(Int, (FilePath, ((Float, Float), Plane Float)))] ->
+   [(FilePath, ((Float, Float), Plane Float))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
 processOverlapRotate args picAngles planes = do
    let opt = Option.option args
@@ -1561,7 +1561,7 @@ processOverlapRotate args picAngles planes = do
             [])
       =<<
       State.segmentRotated (Vector.toList relationsPlain)
-   warnUnmatchedImages (map (fst.snd) planes) relations
+   warnUnmatchedImages (map fst planes) relations
 
    let open =
          map
@@ -1569,7 +1569,7 @@ processOverlapRotate args picAngles planes = do
                isNothing ma || isNothing mx || isNothing my)
             picAngles
    displacements <-
-      forM (guardedPairs open planes) $
+      forM (guardedPairs open $ zip [0..] planes) $
             \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
          let relation = Map.lookup (pathA,pathB) relations
          let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
@@ -1681,7 +1681,7 @@ process args = do
       (if Option.finetuneRotate opt
          then processOverlapRotate args (map snd picAngles)
          else processOverlap args (map (mapFst snd . snd) picAngles))
-            (zip [0..] rotated)
+            rotated
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $

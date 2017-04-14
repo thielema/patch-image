@@ -1396,7 +1396,7 @@ finalizeWeightedCanvas =
 processOverlap ::
    Option.Args ->
    [((Maybe Float, Maybe Float), (Degree Float, ColorImage8))] ->
-   [(Int, (FilePath, ((Float, Float), Channel Z Float)))] ->
+   [(FilePath, ((Float, Float), Channel Z Float))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
 processOverlap args picAngles planes = do
    let opt = Option.option args
@@ -1420,7 +1420,7 @@ processOverlap args picAngles planes = do
    let picArray = Vector.fromList $ map snd picAngles
    displacements <-
       fmap catMaybes $
-      forM (guardedPairs open planes) $
+      forM (guardedPairs open $ zip [0..] planes) $
             \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
          forM_ maybeAllOverlapsShared $ \allOverlapsShared -> when False $
             writeGrey (Option.quality opt)
@@ -1481,7 +1481,7 @@ processOverlapRotate ::
    Option.Args ->
    [((Maybe (Degree Float), (Maybe Float, Maybe Float)),
      (Degree Float, ColorImage8))] ->
-   [(Int, (FilePath, ((Float, Float), Channel Z Float)))] ->
+   [(FilePath, ((Float, Float), Channel Z Float))] ->
    IO ([(Float, Float)], [(Complex Float, ColorImage8)])
 processOverlapRotate args picAngles planes = do
    let opt = Option.option args
@@ -1504,7 +1504,7 @@ processOverlapRotate args picAngles planes = do
             picAngles
    displacements <-
       fmap concat $
-      forM (guardedPairs open planes) $
+      forM (guardedPairs open $ zip [0..] planes) $
             \((ia,(pathA,(leftTopA,picA))), (ib,(pathB,(leftTopB,picB)))) -> do
          let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
          let correspondences =
@@ -1608,7 +1608,7 @@ process args = do
       (if Option.finetuneRotate opt
          then processOverlapRotate args (map snd picAngles)
          else processOverlap args (map (mapFst snd . snd) picAngles))
-            (zip [0..] rotated)
+            rotated
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $
