@@ -183,6 +183,13 @@ unmatchedImages paths pairs =
          Map.keys pairs)
       (Set.fromList paths)
 
+warnUnmatchedImages :: [FilePath] -> Map (FilePath, FilePath) a -> IO ()
+warnUnmatchedImages paths relations = do
+   let unmatched = unmatchedImages paths relations
+   when (not $ null unmatched) $ IO.hPutStrLn IO.stderr $
+      "image in relations but not in the image list: " ++
+      List.intercalate ", " unmatched
+
 
 
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()

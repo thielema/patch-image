@@ -68,7 +68,7 @@ import Control.Applicative (pure, (<$>), (<*>))
 import qualified Data.Foldable as Fold
 import qualified Data.Vector as Vector
 import qualified Data.List as List
-import qualified Data.Map as Map; import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Function.HT (Id)
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
@@ -1399,14 +1399,6 @@ finalizeWeightedCanvas =
       fixArray
 
 
-warnUnmatchedImages :: [FilePath] -> Map (FilePath, FilePath) a -> IO ()
-warnUnmatchedImages paths relations = do
-   let unmatched = State.unmatchedImages paths relations
-   when (not $ null unmatched) $ IO.hPutStrLn IO.stderr $
-      "image in relations but not in the image list: " ++
-      List.intercalate ", " unmatched
-
-
 data
    Picture param =
       Picture {
@@ -1456,7 +1448,7 @@ processOverlap args pics = do
             ((pathB,pathA), (rel, mapPair (negate,negate) <$> d)) :
             []) $
       Vector.toList relationsPlain
-   warnUnmatchedImages (map picPath pics) relations
+   State.warnUnmatchedImages (map picPath pics) relations
 
    composeOver <- composeOverlap
    overlapDiff <- overlapDifferenceRun
@@ -1568,7 +1560,7 @@ processOverlapRotate args pics = do
             [])
       =<<
       State.segmentRotated (Vector.toList relationsPlain)
-   warnUnmatchedImages (map picPath pics) relations
+   State.warnUnmatchedImages (map picPath pics) relations
 
    let open =
          map
