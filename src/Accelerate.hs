@@ -67,11 +67,15 @@ import qualified Distribution.Simple.Utils as CmdLine
 import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
+import qualified Control.Monad.Exception.Synchronous as ME
+import Control.Monad.HT (void)
+import Control.Monad (liftM2, when, join)
+import Control.Applicative ((<$>))
+
+import qualified Data.Vector as Vector
 import qualified Data.List.Key as Key
 import qualified Data.List as List
-import Control.Monad.HT (void)
-import Control.Monad (liftM2, when)
-import Control.Applicative ((<$>))
+import qualified Data.Map as Map
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (mapMaybe, isNothing)
@@ -1429,6 +1433,19 @@ processOverlap args pics = do
                 in  (Just $ allOverlapsRun padExtent (Option.minimumOverlap opt),
                      optimalOverlap padExtent (Option.minimumOverlap opt))
 
+   relationsPlain <-
+      maybe (return Vector.empty) State.read (Option.relations opt)
+   relations <-
+      ME.switch (ioError . userError) return $
+      State.imagePairMap $
+      concatMap
+         (\(State.Displacement pathA pathB rel d) ->
+            ((pathA,pathB), (rel,d)) :
+            ((pathB,pathA), (rel, mapPair (negate,negate) <$> d)) :
+            []) $
+      Vector.toList relationsPlain
+   State.warnUnmatchedImages (map picPath pics) relations
+
    let open = map ((\(mx,my) -> isNothing mx || isNothing my) . picParam) pics
    displacements <-
       forM (guardedPairs open $ zip [0..] pics) $
@@ -1440,20 +1457,32 @@ processOverlap args pics = do
                   (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
                allOverlapsShared picA picB
 
-         let doffset@(dox,doy) = snd $ optimalOverlapShared picA picB
-         let diff = overlapDifferenceRun doffset picA picB
-         let overlapping = diff < Option.maximumDifference opt
-         let d = (fromIntegral dox + fst leftTopA - fst leftTopB,
-                  fromIntegral doy + snd leftTopA - snd leftTopB)
-         info $
-            printf "%s - %s, %s, difference %f%s\n" pathA pathB (show d) diff
-               (if overlapping then "" else " unrelated -> ignoring")
-         forM_ (Option.outputOverlap opt) $ \format ->
-            writeImage (Option.quality opt)
-               (printf format
-                  (FilePath.takeBaseName pathA) (FilePath.takeBaseName pathB)) $
-               composeOverlap doffset (origA, origB)
-         return ((ia,ib), (pathA,pathB), toMaybe overlapping d)
+         let relation = Map.lookup (pathA,pathB) relations
+         md <-
+            case (join $ fmap fst relation, join $ fmap snd relation) of
+               (Just State.NonOverlapping, _) -> return Nothing
+               (Just State.Overlapping, Just d) -> return $ Just d
+               (related, _) -> do
+                  let doffset@(dox,doy) = snd $ optimalOverlapShared picA picB
+                  let diff = overlapDifferenceRun doffset picA picB
+                  let overlapping =
+                        related == Just State.Overlapping
+                        ||
+                        diff < Option.maximumDifference opt
+                  let d = (fromIntegral dox + fst leftTopA - fst leftTopB,
+                           fromIntegral doy + snd leftTopA - snd leftTopB)
+                  info $
+                     printf "%s - %s, %s, difference %f%s\n"
+                        pathA pathB (show d) diff
+                        (if overlapping then "" else " unrelated -> ignoring")
+                  forM_ (Option.outputOverlap opt) $ \format ->
+                     writeImage (Option.quality opt)
+                        (printf format
+                           (FilePath.takeBaseName pathA)
+                           (FilePath.takeBaseName pathB)) $
+                        composeOverlap doffset (origA, origB)
+                  return $ toMaybe overlapping d
+         return ((ia,ib), (pathA,pathB), md)
 
    forM_ (Option.outputState opt) $ \format -> do
       State.write (printf format "relation") $
