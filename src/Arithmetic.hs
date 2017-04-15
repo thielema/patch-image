@@ -65,10 +65,15 @@ boundingBoxOfRotatedGen (mini,maxi) rot (w,h) =
 canvasShape ::
    (RealFloat a, Integral i,
     PrintfArg a, PrintfArg i) =>
-   (image -> (i, i)) -> [Point2 a] -> [a] -> [(Complex a, image)] ->
+   (image -> (i, i)) -> [(a,image)] -> [(Point2 a, Complex a)] ->
    ((i, i), [((a, a), (a, a), image)], [String])
-canvasShape extent floatPoss angles picRots0 =
-   let picRots = zipWith (\angle (rot, pic) -> (pairFromComplex (Complex.cis angle * rot), pic)) angles picRots0
+canvasShape extent picAngles floatPosRots =
+   let floatPoss = map fst floatPosRots
+       picRots =
+         zipWith
+            (\(angle,pic) (_,rot) ->
+               (pairFromComplex (Complex.cis angle * rot), pic))
+            picAngles floatPosRots
        bbox (rot, pic) =
          case extent pic of
             (width, height) ->

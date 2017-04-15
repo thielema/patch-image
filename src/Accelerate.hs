@@ -75,7 +75,6 @@ import Control.Applicative ((<$>))
 import qualified Data.Foldable as Fold
 import qualified Data.Vector as Vector
 import qualified Data.List.Key as Key
-import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
@@ -1419,7 +1418,7 @@ mapPicParam f pic = pic{picParam = f $ picParam pic}
 processOverlap ::
    Option.Args ->
    [Picture (Maybe Float, Maybe Float)] ->
-   IO ([(Float, Float)], [(Complex Float, ColorImage8)])
+   IO [((Float, Float), Complex Float)]
 processOverlap args pics = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
@@ -1524,16 +1523,13 @@ processOverlap args pics = do
       ++
       printf "maximum vertical error: %f\n" errdy
 
-   let picRots = map (mapFst (const 1) . picColored) pics
-       floatPoss = map (mapPair (realToFrac, realToFrac)) poss
-
-   return (floatPoss, picRots)
+   return $ map (flip (,) 1) $ map (mapPair (realToFrac, realToFrac)) poss
 
 
 processOverlapRotate ::
    Option.Args ->
    [Picture (Maybe (Degree Float), (Maybe Float, Maybe Float))] ->
-   IO ([(Float, Float)], [(Complex Float, ColorImage8)])
+   IO [((Float, Float), Complex Float)]
 processOverlapRotate args pics = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
@@ -1631,14 +1627,11 @@ processOverlapRotate args pics = do
             printf "(%f,%f) %s ~ %s" dpx dpy (show pa) (show pb))
          dps overlaps
 
-   let picRots =
-          zipWith
-             (\pic (_pos,rot) ->
-                (Arith.mapComplex realToFrac rot, snd $ picColored pic))
-             pics posRots
-       floatPoss = map (mapPair (realToFrac, realToFrac) . fst) posRots
-
-   return (floatPoss, picRots)
+   return $
+      map
+         (mapPair
+            (mapPair (realToFrac, realToFrac), Arith.mapComplex realToFrac))
+         posRots
 
 
 process :: Option.Args -> IO ()
@@ -1696,23 +1689,23 @@ process args = do
             (\(State.Proposed path (_,maybeDAngle) maybePos) colored plane ->
                Picture path (maybeDAngle, maybePos) colored plane)
             paths picAngles rotated
-   (floatPoss, picRots) <-
+   posRots <-
       if Option.finetuneRotate opt
         then processOverlapRotate args pics
         else processOverlap args $ map (mapPicParam snd) pics
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $
-      List.zipWith4
-         (\prop (angle, _) (rot, _) pos ->
+      zipWith3
+         (\prop (angle, _) (pos, rot) ->
             State.Position (State.propPath prop)
                (angle <> Degree.fromRadian (Complex.phase rot)) pos)
-         paths picAngles picRots floatPoss
+         paths picAngles posRots
 
    notice "\ncompose all parts"
    let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =
-         Arith.canvasShape colorImageExtent floatPoss
-            (map (Degree.toRadian . fst) picAngles) picRots
+         Arith.canvasShape colorImageExtent
+            (map (mapFst Degree.toRadian) picAngles) posRots
    mapM_ info canvasMsgs
 
    forM_ (Option.outputHard opt) $ \path ->
