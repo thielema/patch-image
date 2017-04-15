@@ -1572,12 +1572,13 @@ processOverlapRotate args pics = do
             \((ia, Picture pathA _ _ (leftTopA,picA)),
               (ib, Picture pathB _ _ (leftTopB,picB))) -> do
          let relation = Map.lookup (pathA,pathB) relations
-         let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
          correspondences <-
             case (join $ fmap fst relation, Fold.fold $ fmap snd relation) of
                (Just State.NonOverlapping, _) -> return []
                (Just State.Overlapping, corrs@(_:_)) -> return corrs
                (related, _) -> do
+                  let add (x0,y0) (x1,y1) =
+                        (fromIntegral x0 + x1, fromIntegral y0 + y1)
                   let mMaxDiff =
                         toMaybe (related /= Just State.Overlapping) $
                         Option.maximumDifference opt
