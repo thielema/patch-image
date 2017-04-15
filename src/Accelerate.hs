@@ -1759,7 +1759,7 @@ process args = do
             updateWeightedCanvas (Option.distanceGamma opt)
                thisGeom otherGeoms allPoints pic canvas)
          (emptyWeightedCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
-         (zip geometryRelations picRots)
+         (zip geometryRelations picAngles)
 
 main :: IO ()
 main = process =<< Option.get Option.Accelerate

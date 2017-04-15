@@ -1726,7 +1726,7 @@ process args = do
             (\canvas ((thisGeom, otherGeoms, allPoints), (_rot, pic)) ->
                updateCanv (Option.distanceGamma opt)
                   thisGeom otherGeoms allPoints pic canvas)
-            empty (zip geometryRelations picRots)
+            empty (zip geometryRelations picAngles)
 
    when (isJust (Option.outputShaped opt) || isJust (Option.outputShapedHard opt)) $ do
       notice "\nmatch shapes"
