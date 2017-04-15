@@ -72,6 +72,7 @@ import Control.Monad.HT (void)
 import Control.Monad (liftM2, when, join)
 import Control.Applicative ((<$>))
 
+import qualified Data.Foldable as Fold
 import qualified Data.Vector as Vector
 import qualified Data.List.Key as Key
 import qualified Data.List as List
@@ -82,7 +83,7 @@ import Data.Maybe (mapMaybe, isNothing)
 import Data.List.HT (mapAdjacent)
 import Data.Traversable (forM)
 import Data.Foldable (forM_, foldMap)
-import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapThd3)
+import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapThd3, swap)
 import Data.Word (Word8)
 
 import System.IO.Unsafe (unsafePerformIO)
@@ -827,7 +828,7 @@ can be used to compute corrections to rotation angles.
 -}
 optimalOverlapBigMulti ::
    DIM2 -> DIM2 -> Int ->
-   Float -> Float -> Channel Z Float -> Channel Z Float ->
+   Float -> Maybe Float -> Channel Z Float -> Channel Z Float ->
    [(Float, (Int, Int), (Int, Int))]
 optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
    let overlapShrunk =
@@ -860,18 +861,22 @@ optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
                     (clip anchorA extent a)
                     (clip anchorB extent b)
 
-   in  \maximumDiff minimumOverlap a b ->
+   in  \minimumOverlap mMaximumDiff a b ->
           let factors@(Z:.yk:.xk) =
                  shrinkFactors padExtent (A.arrayShape a) (A.arrayShape b)
 
-              (_score, (shrunkdx, shrunkdy)) =
+              (_score, shrunkd@(shrunkdx, shrunkdy)) =
                  Acc.the $ overlapShrunk minimumOverlap factors a b
 
               coarsedx = shrunkdx * xk
               coarsedy = shrunkdy * yk
               coarsed = (coarsedx,coarsedy)
 
-              diff = Acc.the $ diffShrunk (shrunkdx, shrunkdy) factors a b
+              doesOverlap =
+                 case mMaximumDiff of
+                    Just maximumDiff ->
+                       maximumDiff > Acc.the (diffShrunk shrunkd factors a b)
+                    Nothing -> True
 
               ((leftOverlap, topOverlap),
                (rightOverlap, bottomOverlap),
@@ -881,7 +886,7 @@ optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
               widthStampClip = min widthOverlap widthStamp
               heightStampClip = min heightOverlap heightStamp
 
-          in  (if diff < maximumDiff then id else const []) $
+          in  (if doesOverlap then id else const []) $
               map
                  (\(x,y) ->
                     Acc.the $
@@ -1540,8 +1545,21 @@ processOverlapRotate args pics = do
              (Z :. padSize :. padSize)
              (Z :. stampSize :. stampSize)
              (Option.numberStamps opt)
-             (Option.maximumDifference opt)
              (Option.minimumOverlap opt)
+
+   relationsPlain <-
+      maybe (return Vector.empty) State.read (Option.relations opt)
+   relations <-
+      ME.switch (ioError . userError) return $
+      State.imagePairMap .
+      concatMap
+         (\((pathA,pathB), (rel,ds)) ->
+            ((pathA,pathB), (rel,ds)) :
+            ((pathB,pathA), (rel, map swap ds)) :
+            [])
+      =<<
+      State.segmentRotated (Vector.toList relationsPlain)
+   State.warnUnmatchedImages (map picPath pics) relations
 
    let open =
          map
@@ -1552,19 +1570,30 @@ processOverlapRotate args pics = do
       forM (guardedPairs open $ zip [0..] pics) $
             \((ia, Picture pathA _ _ (leftTopA,picA)),
               (ib, Picture pathB _ _ (leftTopB,picB))) -> do
-         let add (x0,y0) (x1,y1) = (fromIntegral x0 + x1, fromIntegral y0 + y1)
-         let correspondences =
-                map
-                   (\(score,pa,pb) ->
-                      (score, ((add pa leftTopA), (add pb leftTopB)))) $
-                optimalOverlapShared picA picB
-         info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
-         info $ printf "%s - %s" pathA pathB
-         forM_ correspondences $ \(score, (pa@(xa,ya),pb@(xb,yb))) ->
-            info $
-               printf "%s ~ %s, (%f,%f), %f"
-                  (show pa) (show pb) (xb-xa) (yb-ya) score
-         return ((ia,ib), (pathA,pathB), map snd correspondences)
+         let relation = Map.lookup (pathA,pathB) relations
+         correspondences <-
+            case (join $ fmap fst relation, Fold.fold $ fmap snd relation) of
+               (Just State.NonOverlapping, _) -> return []
+               (Just State.Overlapping, corrs@(_:_)) -> return corrs
+               (related, _) -> do
+                  let add (x0,y0) (x1,y1) =
+                        (fromIntegral x0 + x1, fromIntegral y0 + y1)
+                  let mMaxDiff =
+                        toMaybe (related /= Just State.Overlapping) $
+                        Option.maximumDifference opt
+                  let corrs =
+                        map
+                           (\(score,pa,pb) ->
+                              (score, (add pa leftTopA, add pb leftTopB))) $
+                        optimalOverlapShared mMaxDiff picA picB
+                  info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
+                  info $ printf "%s - %s" pathA pathB
+                  forM_ corrs $ \(score, (pa@(xa,ya),pb@(xb,yb))) ->
+                     info $
+                        printf "%s ~ %s, (%f,%f), %f"
+                           (show pa) (show pb) (xb-xa) (yb-ya) score
+                  return $ map snd corrs
+         return ((ia,ib), (pathA,pathB), correspondences)
 
    forM_ (Option.outputState opt) $ \format -> do
       State.write (printf format "relation") $
