@@ -143,7 +143,21 @@ type
 (.:??) m name = Compose $ MW.writer (Compose (m .: name), [name])
 
 parseMaybePair :: CombinedMaybe a -> CombinedMaybe b -> CombinedMaybe (a, b)
-parseMaybePair = liftA2 (,)
+parseMaybePair cma cmb =
+   let (pa,na) = MW.runWriter $ getCompose cma
+       (pb,nb) = MW.runWriter $ getCompose cmb
+       n = na ++ nb
+       p = do
+         ma <- getCompose pa
+         mb <- getCompose pb
+         case (ma, mb) of
+            (Nothing, Nothing) -> return Nothing
+            (Just a, Just b) -> return $ Just (a,b)
+            _ ->
+               fail $
+               printf "The columns %s must be all set or all empty." $
+               B.unpack $ B.intercalate (B.pack ", ") n
+   in  Compose $ MW.writer (Compose p, n)
 
 runCombinedMaybe :: CombinedMaybe a -> Csv.Parser (Maybe a)
 runCombinedMaybe = getCompose . fst . MW.runWriter . getCompose
