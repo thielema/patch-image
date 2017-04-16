@@ -18,11 +18,12 @@ import Data.Traversable (traverse)
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
 import Data.Maybe (fromMaybe, catMaybes)
-import Data.Tuple.HT (mapSnd)
+import Data.Tuple.HT (mapFst, mapSnd, mapPair)
 import Data.Map (Map)
 
 import qualified Control.Monad.Exception.Synchronous as ME
 import qualified Control.Monad.Trans.Writer as MW
+import qualified Control.Functor.HT as FuncHT
 import Control.Monad (when, join)
 import Control.Applicative (pure, liftA2, (<$>), (<$), (<*>), empty)
 
@@ -42,7 +43,7 @@ data Displacement =
 
 data Rotated =
       Rotated
-         (Maybe (FilePath, FilePath)) (Maybe Relation)
+         (Maybe ((FilePath, FilePath), Maybe Relation))
          (Maybe ((Float, Float), (Float, Float)))
 
 
@@ -123,12 +124,13 @@ instance Csv.FromNamedRecord Displacement where
 
 
 instance Csv.ToNamedRecord Rotated where
-   toNamedRecord (Rotated paths rel rot) =
-      Csv.namedRecord $
-         [imageAId .= fmap fst paths, imageBId .= fmap snd paths,
-          relationId .= rel,
-          xaId .= fmap (fst.fst) rot, yaId .= fmap (snd.fst) rot,
-          xbId .= fmap (fst.snd) rot, ybId .= fmap (snd.snd) rot]
+   toNamedRecord (Rotated pathsRel rot) =
+      let ((pathA, pathB), rel) = mapFst FuncHT.unzip $ FuncHT.unzip pathsRel
+          ((xa,ya),(xb,yb)) =
+            mapPair (FuncHT.unzip, FuncHT.unzip) $ FuncHT.unzip rot
+      in  Csv.namedRecord $
+            [imageAId .= pathA, imageBId .= pathB, relationId .= join rel,
+             xaId .= xa, yaId .= ya, xbId .= xb, ybId .= yb]
 instance Csv.DefaultOrdered Rotated where
    headerOrder _ =
       Csv.header [imageAId, imageBId, relationId, xaId, yaId, xbId, ybId]
@@ -160,7 +162,7 @@ parseMaybePair cpa cpb =
 
 parseImpliedMaybe ::
    NamedParser (Maybe a) -> NamedParser (Maybe b) ->
-   NamedParser (Maybe a, Maybe b)
+   NamedParser (Maybe (a, Maybe b))
 parseImpliedMaybe cpa cpb =
    let (pa,na) = MW.runWriter $ getCompose cpa
        (pb,nb) = MW.runWriter $ getCompose cpb
@@ -171,7 +173,7 @@ parseImpliedMaybe cpa cpb =
                fail $
                printf "If the columns %s are set, then %s must be set as well."
                   (enumerateNames nb) (enumerateNames na)
-            _ -> return m
+            (ma,mb) -> return $ flip (,) mb <$> ma
    in  Compose $ MW.writer (p, na++nb)
 
 runCombinedParser :: NamedParser a -> Csv.Parser a
@@ -180,7 +182,7 @@ runCombinedParser = fst . MW.runWriter . getCompose
 
 instance Csv.FromNamedRecord Rotated where
    parseNamedRecord m =
-      uncurry Rotated
+      Rotated
          <$>
             (runCombinedParser $
              parseImpliedMaybe
@@ -203,14 +205,14 @@ segmentRotated =
       >>
       (ME.Success $
        map
-         (\((mrel,mrot0,paths), rots) ->
+         (\((mrot0,(paths,mrel)), rots) ->
             (paths,
              (mrel,
-              catMaybes $ mrot0 : map (\(Rotated _ _ mrot) -> mrot) rots)))
+              catMaybes $ mrot0 : map (\(Rotated _ mrot) -> mrot) rots)))
          blocks))
    .
    ListHT.segmentBeforeMaybe
-      (\(Rotated mpath mrel mrot) -> (,,) mrel mrot <$> mpath)
+      (\(Rotated mPathRel mrot) -> (,) mrot <$> mPathRel)
 
 imagePairMap ::
    [((FilePath, FilePath), a)] ->

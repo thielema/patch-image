@@ -1595,10 +1595,10 @@ processOverlapRotate args pics = do
       State.write (printf format "relation") $
          concatMap
             (\(_, paths, rots) ->
-               State.Rotated (Just paths)
-                  (Just $ State.unrelated $ null rots) Nothing
+               State.Rotated
+                  (Just (paths, Just $ State.unrelated $ null rots)) Nothing
                :
-               map (\rot -> State.Rotated Nothing Nothing (Just rot)) rots)
+               map (\rot -> State.Rotated Nothing (Just rot)) rots)
             displacements
 
    let overlaps =
