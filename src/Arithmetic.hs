@@ -78,11 +78,10 @@ canvasShape extent picAngles floatPosRots =
             (width, height) ->
                boundingBoxOfRotated rot
                   (fromIntegral width, fromIntegral height)
+       appPairs fs = mapPair fs . unzip
+       minimax = appPairs (minimum, maximum)
        ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
-         mapPair
-            (mapPair (minimum, maximum) . unzip,
-             mapPair (minimum, maximum) . unzip) $
-         unzip $
+         appPairs (minimax, minimax) $
          map
             (uncurry $ \(mx,my) ->
                mapPair (mapPair ((mx+), (mx+)), mapPair ((my+), (my+))) . bbox)
