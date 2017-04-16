@@ -68,11 +68,10 @@ canvasShape ::
    (image -> (i, i)) -> [(a,image)] -> [(Point2 a, Complex a)] ->
    ((i, i), [((a, a), (a, a), image)], [String])
 canvasShape extent picAngles floatPosRots =
-   let floatPoss = map fst floatPosRots
-       picRots =
+   let posRotPics =
          zipWith
-            (\(angle,pic) (_,rot) ->
-               (pairFromComplex (Complex.cis angle * rot), pic))
+            (\(angle,pic) (pos,rot) ->
+               (pos, (pairFromComplex (Complex.cis angle * rot), pic)))
             picAngles floatPosRots
        bbox (rot, pic) =
          case extent pic of
@@ -84,16 +83,16 @@ canvasShape extent picAngles floatPosRots =
             (mapPair (minimum, maximum) . unzip,
              mapPair (minimum, maximum) . unzip) $
          unzip $
-         zipWith
-            (\(mx,my) ->
+         map
+            (uncurry $ \(mx,my) ->
                mapPair (mapPair ((mx+), (mx+)), mapPair ((my+), (my+))) . bbox)
-            floatPoss picRots
+            posRotPics
        canvasWidth  = ceiling (canvasRight-canvasLeft)
        canvasHeight = ceiling (canvasBottom-canvasTop)
        rotMovPics =
-         zipWith
-            (\(mx,my) (rot, pic) -> (rot, (mx-canvasLeft, my-canvasTop), pic))
-            floatPoss picRots
+         map
+            (\((mx,my), (rot,pic)) -> (rot, (mx-canvasLeft, my-canvasTop), pic))
+            posRotPics
    in  ((canvasWidth, canvasHeight), rotMovPics,
         [printf "canvas %f - %f, %f - %f\n"
             canvasLeft canvasRight canvasTop canvasBottom,
