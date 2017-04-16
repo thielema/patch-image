@@ -13,6 +13,7 @@ import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Functor.Compose (Compose(Compose, getCompose))
 import Data.Traversable (traverse)
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
@@ -21,6 +22,7 @@ import Data.Tuple.HT (mapSnd)
 import Data.Map (Map)
 
 import qualified Control.Monad.Exception.Synchronous as ME
+import qualified Control.Monad.Trans.Writer as MW
 import Control.Monad (when, join)
 import Control.Applicative (pure, liftA2, (<$>), (<$), (<*>), empty)
 
@@ -117,7 +119,7 @@ instance Csv.FromNamedRecord Displacement where
          <$> m .: imageAId
          <*> m .: imageBId
          <*> m .: relationId
-         <*> parseMaybePair (m .: dxId) (m .: dyId)
+         <*> runCombinedMaybe (parseMaybePair (m .:?? dxId) (m .:?? dyId))
 
 
 instance Csv.ToNamedRecord Rotated where
@@ -131,19 +133,34 @@ instance Csv.DefaultOrdered Rotated where
    headerOrder _ =
       Csv.header [imageAId, imageBId, relationId, xaId, yaId, xbId, ybId]
 
-parseMaybePair ::
-   Csv.Parser (Maybe a) -> Csv.Parser (Maybe b) -> Csv.Parser (Maybe (a, b))
-parseMaybePair = liftA2 (liftA2 (,))
+
+type
+   CombinedMaybe =
+      Compose (MW.Writer [B.ByteString]) (Compose Csv.Parser Maybe)
+
+(.:??) ::
+   Csv.FromField a => Csv.NamedRecord -> B.ByteString -> CombinedMaybe a
+(.:??) m name = Compose $ MW.writer (Compose (m .: name), [name])
+
+parseMaybePair :: CombinedMaybe a -> CombinedMaybe b -> CombinedMaybe (a, b)
+parseMaybePair = liftA2 (,)
+
+runCombinedMaybe :: CombinedMaybe a -> Csv.Parser (Maybe a)
+runCombinedMaybe = getCompose . fst . MW.runWriter . getCompose
+
 
 instance Csv.FromNamedRecord Rotated where
    parseNamedRecord m =
       Rotated
-         <$> parseMaybePair (m .: imageAId) (m .: imageBId)
+         <$>
+            runCombinedMaybe
+               (parseMaybePair (m .:?? imageAId) (m .:?? imageBId))
          <*> m .: relationId
          <*>
-            parseMaybePair
-               (parseMaybePair (m .: xaId) (m .: yaId))
-               (parseMaybePair (m .: xbId) (m .: ybId))
+            (runCombinedMaybe $
+             parseMaybePair
+               (parseMaybePair (m .:?? xaId) (m .:?? yaId))
+               (parseMaybePair (m .:?? xbId) (m .:?? ybId)))
 
 segmentRotated ::
    [Rotated] ->
