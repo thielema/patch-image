@@ -80,12 +80,11 @@ canvasShape extent picAngles floatPosRots =
                   (fromIntegral width, fromIntegral height)
        appPairs fs = mapPair fs . unzip
        minimax = appPairs (minimum, maximum)
+       shift d = mapPair ((d+), (d+))
        ((canvasLeft,canvasRight), (canvasTop,canvasBottom)) =
          appPairs (minimax, minimax) $
-         map
-            (uncurry $ \(mx,my) ->
-               mapPair (mapPair ((mx+), (mx+)), mapPair ((my+), (my+))) . bbox)
-            posRotPics
+         map (uncurry $ \(mx,my) -> mapPair (shift mx, shift my) . bbox) $
+         posRotPics
        canvasWidth  = ceiling (canvasRight-canvasLeft)
        canvasHeight = ceiling (canvasBottom-canvasTop)
        rotMovPics =
