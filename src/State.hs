@@ -13,7 +13,6 @@ import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Data.Functor.Compose (Compose(Compose, getCompose))
 import Data.Traversable (traverse)
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
@@ -22,7 +21,6 @@ import Data.Tuple.HT (mapFst, mapSnd, mapPair)
 import Data.Map (Map)
 
 import qualified Control.Monad.Exception.Synchronous as ME
-import qualified Control.Monad.Trans.Writer as MW
 import qualified Control.Functor.HT as FuncHT
 import Control.Monad (when, join)
 import Control.Applicative (pure, liftA2, (<$>), (<$), (<*>), empty)
@@ -136,10 +134,14 @@ instance Csv.DefaultOrdered Rotated where
       Csv.header [imageAId, imageBId, relationId, xaId, yaId, xbId, ybId]
 
 
-type NamedParser = Compose (MW.Writer [B.ByteString]) Csv.Parser
+{- |
+We use it like a @Compose Writer Csv.Parser@,
+we do not have much use for the 'Applicative' combinators.
+-}
+data NamedParser a = NamedParser [B.ByteString] (Csv.Parser a)
 
 (.:#) :: Csv.FromField a => Csv.NamedRecord -> B.ByteString -> NamedParser a
-(.:#) m name = Compose $ MW.writer (m .: name, [name])
+(.:#) m name = NamedParser [name] (m .: name)
 
 enumerateNames :: [B.ByteString] -> String
 enumerateNames = B.unpack . B.intercalate (B.pack ", ")
@@ -147,10 +149,10 @@ enumerateNames = B.unpack . B.intercalate (B.pack ", ")
 parseMaybePair ::
    NamedParser (Maybe a) -> NamedParser (Maybe b) ->
    NamedParser (Maybe (a, b))
-parseMaybePair cpa cpb =
-   let (pab,n) = MW.runWriter $ getCompose $ liftA2 (,) cpa cpb
-       p = do
-         m <- pab
+parseMaybePair (NamedParser na pa) (NamedParser nb pb) =
+   let n = na++nb
+   in  NamedParser n $ do
+         m <- liftA2 (,) pa pb
          case m of
             (Nothing, Nothing) -> return Nothing
             (Just a, Just b) -> return $ Just (a,b)
@@ -158,26 +160,22 @@ parseMaybePair cpa cpb =
                fail $
                printf "The columns %s must be all set or all empty." $
                enumerateNames n
-   in  Compose $ MW.writer (p, n)
 
 parseImpliedMaybe ::
    NamedParser (Maybe a) -> NamedParser (Maybe b) ->
    NamedParser (Maybe (a, Maybe b))
-parseImpliedMaybe cpa cpb =
-   let (pa,na) = MW.runWriter $ getCompose cpa
-       (pb,nb) = MW.runWriter $ getCompose cpb
-       p = do
-         m <- liftA2 (,) pa pb
-         case m of
-            (Nothing, Just _) ->
-               fail $
-               printf "If the columns %s are set, then %s must be set as well."
-                  (enumerateNames nb) (enumerateNames na)
-            (ma,mb) -> return $ flip (,) mb <$> ma
-   in  Compose $ MW.writer (p, na++nb)
+parseImpliedMaybe (NamedParser na pa) (NamedParser nb pb) =
+   NamedParser (na++nb) $ do
+      m <- liftA2 (,) pa pb
+      case m of
+         (Nothing, Just _) ->
+            fail $
+            printf "If the columns %s are set, then %s must be set as well."
+               (enumerateNames nb) (enumerateNames na)
+         (ma,mb) -> return $ flip (,) mb <$> ma
 
 runCombinedParser :: NamedParser a -> Csv.Parser a
-runCombinedParser = fst . MW.runWriter . getCompose
+runCombinedParser (NamedParser _ p) = p
 
 
 instance Csv.FromNamedRecord Rotated where
