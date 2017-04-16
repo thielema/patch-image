@@ -117,7 +117,7 @@ instance Csv.FromNamedRecord Displacement where
          <$> m .: imageAId
          <*> m .: imageBId
          <*> m .: relationId
-         <*> liftA2 (liftA2 (,)) (m .: dxId) (m .: dyId)
+         <*> parseMaybePair (m .: dxId) (m .: dyId)
 
 
 instance Csv.ToNamedRecord Rotated where
@@ -131,18 +131,19 @@ instance Csv.DefaultOrdered Rotated where
    headerOrder _ =
       Csv.header [imageAId, imageBId, relationId, xaId, yaId, xbId, ybId]
 
-maybePair :: Maybe a -> Maybe b -> Maybe (a, b)
-maybePair = liftA2 (,)
+parseMaybePair ::
+   Csv.Parser (Maybe a) -> Csv.Parser (Maybe b) -> Csv.Parser (Maybe (a, b))
+parseMaybePair = liftA2 (liftA2 (,))
 
 instance Csv.FromNamedRecord Rotated where
    parseNamedRecord m =
       Rotated
-         <$> liftA2 maybePair (m .: imageAId) (m .: imageBId)
+         <$> parseMaybePair (m .: imageAId) (m .: imageBId)
          <*> m .: relationId
          <*>
-            liftA2 maybePair
-               (liftA2 maybePair (m .: xaId) (m .: yaId))
-               (liftA2 maybePair (m .: xbId) (m .: ybId))
+            parseMaybePair
+               (parseMaybePair (m .: xaId) (m .: yaId))
+               (parseMaybePair (m .: xbId) (m .: ybId))
 
 segmentRotated ::
    [Rotated] ->
