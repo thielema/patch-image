@@ -141,6 +141,9 @@ type CombinedParser = Compose (MW.Writer [B.ByteString]) Csv.Parser
    Csv.NamedRecord -> B.ByteString -> CombinedParser (Maybe a)
 (.:??) m name = Compose $ MW.writer (m .: name, [name])
 
+enumerateNames :: [B.ByteString] -> String
+enumerateNames = B.unpack . B.intercalate (B.pack ", ")
+
 parseMaybePair ::
    CombinedParser (Maybe a) -> CombinedParser (Maybe b) ->
    CombinedParser (Maybe (a, b))
@@ -154,8 +157,24 @@ parseMaybePair cpa cpb =
             _ ->
                fail $
                printf "The columns %s must be all set or all empty." $
-               B.unpack $ B.intercalate (B.pack ", ") n
+               enumerateNames n
    in  Compose $ MW.writer (p, n)
+
+parseImpliedMaybe ::
+   CombinedParser (Maybe a) -> CombinedParser (Maybe b) ->
+   CombinedParser (Maybe a, Maybe b)
+parseImpliedMaybe cpa cpb =
+   let (pa,na) = MW.runWriter $ getCompose cpa
+       (pb,nb) = MW.runWriter $ getCompose cpb
+       p = do
+         m <- liftA2 (,) pa pb
+         case m of
+            (Nothing, Just _) ->
+               fail $
+               printf "If the columns %s are set, then %s must be set as well."
+                  (enumerateNames nb) (enumerateNames na)
+            _ -> return m
+   in  Compose $ MW.writer (p, na++nb)
 
 runCombinedParser :: CombinedParser a -> Csv.Parser a
 runCombinedParser = fst . MW.runWriter . getCompose
@@ -163,11 +182,12 @@ runCombinedParser = fst . MW.runWriter . getCompose
 
 instance Csv.FromNamedRecord Rotated where
    parseNamedRecord m =
-      Rotated
+      uncurry Rotated
          <$>
-            runCombinedParser
+            (runCombinedParser $
+             parseImpliedMaybe
                (parseMaybePair (m .:?? imageAId) (m .:?? imageBId))
-         <*> m .: relationId
+               (m .:?? relationId))
          <*>
             (runCombinedParser $
              parseMaybePair
