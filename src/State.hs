@@ -119,7 +119,7 @@ instance Csv.FromNamedRecord Displacement where
          <$> m .: imageAId
          <*> m .: imageBId
          <*> m .: relationId
-         <*> runCombinedParser (parseMaybePair (m .:?? dxId) (m .:?? dyId))
+         <*> runCombinedParser (parseMaybePair (m .:# dxId) (m .:# dyId))
 
 
 instance Csv.ToNamedRecord Rotated where
@@ -134,19 +134,17 @@ instance Csv.DefaultOrdered Rotated where
       Csv.header [imageAId, imageBId, relationId, xaId, yaId, xbId, ybId]
 
 
-type CombinedParser = Compose (MW.Writer [B.ByteString]) Csv.Parser
+type NamedParser = Compose (MW.Writer [B.ByteString]) Csv.Parser
 
-(.:??) ::
-   Csv.FromField a =>
-   Csv.NamedRecord -> B.ByteString -> CombinedParser (Maybe a)
-(.:??) m name = Compose $ MW.writer (m .: name, [name])
+(.:#) :: Csv.FromField a => Csv.NamedRecord -> B.ByteString -> NamedParser a
+(.:#) m name = Compose $ MW.writer (m .: name, [name])
 
 enumerateNames :: [B.ByteString] -> String
 enumerateNames = B.unpack . B.intercalate (B.pack ", ")
 
 parseMaybePair ::
-   CombinedParser (Maybe a) -> CombinedParser (Maybe b) ->
-   CombinedParser (Maybe (a, b))
+   NamedParser (Maybe a) -> NamedParser (Maybe b) ->
+   NamedParser (Maybe (a, b))
 parseMaybePair cpa cpb =
    let (pab,n) = MW.runWriter $ getCompose $ liftA2 (,) cpa cpb
        p = do
@@ -161,8 +159,8 @@ parseMaybePair cpa cpb =
    in  Compose $ MW.writer (p, n)
 
 parseImpliedMaybe ::
-   CombinedParser (Maybe a) -> CombinedParser (Maybe b) ->
-   CombinedParser (Maybe a, Maybe b)
+   NamedParser (Maybe a) -> NamedParser (Maybe b) ->
+   NamedParser (Maybe a, Maybe b)
 parseImpliedMaybe cpa cpb =
    let (pa,na) = MW.runWriter $ getCompose cpa
        (pb,nb) = MW.runWriter $ getCompose cpb
@@ -176,7 +174,7 @@ parseImpliedMaybe cpa cpb =
             _ -> return m
    in  Compose $ MW.writer (p, na++nb)
 
-runCombinedParser :: CombinedParser a -> Csv.Parser a
+runCombinedParser :: NamedParser a -> Csv.Parser a
 runCombinedParser = fst . MW.runWriter . getCompose
 
 
@@ -186,13 +184,13 @@ instance Csv.FromNamedRecord Rotated where
          <$>
             (runCombinedParser $
              parseImpliedMaybe
-               (parseMaybePair (m .:?? imageAId) (m .:?? imageBId))
-               (m .:?? relationId))
+               (parseMaybePair (m .:# imageAId) (m .:# imageBId))
+               (m .:# relationId))
          <*>
             (runCombinedParser $
              parseMaybePair
-               (parseMaybePair (m .:?? xaId) (m .:?? yaId))
-               (parseMaybePair (m .:?? xbId) (m .:?? ybId)))
+               (parseMaybePair (m .:# xaId) (m .:# yaId))
+               (parseMaybePair (m .:# xbId) (m .:# ybId)))
 
 segmentRotated ::
    [Rotated] ->
