@@ -1641,14 +1641,14 @@ processRotation ::
    Option.Args ->
    IO [Picture (Maybe (Degree Float), (Maybe Float, Maybe Float))]
 processRotation args = do
-   let paths = Option.inputs args
+   let inputs = Option.inputs args
    let opt = Option.option args
    let notice = CmdLine.notice (Option.verbosity opt)
    let info = CmdLine.info (Option.verbosity opt)
 
    notice "\nfind rotation angles"
    picAngles <-
-      forM paths $ \(State.Proposed path (maybeAngle, _) _) -> do
+      forM inputs $ \(State.Proposed path (maybeAngle, _) _) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
          let angles = Degree.linearScale (Option.numberAngleSteps opt) maxAngle
@@ -1666,7 +1666,7 @@ processRotation args = do
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "angle") $
-         zipWith State.Angle (map State.propPath paths) (map fst picAngles)
+         zipWith State.Angle (map State.propPath inputs) (map fst picAngles)
 
    notice "\nfind relative placements"
    let rotated = map (prepareOverlapMatching (Option.smooth opt)) picAngles
@@ -1690,14 +1690,14 @@ processRotation args = do
       zipWith3
          (\(State.Proposed path (_,maybeDAngle) maybePos) colored plane ->
             Picture path (maybeDAngle, maybePos) colored plane)
-         paths picAngles rotated
+         inputs picAngles rotated
 
 process :: Option.Args -> IO ()
 process args = do
    IO.hSetBuffering IO.stdout IO.LineBuffering
    IO.hSetBuffering IO.stderr IO.LineBuffering
 
-   let paths = Option.inputs args
+   let paths = map State.propPath $ Option.inputs args
    let opt = Option.option args
    let notice = CmdLine.notice (Option.verbosity opt)
    let info = CmdLine.info (Option.verbosity opt)
@@ -1710,8 +1710,8 @@ process args = do
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $
       zipWith3
-         (\prop (angle, _) (pos, rot) ->
-            State.Position (State.propPath prop)
+         (\path (angle, _) (pos, rot) ->
+            State.Position path
                (angle <> Degree.fromRadian (Complex.phase rot)) pos)
          paths picAngles posRots
 
@@ -1735,9 +1735,9 @@ process args = do
          map (Arith.geometryFeatures . mapThd3 colorImageExtent) rotMovPics
 
    forM_ (zip geometryRelations paths) $
-         \((thisGeom, otherGeoms, allPoints), prop) -> do
+         \((thisGeom, otherGeoms, allPoints), path) -> do
 
-      let stem = FilePath.takeBaseName $ State.propPath prop
+      let stem = FilePath.takeBaseName path
       let canvasShape = Z :. canvasHeight :. canvasWidth
       when False $ do
          writeGrey (Option.quality opt)

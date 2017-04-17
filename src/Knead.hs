@@ -1643,7 +1643,7 @@ processRotation ::
    Option.Args ->
    IO [Picture (Maybe (Degree Float), (Maybe Float, Maybe Float))]
 processRotation args = do
-   let paths = Option.inputs args
+   let inputs = Option.inputs args
    let opt = Option.option args
    let notice = CmdLine.notice (Option.verbosity opt)
    let info = CmdLine.info (Option.verbosity opt)
@@ -1651,7 +1651,7 @@ processRotation args = do
    notice "\nfind rotation angles"
    findOptRot <- findOptimalRotation
    picAngles <-
-      forM paths $ \(State.Proposed path (maybeAngle, _) _) -> do
+      forM inputs $ \(State.Proposed path (maybeAngle, _) _) -> do
          pic <- readImage (Option.verbosity opt) path
          let maxAngle = Option.maximumAbsoluteAngle opt
          let angles = Degree.linearScale (Option.numberAngleSteps opt) maxAngle
@@ -1664,7 +1664,7 @@ processRotation args = do
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "angle") $
-         zipWith State.Angle (map State.propPath paths) (map fst picAngles)
+         zipWith State.Angle (map State.propPath inputs) (map fst picAngles)
 
    notice "\nfind relative placements"
    prepOverlapMatching <- prepareOverlapMatching
@@ -1674,14 +1674,14 @@ processRotation args = do
       zipWith3
          (\(State.Proposed path (_,maybeDAngle) maybePos) colored plane ->
             Picture path (maybeDAngle, maybePos) colored plane)
-         paths picAngles rotated
+         inputs picAngles rotated
 
 process :: Option.Args -> IO ()
 process args = do
    IO.hSetBuffering IO.stdout IO.LineBuffering
    IO.hSetBuffering IO.stderr IO.LineBuffering
 
-   let paths = Option.inputs args
+   let paths = map State.propPath $ Option.inputs args
    let opt = Option.option args
    let notice = CmdLine.notice (Option.verbosity opt)
    let info = CmdLine.info (Option.verbosity opt)
@@ -1694,8 +1694,8 @@ process args = do
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $
       zipWith3
-         (\prop (angle, _) (pos, rot) ->
-            State.Position (State.propPath prop)
+         (\path (angle, _) (pos, rot) ->
+            State.Position path
                (angle <> Degree.fromRadian (Complex.phase rot)) pos)
          paths picAngles posRots
 
@@ -1758,7 +1758,7 @@ process args = do
       counts <- thaw . amap (fromIntegral . fst) =<< arrayCFromKnead sumImg
       shapes <- MatchImageBorders.shapeParts counts locs pqueue
 
-      let names = map (FilePath.takeBaseName . State.propPath) paths
+      let names = map FilePath.takeBaseName paths
       forM_ (Option.outputShapedHard opt) $ \path -> do
          forM_ (Option.outputShapeHard opt) $ \format ->
             forM_ (zip names shapes) $ \(name,shape) ->
