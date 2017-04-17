@@ -1164,14 +1164,9 @@ distanceMapContained ::
    Acc (Array DIM1 (Geometry a)) ->
    Acc (Channel Z a)
 distanceMapContained sh this others =
-   let distMap =
-          separateDistanceMap $
-          distanceMapBox sh this
-       contained =
-          containedAnywhere others $
-          A.map (A.snd . A.snd) distMap
-   in  A.map (Exp.modify (expr,expr) $
-                \(valid, dist) -> valid ? (dist, 0)) $
+   let distMap = separateDistanceMap $ distanceMapBox sh this
+       contained = containedAnywhere others $ A.map (A.snd . A.snd) distMap
+   in  A.map (Exp.modify (expr,expr) $ \(valid, dist) -> valid ? (dist, 0)) $
        maskedMinimum $
        A.zipWith
           (Exp.modify2 expr (expr,(expr,expr)) $ \c (b,(dist,_)) ->
