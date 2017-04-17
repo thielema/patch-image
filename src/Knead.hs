@@ -75,7 +75,8 @@ import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
 import Data.Tuple.HT
-         (mapPair, mapFst, mapSnd, mapTriple, mapThd3, fst3, swap, uncurry3)
+         (mapPair, mapFst, mapSnd, mapTriple, swap,
+          mapThd3, fst3, thd3, uncurry3)
 import Data.Word (Word8, Word32)
 
 
@@ -1230,6 +1231,18 @@ separateDistanceMap array =
                (uncurry (Expr.ifThenElse (expEven sel)) vert)))
       array (Symb.lift0 $ Symb.id 4)
 
+distanceMapBoxRun ::
+   IO (Dim2 -> Geometry Float -> IO (Plane Word8))
+distanceMapBoxRun =
+   RenderP.run $ \sh geom ->
+      scaleDistanceMapGeom geom $
+      Symb.map
+         (Expr.modify (atom,atom) $ \(valid, dist) -> Expr.select valid dist 0) $
+      maskedMinimum $
+      Symb.map (Expr.mapSnd Expr.fst) $
+      separateDistanceMap $
+      distanceMapBox sh geom
+
 
 containedAnywhere ::
    (Symb.C array, Shape.C sh,
@@ -1268,6 +1281,24 @@ distanceMapContained sh this others =
              (Expr.liftM2 MultiValue.and c b, dist))
           contained distMap
 
+distanceMapContainedRun ::
+   IO (Dim2 -> Geometry Float -> [Geometry Float] -> IO (Plane Word8))
+distanceMapContainedRun = do
+   distances <-
+      RenderP.run $
+      \sh this -> scaleDistanceMapGeom this . distanceMapContained sh this
+   return $ \sh this others -> distances sh this =<< Phys.vectorFromList others
+
+scaleDistanceMapGeom ::
+   (MultiValue.Field a, MultiValue.Real a, MultiValue.RationalConstant a,
+    MultiValue.NativeFloating a ar) =>
+   Exp (Geometry b) -> SymbPlane a -> SymbPlane Word8
+scaleDistanceMapGeom geom img =
+   let scale =
+         (4/) $ fromInt $
+         Expr.modify (atom,atom,(atom,atom)) (uncurry Expr.min . thd3) geom
+   in  imageByteFromFloat $ Symb.map (scale*) img
+
 
 pixelCoordinates ::
    (MultiValue.NativeFloating a ar) =>
@@ -1284,6 +1315,25 @@ distanceMapPoints ::
 distanceMapPoints a b =
    Symb.fold1 Expr.min $
    outerProduct (Expr.modify2 (atom,atom) (atom,atom) distance) a b
+
+distanceMapPointsRun ::
+   IO (Dim2 -> [Arith.Point2 Float] -> IO (Plane Word8))
+distanceMapPointsRun = do
+   distances <-
+      RenderP.run $
+      \sh -> scaleDistanceMap . distanceMapPoints (pixelCoordinates sh)
+   return $ \sh points -> distances sh =<< Phys.vectorFromList points
+
+
+scaleDistanceMap ::
+   (MultiValue.Field a, MultiValue.Real a, MultiValue.RationalConstant a,
+    MultiValue.NativeFloating a ar) =>
+   SymbPlane a -> SymbPlane Word8
+scaleDistanceMap img =
+   let scale =
+         case Expr.decompose atomDim2 $ Symb.shape img of
+            Vec2 y x -> 4 / fromInt (Expr.min x y)
+   in  imageByteFromFloat $ Symb.map (scale*) img
 
 
 {- |
@@ -1324,12 +1374,7 @@ distanceMapRun ::
 distanceMapRun = do
    distances <-
       RenderP.run $
-      \sh this others points ->
-         let scale =
-               case Expr.decompose atomDim2 sh of
-                  Vec2 y x -> 4 / fromInt (Expr.min x y)
-         in  imageByteFromFloat $ Symb.map (scale*) $
-             distanceMap sh this others points
+      \sh this others -> scaleDistanceMap . distanceMap sh this others
    return $ \sh this others points -> do
       othersVec <- Phys.vectorFromList others
       pointsVec <- Phys.vectorFromList points
@@ -1717,6 +1762,28 @@ process args = do
          map (Arith.geometryFeatures . mapThd3 colorImageExtent) rotMovPics
 
    forM_ (Option.outputDistanceMap opt) $ \format -> do
+      when False $ do
+         distMapBox <- distanceMapBoxRun
+         distMapContained <- distanceMapContainedRun
+         distMapPoints <- distanceMapPointsRun
+
+         forM_ (zip geometryRelations paths) $
+            \((thisGeom, otherGeoms, allPoints), path) -> do
+
+            let stem = FilePath.takeBaseName path
+
+            writeGrey (Option.quality opt)
+               (printf "/tmp/%s-distance-box.jpeg" stem)
+               =<< distMapBox canvasShape thisGeom
+
+            writeGrey (Option.quality opt)
+               (printf "/tmp/%s-distance-contained.jpeg" stem)
+               =<< distMapContained canvasShape thisGeom otherGeoms
+
+            writeGrey (Option.quality opt)
+               (printf "/tmp/%s-distance-points.jpeg" stem)
+               =<< distMapPoints canvasShape allPoints
+
       distMap <- distanceMapRun
       forM_ (zip geometryRelations paths) $ \(geoms, path) -> do
          let stem = FilePath.takeBaseName path
