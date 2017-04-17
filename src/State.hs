@@ -246,10 +246,6 @@ warnUnmatchedImages paths relations = do
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()
 write path = BL.writeFile path . Csv.encodeDefaultOrderedByName
 
-writeWithHeader ::
-   (Csv.ToNamedRecord a) => FilePath -> Csv.Header -> [a] -> IO ()
-writeWithHeader path header = BL.writeFile path . Csv.encodeByName header
-
 
 
 {-
