@@ -1221,13 +1221,17 @@ distanceMapPointsRun =
    let distances =
           Run.with CUDA.run1 $
           \sh points ->
-             let scale =
-                    case Exp.unlift (expr:.expr:.expr) sh of
-                       _z:.y:.x -> (4/) $ A.fromIntegral $ min x y
-             in  imageByteFromFloat $ A.map (scale*) $
-                 distanceMapPoints (pixelCoordinates sh) points
-   in  \sh points ->
-          distances sh $ array1FromList points
+             imageByteFromFloat $ scaleDistanceMap $
+             distanceMapPoints (pixelCoordinates sh) points
+   in  \sh points -> distances sh $ array1FromList points
+
+scaleDistanceMap ::
+   (A.Elt a, A.IsFloating a) => Acc (Channel Z a) -> Acc (Channel Z a)
+scaleDistanceMap arr =
+   let scale =
+         case Exp.unlift (expr:.expr:.expr) (A.shape arr) of
+            _z:.y:.x -> 4 / A.fromIntegral (min x y)
+   in  A.map (scale*) arr
 
 
 {- |
@@ -1267,11 +1271,8 @@ distanceMapRun =
    let distances =
           Run.with CUDA.run1 $
           \sh this others points ->
-             let scale =
-                    case Exp.unlift (expr:.expr:.expr) sh of
-                       _z:.y:.x -> (4/) $ A.fromIntegral $ min x y
-             in  imageByteFromFloat $ A.map (scale*) $
-                 distanceMap sh this others points
+             imageByteFromFloat $ scaleDistanceMap $
+             distanceMap sh this others points
    in  \sh this others points ->
           distances sh this
              (array1FromList others)
