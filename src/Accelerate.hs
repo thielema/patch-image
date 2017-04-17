@@ -1117,20 +1117,16 @@ separateDistanceMap arr =
       (A.use $ A.fromList (Z:.(4::Int)) $
        liftM2 (,) [False,True] [False,True])
 
-distanceMapBoxRun ::
-   DIM2 -> ((Float,Float),(Float,Float),(Int,Int)) -> Plane Word8
+distanceMapBoxRun :: DIM2 -> Geometry Float -> Plane Word8
 distanceMapBoxRun =
    Run.with CUDA.run1 $ \sh geom ->
-      let scale =
-             (4/) $ A.fromIntegral $ uncurry min $
-             Exp.unliftPair $ Exp.thd3 geom
-      in  imageByteFromFloat $
-          A.map (Exp.modify (expr,expr) $
-                   \(valid, dist) -> valid ? (scale*dist, 0)) $
-          maskedMinimum $
-          A.map (Exp.mapSnd A.fst) $
-          separateDistanceMap $
-          distanceMapBox sh geom
+      imageByteFromFloat $
+      scaleDistanceMapGeom geom $
+      A.map (Exp.modify (expr,expr) $ \(valid, dist) -> valid ? (dist, 0)) $
+      maskedMinimum $
+      A.map (Exp.mapSnd A.fst) $
+      separateDistanceMap $
+      distanceMapBox sh geom
 
 
 -- maybe move to Accelerate.Utility
@@ -1189,13 +1185,16 @@ distanceMapContainedRun =
    let distances =
           Run.with CUDA.run1 $
           \sh this others ->
-             let scale =
-                    (4/) $ A.fromIntegral $ uncurry min $
-                    Exp.unliftPair $ Exp.thd3 this
-             in  imageByteFromFloat $ A.map (scale*) $
-                 distanceMapContained sh this others
-   in  \sh this others ->
-          distances sh this $ array1FromList others
+             imageByteFromFloat $ scaleDistanceMapGeom this $
+             distanceMapContained sh this others
+   in  \sh this others -> distances sh this $ array1FromList others
+
+scaleDistanceMapGeom ::
+   (A.IsFloating a, A.Elt a, A.Elt b, A.Shape ix) =>
+   Exp (Geometry b) -> Acc (Array ix a) -> Acc (Array ix a)
+scaleDistanceMapGeom this =
+   let scale = (4/) $ A.fromIntegral $ A.uncurry min $ Exp.thd3 this
+   in  A.map (scale*)
 
 
 pixelCoordinates ::
