@@ -260,13 +260,9 @@ Warning: This implementation would also accept ill-formated cells:
    Csv.FromField a => Csv.NamedRecord -> B.ByteString -> Csv.Parser (Maybe a)
 (.:?) m field = traverse Csv.parseField $ HashMap.lookup field m
 
-parseAngleAndCorrection ::
-   (Csv.FromField a) =>
-   a -> Csv.NamedRecord -> Csv.Parser (Maybe a, Maybe a)
-parseAngleAndCorrection zero m =
-   liftA2
-      (\a mda -> (a, fromMaybe (zero <$ a) mda))
-      (join <$> m .:? angleId) (m .:? dAngleId)
+maybeCorrection ::
+   (Csv.FromField a) => a -> Maybe a -> Maybe (Maybe a) -> Maybe a
+maybeCorrection zero a mda = fromMaybe (zero <$ a) mda
 
 class Csv.DefaultOrdered angleCorr => AngleCorrected angleCorr where
    autoAngleCorrection :: angleCorr
@@ -280,7 +276,10 @@ newtype
 
 instance AngleCorrected AngleCorrection where
    autoAngleCorrection = AngleCorrection Nothing
-   parseAngle zero m = mapSnd AngleCorrection <$> parseAngleAndCorrection zero m
+   parseAngle zero m =
+      liftA2
+         (\a mda -> (a, AngleCorrection $ maybeCorrection zero a mda))
+         (join <$> m .:? angleId) (m .:? dAngleId)
 
 data NoAngleCorrection = NoAngleCorrection
 
