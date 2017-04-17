@@ -29,7 +29,7 @@ import Text.Printf (printf)
 data Args =
    Args {
       option :: Option,
-      inputs :: [State.Proposed]
+      inputs :: [(Image, FilePath)]
    }
 
 defltArgs :: Args
@@ -104,6 +104,10 @@ data Image =
 
 defltImage :: Image
 defltImage = Image {angle = Nothing}
+
+proposedFromImage :: (Image, FilePath) -> State.Proposed
+proposedFromImage (Image ang, path) =
+   State.Proposed path (ang, Nothing) (Nothing, Nothing)
 
 
 data Engine = Knead | Accelerate
@@ -315,13 +319,8 @@ description desc =
 
 
 addFile :: FilePath -> ((Image, Args) -> IO (Image, Args))
-addFile path (Image ang, args) =
-   return
-      (defltImage,
-       args {inputs =
-               State.Proposed path (ang, Nothing) (Nothing, Nothing) :
-               inputs args})
-
+addFile path (image, args) =
+   return (defltImage, args {inputs = (image,path) : inputs args})
 
 
 get :: Engine -> IO Args
@@ -337,10 +336,15 @@ get engine = do
    when (lastImage /= defltImage) $
       exitFailureMsg "unused trailing image options"
 
-   let images =
-         (Vector.toList $ state $ option parsedArgs)
+   return parsedArgs
+
+images :: Args -> IO [State.Proposed]
+images args = do
+   let imgs =
+         (Vector.toList $ state $ option args)
          ++
-         (reverse $ inputs parsedArgs)
-   case images of
+         (reverse $ map proposedFromImage $ inputs args)
+
+   case imgs of
       [] -> exitFailureMsg "no input files"
-      _ -> return $ parsedArgs {inputs = images}
+      _ -> return imgs

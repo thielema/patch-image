@@ -1417,7 +1417,8 @@ mapPicParam f pic = pic{picParam = f $ picParam pic}
 
 processOverlap ::
    Option.Args ->
-   IO ([(Degree Float, ColorImage8)], [((Float, Float), Complex Float)])
+   IO ([FilePath], [(Degree Float, ColorImage8)],
+       [((Float, Float), Complex Float)])
 processOverlap args = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
@@ -1524,13 +1525,15 @@ processOverlap args = do
       printf "maximum vertical error: %f\n" errdy
 
    return
-      (map picColored pics,
+      (map picPath pics,
+       map picColored pics,
        map (flip (,) 1) $ map (mapPair (realToFrac, realToFrac)) poss)
 
 
 processOverlapRotate ::
    Option.Args ->
-   IO ([(Degree Float, ColorImage8)], [((Float, Float), Complex Float)])
+   IO ([FilePath], [(Degree Float, ColorImage8)],
+       [((Float, Float), Complex Float)])
 processOverlapRotate args = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
@@ -1630,7 +1633,8 @@ processOverlapRotate args = do
          dps overlaps
 
    return
-      (map picColored pics,
+      (map picPath pics,
+       map picColored pics,
        map
          (mapPair
             (mapPair (realToFrac, realToFrac), Arith.mapComplex realToFrac))
@@ -1641,10 +1645,11 @@ processRotation ::
    Option.Args ->
    IO [Picture (Maybe (Degree Float), (Maybe Float, Maybe Float))]
 processRotation args = do
-   let inputs = Option.inputs args
    let opt = Option.option args
    let notice = CmdLine.notice (Option.verbosity opt)
    let info = CmdLine.info (Option.verbosity opt)
+
+   inputs <- Option.images args
 
    notice "\nfind rotation angles"
    picAngles <-
@@ -1697,12 +1702,11 @@ process args = do
    IO.hSetBuffering IO.stdout IO.LineBuffering
    IO.hSetBuffering IO.stderr IO.LineBuffering
 
-   let paths = map State.propPath $ Option.inputs args
    let opt = Option.option args
    let notice = CmdLine.notice (Option.verbosity opt)
    let info = CmdLine.info (Option.verbosity opt)
 
-   (picAngles, posRots) <-
+   (paths, picAngles, posRots) <-
       if Option.finetuneRotate opt
         then processOverlapRotate args
         else processOverlap args
