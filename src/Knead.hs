@@ -1420,7 +1420,9 @@ processOverlap args = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
-   pics <- map (mapPicParam snd) <$> processRotation args
+   pics <-
+      map (mapPicParam (\(State.NoAngleCorrection, pos) -> pos)) <$>
+      processRotation args
    let padSize = fromIntegral $ Option.padSize opt
    (maybeAllOverlapsShared, optimalOverlapShared) <-
       case Just $ Vec2 padSize padSize of
@@ -1540,7 +1542,9 @@ processOverlapRotate args = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
-   pics <- processRotation args
+   pics <-
+      map (mapPicParam (mapFst State.getAngleCorrection)) <$>
+      processRotation args
    let padSize = Option.padSize opt
    let stampSize = Option.stampSize opt
    optimalOverlapShared <-
@@ -1644,8 +1648,8 @@ processOverlapRotate args = do
 
 
 processRotation ::
-   Option.Args ->
-   IO [Picture (Maybe (Degree Float), (Maybe Float, Maybe Float))]
+   (State.AngleCorrected angleCorr) =>
+   Option.Args -> IO [Picture (angleCorr, (Maybe Float, Maybe Float))]
 processRotation args = do
    let opt = Option.option args
    let notice = CmdLine.notice (Option.verbosity opt)
@@ -1677,8 +1681,8 @@ processRotation args = do
 
    return $
       zipWith3
-         (\(State.Proposed path (_,maybeDAngle) maybePos) colored plane ->
-            Picture path (maybeDAngle, maybePos) colored plane)
+         (\(State.Proposed path (_,angleCorr) maybePos) colored plane ->
+            Picture path (angleCorr, maybePos) colored plane)
          inputs picAngles rotated
 
 process :: Option.Args -> IO ()

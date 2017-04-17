@@ -104,9 +104,11 @@ data Image =
 defltImage :: Image
 defltImage = Image {angle = Nothing}
 
-proposedFromImage :: (Image, FilePath) -> State.Proposed
+proposedFromImage ::
+   (State.AngleCorrected angleCorr) =>
+   (Image, FilePath) -> State.Proposed angleCorr
 proposedFromImage (Image ang, path) =
-   State.Proposed path (ang, Nothing) (Nothing, Nothing)
+   State.Proposed path (ang, State.autoAngleCorrection) (Nothing, Nothing)
 
 
 data Engine = Knead | Accelerate
@@ -336,7 +338,8 @@ get engine = do
 
    return parsedArgs
 
-images :: Args -> IO [State.Proposed]
+images ::
+   (State.AngleCorrected angleCorr) => Args -> IO [State.Proposed angleCorr]
 images args = do
    xs <- maybe (return Vector.empty) State.read (state $ option args)
    case Vector.toList xs ++ (reverse $ map proposedFromImage $ inputs args) of

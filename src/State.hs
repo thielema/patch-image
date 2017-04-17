@@ -16,6 +16,7 @@ import qualified Data.Set as Set
 import Data.Traversable (traverse)
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
+import Data.Monoid ((<>))
 import Data.Maybe (fromMaybe, catMaybes)
 import Data.Tuple.HT (mapFst, mapSnd, mapPair)
 import Data.Map (Map)
@@ -259,28 +260,65 @@ Warning: This implementation would also accept ill-formated cells:
    Csv.FromField a => Csv.NamedRecord -> B.ByteString -> Csv.Parser (Maybe a)
 (.:?) m field = traverse Csv.parseField $ HashMap.lookup field m
 
-parseAngle ::
+parseAngleAndCorrection ::
    (Csv.FromField a) =>
    a -> Csv.NamedRecord -> Csv.Parser (Maybe a, Maybe a)
-parseAngle zero m =
+parseAngleAndCorrection zero m =
    liftA2
       (\a mda -> (a, fromMaybe (zero <$ a) mda))
       (join <$> m .:? angleId) (m .:? dAngleId)
 
+class Csv.DefaultOrdered angleCorr => AngleCorrected angleCorr where
+   autoAngleCorrection :: angleCorr
+   parseAngle ::
+      Degree Float -> Csv.NamedRecord ->
+      Csv.Parser (Maybe (Degree Float), angleCorr)
+
+newtype
+   AngleCorrection =
+      AngleCorrection {getAngleCorrection :: Maybe (Degree Float)}
+
+instance AngleCorrected AngleCorrection where
+   autoAngleCorrection = AngleCorrection Nothing
+   parseAngle zero m = mapSnd AngleCorrection <$> parseAngleAndCorrection zero m
+
+data NoAngleCorrection = NoAngleCorrection
+
+instance AngleCorrected NoAngleCorrection where
+   autoAngleCorrection = NoAngleCorrection
+   parseAngle _zero m =
+      liftA2 (,) (join <$> m .:? angleId) (pure NoAngleCorrection)
+
 
 data
-   Proposed =
+   Proposed angleCorr =
       Proposed FilePath
-         (Maybe (Degree Float), Maybe (Degree Float))
+         (Maybe (Degree Float), angleCorr)
          (Maybe Float, Maybe Float)
 
-propPath :: Proposed -> FilePath
+propPath :: Proposed angleCorr -> FilePath
 propPath (Proposed path _ _) = path
 
-instance Csv.DefaultOrdered Proposed where
-   headerOrder _ = Csv.header [imageId, angleId, dAngleId, xId, yId]
+propAngleCorr :: Proposed angleCorr -> angleCorr
+propAngleCorr (Proposed _ (_,angleCorr) _) = angleCorr
 
-instance Csv.FromNamedRecord Proposed where
+instance Csv.DefaultOrdered AngleCorrection where
+   headerOrder _ = Csv.header [dAngleId]
+
+instance Csv.DefaultOrdered NoAngleCorrection where
+   headerOrder _ = Csv.header []
+
+instance
+   Csv.DefaultOrdered angleCorr =>
+      Csv.DefaultOrdered (Proposed angleCorr) where
+   headerOrder p =
+      Csv.header [imageId, angleId] <>
+      Csv.headerOrder (propAngleCorr p) <>
+      Csv.header [xId, yId]
+
+instance
+   (AngleCorrected angleCorr) =>
+      Csv.FromNamedRecord (Proposed angleCorr) where
    parseNamedRecord m =
       Proposed <$> m .: imageId
          <*> parseAngle (Degree 0) m
