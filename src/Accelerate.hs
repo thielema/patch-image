@@ -187,7 +187,8 @@ splitFraction x =
 
 
 
-type Channel ix a = Array (ix :. Int :. Int) a
+type Channel ix = Array (ix :. Int :. Int)
+type Plane = Channel Z
 
 type ExpDIM2 ix = Exp ix :. Exp Int :. Exp Int
 type ExpDIM3 ix = Exp ix :. Exp Int :. Exp Int :. Exp Int
@@ -480,7 +481,7 @@ rotateManifest =
 
 
 prepareOverlapMatching ::
-   Int -> (Degree Float, ColorImage8) -> ((Float,Float), Channel Z Float)
+   Int -> (Degree Float, ColorImage8) -> ((Float,Float), Plane Float)
 prepareOverlapMatching =
    let rot =
           Run.with CUDA.run1 $ \radius orient arr ->
@@ -691,7 +692,7 @@ allOverlaps size@(Z :. height :. width) minOverlapPortion =
 
 
 allOverlapsRun ::
-   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> Channel Z Word8
+   DIM2 -> Float -> Plane Float -> Plane Float -> Plane Word8
 allOverlapsRun padExtent =
    Run.with CUDA.run1 $ \minOverlap picA picB ->
       imageByteFromFloat $
@@ -700,7 +701,7 @@ allOverlapsRun padExtent =
       A.map A.fst $ allOverlaps padExtent minOverlap picA picB
 
 optimalOverlap ::
-   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> (Float, (Int, Int))
+   DIM2 -> Float -> Plane Float -> Plane Float -> (Float, (Int, Int))
 optimalOverlap padExtent =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
@@ -735,7 +736,7 @@ shrinkFactors (Z:.heightPad:.widthPad)
 Reduce image sizes below the padExtent before matching images.
 -}
 optimalOverlapBig ::
-   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> (Float, (Int, Int))
+   DIM2 -> Float -> Plane Float -> Plane Float -> (Float, (Int, Int))
 optimalOverlapBig padExtent =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
@@ -785,7 +786,7 @@ but computes precise distance in a second step
 using a part in the overlapping area.
 -}
 optimalOverlapBigFine ::
-   DIM2 -> Float -> Channel Z Float -> Channel Z Float -> (Float, (Int, Int))
+   DIM2 -> Float -> Plane Float -> Plane Float -> (Float, (Int, Int))
 optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
    let overlaps = allOverlaps padExtent
        run =
@@ -827,7 +828,7 @@ can be used to compute corrections to rotation angles.
 -}
 optimalOverlapBigMulti ::
    DIM2 -> DIM2 -> Int ->
-   Float -> Maybe Float -> Channel Z Float -> Channel Z Float ->
+   Float -> Maybe Float -> Plane Float -> Plane Float ->
    [(Float, (Int, Int), (Int, Int))]
 optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
    let overlapShrunk =
@@ -927,7 +928,7 @@ overlapDifference (dx,dy) a b =
 
 overlapDifferenceRun ::
    (Int, Int) ->
-   Channel Z Float -> Channel Z Float -> Float
+   Plane Float -> Plane Float -> Float
 overlapDifferenceRun =
    let diff = Run.with CUDA.run1 overlapDifference
    in  \d a b -> Acc.the $ diff d a b
@@ -974,7 +975,7 @@ composeOverlap =
 emptyCountCanvas ::
    (A.Slice ix, A.Shape ix) =>
    ix :. Int :. Int ->
-   (Channel Z Int, Channel ix Float)
+   (Plane Int, Channel ix Float)
 emptyCountCanvas =
    Run.with CUDA.run1 $ \sh ->
       let (_ix :. height :. width) = unliftDim2 sh
@@ -984,9 +985,9 @@ emptyCountCanvas =
 
 addToCountCanvas ::
    (A.Slice ix, A.Shape ix, A.Elt a, A.IsNum a) =>
-   (Acc (Channel Z Bool), Acc (Channel ix a)) ->
-   (Acc (Channel Z Int),  Acc (Channel ix a)) ->
-   (Acc (Channel Z Int),  Acc (Channel ix a))
+   (Acc (Plane Bool), Acc (Channel ix a)) ->
+   (Acc (Plane Int),  Acc (Channel ix a)) ->
+   (Acc (Plane Int),  Acc (Channel ix a))
 addToCountCanvas (mask, pic) (count, canvas) =
    (A.zipWith (+) (A.map A.boolToInt mask) count,
     A.zipWith (+) canvas $ A.zipWith (*) pic $
@@ -995,8 +996,8 @@ addToCountCanvas (mask, pic) (count, canvas) =
 
 updateCountCanvas ::
    ((Float,Float), (Float,Float), ColorImage8) ->
-   (Channel Z Int, Channel DIM1 Float) ->
-   (Channel Z Int, Channel DIM1 Float)
+   (Plane Int, Channel DIM1 Float) ->
+   (Plane Int, Channel DIM1 Float)
 updateCountCanvas =
    Run.with CUDA.run1 $
    \(rot, mov, pic) (count,canvas) ->
@@ -1005,7 +1006,7 @@ updateCountCanvas =
           separateChannels $ imageFloatFromByte pic)
          (count,canvas)
 
-finalizeCountCanvas :: (Channel Z Int, Channel DIM1 Float) -> ColorImage8
+finalizeCountCanvas :: (Plane Int, Channel DIM1 Float) -> ColorImage8
 finalizeCountCanvas =
    Run.with CUDA.run1 $
    \(count, canvas) ->
@@ -1061,7 +1062,7 @@ distanceMapEdges sh edges =
       edges
 
 distanceMapEdgesRun ::
-   DIM2 -> Array DIM1 ((Float,Float),(Float,Float)) -> Channel Z Word8
+   DIM2 -> Array DIM1 ((Float,Float),(Float,Float)) -> Plane Word8
 distanceMapEdgesRun =
    Run.with CUDA.run1 $ \sh ->
       imageByteFromFloat . A.map (0.01*) . distanceMapEdges sh
@@ -1119,7 +1120,7 @@ separateDistanceMap arr =
        liftM2 (,) [False,True] [False,True])
 
 distanceMapBoxRun ::
-   DIM2 -> ((Float,Float),(Float,Float),(Int,Int)) -> Channel Z Word8
+   DIM2 -> ((Float,Float),(Float,Float),(Int,Int)) -> Plane Word8
 distanceMapBoxRun =
    Run.with CUDA.run1 $ \sh geom ->
       let scale =
@@ -1185,7 +1186,7 @@ distanceMapContained sh this others =
           contained distMap
 
 distanceMapContainedRun ::
-   DIM2 -> Geometry Float -> [Geometry Float] -> Channel Z Word8
+   DIM2 -> Geometry Float -> [Geometry Float] -> Plane Word8
 distanceMapContainedRun =
    let distances =
           Run.with CUDA.run1 $
@@ -1217,10 +1218,7 @@ distanceMapPoints a b =
       (Exp.modify2 (expr,expr) (expr,expr) distance)
       a b
 
-distanceMapPointsRun ::
-   DIM2 ->
-   [Point2 Float] ->
-   Channel Z Word8
+distanceMapPointsRun :: DIM2 -> [Point2 Float] -> Plane Word8
 distanceMapPointsRun =
    let distances =
           Run.with CUDA.run1 $
@@ -1266,7 +1264,7 @@ distanceMapRun ::
    Geometry Float ->
    [Geometry Float] ->
    [Point2 Float] ->
-   Channel Z Word8
+   Plane Word8
 distanceMapRun =
    let distances =
           Run.with CUDA.run1 $
@@ -1297,7 +1295,7 @@ distanceMapGamma gamma sh this others points =
 emptyWeightedCanvas ::
    (A.Slice ix, A.Shape ix) =>
    ix :. Int :. Int ->
-   (Channel Z Float, Channel ix Float)
+   (Plane Float, Channel ix Float)
 emptyWeightedCanvas =
    Run.with CUDA.run1 $ \sh ->
       let (_ix :. height :. width) = unliftDim2 sh
@@ -1321,8 +1319,8 @@ updateWeightedCanvasMerged ::
    [Geometry Float] ->
    [Point2 Float] ->
    ColorImage8 ->
-   (Channel Z Float, Channel DIM1 Float) ->
-   (Channel Z Float, Channel DIM1 Float)
+   (Plane Float, Channel DIM1 Float) ->
+   (Plane Float, Channel DIM1 Float)
 updateWeightedCanvasMerged =
    let update =
           Run.with CUDA.run1 $
@@ -1346,8 +1344,8 @@ updateWeightedCanvas ::
    [Geometry Float] ->
    [Point2 Float] ->
    ColorImage8 ->
-   (Channel Z Float, Channel DIM1 Float) ->
-   (Channel Z Float, Channel DIM1 Float)
+   (Plane Float, Channel DIM1 Float) ->
+   (Plane Float, Channel DIM1 Float)
 updateWeightedCanvas =
    let distances = Run.with CUDA.run1 distanceMapGamma
        update =
@@ -1373,8 +1371,8 @@ updateWeightedCanvasSplit ::
    [Geometry Float] ->
    [Point2 Float] ->
    ColorImage8 ->
-   (Channel Z Float, Channel DIM1 Float) ->
-   (Channel Z Float, Channel DIM1 Float)
+   (Plane Float, Channel DIM1 Float) ->
+   (Plane Float, Channel DIM1 Float)
 updateWeightedCanvasSplit =
    let update = Run.with CUDA.run1 addToWeightedCanvas
        distances = Run.with CUDA.run1 distanceMap
@@ -1393,7 +1391,7 @@ updateWeightedCanvasSplit =
 
 
 finalizeWeightedCanvas ::
-   (Channel Z Float, Channel DIM1 Float) -> ColorImage8
+   (Plane Float, Channel DIM1 Float) -> ColorImage8
 finalizeWeightedCanvas =
    Run.with CUDA.run1 $
    \(weightSum, canvas) ->
@@ -1408,7 +1406,7 @@ data
          picPath :: FilePath,
          picParam :: param,
          picColored :: (Degree Float, ColorImage8),
-         picPlane :: ((Float, Float), Channel Z Float)
+         picPlane :: ((Float, Float), Plane Float)
       }
 
 mapPicParam :: (a -> b) -> Picture a -> Picture b
