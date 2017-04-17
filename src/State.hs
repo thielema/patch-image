@@ -264,9 +264,13 @@ maybeCorrection ::
    (Csv.FromField a) => a -> Maybe a -> Maybe (Maybe a) -> Maybe a
 maybeCorrection zero a mda = fromMaybe (zero <$ a) mda
 
+parseAngle :: Csv.FromField a => Csv.NamedRecord -> Csv.Parser (Maybe a)
+parseAngle m = join <$> m .:? angleId
+
 class Csv.DefaultOrdered angleCorr => AngleCorrected angleCorr where
    autoAngleCorrection :: angleCorr
-   parseAngle :: Csv.NamedRecord -> Csv.Parser (Maybe (Degree Float), angleCorr)
+   parseAngles ::
+      Csv.NamedRecord -> Csv.Parser (Maybe (Degree Float), angleCorr)
 
 newtype
    AngleCorrection =
@@ -274,17 +278,16 @@ newtype
 
 instance AngleCorrected AngleCorrection where
    autoAngleCorrection = AngleCorrection Nothing
-   parseAngle m =
+   parseAngles m =
       liftA2
          (\a mda -> (a, AngleCorrection $ maybeCorrection (Degree 0) a mda))
-         (join <$> m .:? angleId) (m .:? dAngleId)
+         (parseAngle m) (m .:? dAngleId)
 
 data NoAngleCorrection = NoAngleCorrection
 
 instance AngleCorrected NoAngleCorrection where
    autoAngleCorrection = NoAngleCorrection
-   parseAngle m =
-      liftA2 (,) (join <$> m .:? angleId) (pure NoAngleCorrection)
+   parseAngles m = liftA2 (,) (parseAngle m) (pure NoAngleCorrection)
 
 
 data
@@ -318,7 +321,7 @@ instance
       Csv.FromNamedRecord (Proposed angleCorr) where
    parseNamedRecord m =
       Proposed <$> m .: imageId
-         <*> parseAngle m
+         <*> parseAngles m
          <*> liftA2 (,) (join <$> m .:? xId) (join <$> m .:? yId)
 
 read ::
