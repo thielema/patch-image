@@ -1414,12 +1414,12 @@ mapPicParam f pic = pic{picParam = f $ picParam pic}
 
 processOverlap ::
    Option.Args ->
-   [Picture (Maybe Float, Maybe Float)] ->
-   IO [((Float, Float), Complex Float)]
-processOverlap args pics = do
+   IO ([(Degree Float, ColorImage8)], [((Float, Float), Complex Float)])
+processOverlap args = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
+   pics <- map (mapPicParam snd) <$> processRotation args
    let padSize = fromIntegral $ Option.padSize opt
    (maybeAllOverlapsShared, optimalOverlapShared) <-
       case Just $ Vec2 padSize padSize of
@@ -1525,17 +1525,19 @@ processOverlap args pics = do
       ++
       printf "maximum vertical error: %f\n" errdy
 
-   return $ map (flip (,) 1) $ map (mapPair (realToFrac, realToFrac)) poss
+   return
+      (map picColored pics,
+       map (flip (,) 1) $ map (mapPair (realToFrac, realToFrac)) poss)
 
 
 processOverlapRotate ::
    Option.Args ->
-   [Picture (Maybe (Degree Float), (Maybe Float, Maybe Float))] ->
-   IO [((Float, Float), Complex Float)]
-processOverlapRotate args pics = do
+   IO ([(Degree Float, ColorImage8)], [((Float, Float), Complex Float)])
+processOverlapRotate args = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
 
+   pics <- processRotation args
    let padSize = Option.padSize opt
    let stampSize = Option.stampSize opt
    optimalOverlapShared <-
@@ -1629,18 +1631,18 @@ processOverlapRotate args pics = do
             printf "(%f,%f) %s ~ %s" dpx dpy (show pa) (show pb))
          dps overlaps
 
-   return $
-      map
+   return
+      (map picColored pics,
+       map
          (mapPair
             (mapPair (realToFrac, realToFrac), Arith.mapComplex realToFrac))
-         posRots
+         posRots)
 
 
-process :: Option.Args -> IO ()
-process args = do
-   IO.hSetBuffering IO.stdout IO.LineBuffering
-   IO.hSetBuffering IO.stderr IO.LineBuffering
-
+processRotation ::
+   Option.Args ->
+   IO [Picture (Maybe (Degree Float), (Maybe Float, Maybe Float))]
+processRotation args = do
    let paths = Option.inputs args
    let opt = Option.option args
    let notice = CmdLine.notice (Option.verbosity opt)
@@ -1668,16 +1670,26 @@ process args = do
    prepOverlapMatching <- prepareOverlapMatching
    rotated <- mapM (prepOverlapMatching (Option.smooth opt)) picAngles
 
+   return $
+      zipWith3
+         (\(State.Proposed path (_,maybeDAngle) maybePos) colored plane ->
+            Picture path (maybeDAngle, maybePos) colored plane)
+         paths picAngles rotated
 
-   let pics =
-         zipWith3
-            (\(State.Proposed path (_,maybeDAngle) maybePos) colored plane ->
-               Picture path (maybeDAngle, maybePos) colored plane)
-            paths picAngles rotated
-   posRots <-
+process :: Option.Args -> IO ()
+process args = do
+   IO.hSetBuffering IO.stdout IO.LineBuffering
+   IO.hSetBuffering IO.stderr IO.LineBuffering
+
+   let paths = Option.inputs args
+   let opt = Option.option args
+   let notice = CmdLine.notice (Option.verbosity opt)
+   let info = CmdLine.info (Option.verbosity opt)
+
+   (picAngles, posRots) <-
       if Option.finetuneRotate opt
-        then processOverlapRotate args pics
-        else processOverlap args $ map (mapPicParam snd) pics
+        then processOverlapRotate args
+        else processOverlap args
 
    forM_ (Option.outputState opt) $ \format ->
       State.write (printf format "position") $
