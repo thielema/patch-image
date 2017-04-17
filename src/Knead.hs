@@ -60,13 +60,11 @@ import qualified Distribution.Verbosity as Verbosity
 import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
-import qualified Control.Monad.Exception.Synchronous as ME
 import qualified Control.Monad.HT as MonadHT
 import Control.Monad (liftM2, when, join, foldM, (<=<))
 import Control.Applicative (pure, (<$>), (<*>))
 
 import qualified Data.Foldable as Fold
-import qualified Data.Vector as Vector
 import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Function.HT (Id)
@@ -1440,18 +1438,10 @@ processOverlap args = do
                (Just $ allOverlapsIO (Option.minimumOverlap opt),
                 overlap (Option.minimumOverlap opt))
 
-   relationsPlain <-
-      maybe (return Vector.empty) State.read (Option.relations opt)
    relations <-
-      ME.switch (ioError . userError) return $
-      State.imagePairMap $
-      concatMap
-         (\(State.Displacement pathA pathB rel d) ->
-            ((pathA,pathB), (rel,d)) :
-            ((pathB,pathA), (rel, mapPair (negate,negate) <$> d)) :
-            []) $
-      Vector.toList relationsPlain
-   State.warnUnmatchedImages (map picPath pics) relations
+      maybe (return Map.empty)
+         (State.readDisplacement (map picPath pics))
+         (Option.relations opt)
 
    composeOver <- composeOverlap
    overlapDiff <- overlapDifferenceRun
@@ -1554,19 +1544,10 @@ processOverlapRotate args = do
          (Option.numberStamps opt)
       <*> pure (Option.minimumOverlap opt)
 
-   relationsPlain <-
-      maybe (return Vector.empty) State.read (Option.relations opt)
    relations <-
-      ME.switch (ioError . userError) return $
-      State.imagePairMap .
-      concatMap
-         (\((pathA,pathB), (rel,ds)) ->
-            ((pathA,pathB), (rel,ds)) :
-            ((pathB,pathA), (rel, map swap ds)) :
-            [])
-      =<<
-      State.segmentRotated (Vector.toList relationsPlain)
-   State.warnUnmatchedImages (map picPath pics) relations
+      maybe (return Map.empty)
+         (State.readRotated (map picPath pics))
+         (Option.relations opt)
 
    let open =
          map

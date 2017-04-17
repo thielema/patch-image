@@ -14,11 +14,12 @@ import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Traversable (traverse)
+import Data.Foldable (foldMap)
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
 import Data.Monoid ((<>))
 import Data.Maybe (fromMaybe, catMaybes)
-import Data.Tuple.HT (mapFst, mapSnd, mapPair)
+import Data.Tuple.HT (mapFst, mapSnd, mapPair, swap)
 import Data.Map (Map)
 
 import qualified Control.Monad.Exception.Synchronous as ME
@@ -29,6 +30,7 @@ import Control.Applicative (pure, liftA2, (<$>), (<$), (<*>), empty)
 import Text.Printf (printf)
 
 import qualified System.IO as IO
+import Prelude hiding (read)
 
 
 newtype File = File FilePath
@@ -340,3 +342,39 @@ read path = do
    when (not $ null ignored) $ IO.hPutStrLn IO.stderr $
       "ignore unknown columns: " ++ List.intercalate ", " (map B.unpack ignored)
    return body
+
+
+readDisplacement ::
+   [FilePath] -> FilePath ->
+   IO (Map (FilePath, FilePath) (Maybe Relation, Maybe (Float, Float)))
+readDisplacement imagePaths path = do
+   relations <-
+      ME.switch (ioError . userError) return .
+      imagePairMap .
+      foldMap
+         (\(Displacement pathA pathB rel d) ->
+            ((pathA,pathB), (rel,d)) :
+            ((pathB,pathA), (rel, mapPair (negate,negate) <$> d)) :
+            [])
+      =<< read path
+   warnUnmatchedImages imagePaths relations
+   return relations
+
+readRotated ::
+   [FilePath] -> FilePath ->
+   IO (Map (FilePath, FilePath)
+         (Maybe Relation, [((Float, Float), (Float, Float))]))
+readRotated imagePaths path = do
+   relationsPlain <- read path
+   relations <-
+      ME.switch (ioError . userError) return $
+      imagePairMap .
+      concatMap
+         (\((pathA,pathB), (rel,ds)) ->
+            ((pathA,pathB), (rel,ds)) :
+            ((pathB,pathA), (rel, map swap ds)) :
+            [])
+      =<<
+      segmentRotated (Vector.toList relationsPlain)
+   warnUnmatchedImages imagePaths relations
+   return relations

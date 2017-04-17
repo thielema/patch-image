@@ -67,13 +67,11 @@ import qualified Distribution.Simple.Utils as CmdLine
 import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
-import qualified Control.Monad.Exception.Synchronous as ME
 import Control.Monad.HT (void)
 import Control.Monad (liftM2, when, join)
 import Control.Applicative ((<$>))
 
 import qualified Data.Foldable as Fold
-import qualified Data.Vector as Vector
 import qualified Data.List.Key as Key
 import qualified Data.Map as Map
 import Data.Monoid ((<>))
@@ -82,7 +80,7 @@ import Data.Maybe (mapMaybe, isNothing)
 import Data.List.HT (mapAdjacent)
 import Data.Traversable (forM)
 import Data.Foldable (forM_, foldMap)
-import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapThd3, swap)
+import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapThd3)
 import Data.Word (Word8)
 
 import System.IO.Unsafe (unsafePerformIO)
@@ -1438,18 +1436,10 @@ processOverlap args = do
                 in  (Just $ allOverlapsRun padExtent (Option.minimumOverlap opt),
                      optimalOverlap padExtent (Option.minimumOverlap opt))
 
-   relationsPlain <-
-      maybe (return Vector.empty) State.read (Option.relations opt)
    relations <-
-      ME.switch (ioError . userError) return $
-      State.imagePairMap $
-      concatMap
-         (\(State.Displacement pathA pathB rel d) ->
-            ((pathA,pathB), (rel,d)) :
-            ((pathB,pathA), (rel, mapPair (negate,negate) <$> d)) :
-            []) $
-      Vector.toList relationsPlain
-   State.warnUnmatchedImages (map picPath pics) relations
+      maybe (return Map.empty)
+         (State.readDisplacement (map picPath pics))
+         (Option.relations opt)
 
    let open = map ((\(mx,my) -> isNothing mx || isNothing my) . picParam) pics
    displacements <-
@@ -1550,19 +1540,10 @@ processOverlapRotate args = do
              (Option.numberStamps opt)
              (Option.minimumOverlap opt)
 
-   relationsPlain <-
-      maybe (return Vector.empty) State.read (Option.relations opt)
    relations <-
-      ME.switch (ioError . userError) return $
-      State.imagePairMap .
-      concatMap
-         (\((pathA,pathB), (rel,ds)) ->
-            ((pathA,pathB), (rel,ds)) :
-            ((pathB,pathA), (rel, map swap ds)) :
-            [])
-      =<<
-      State.segmentRotated (Vector.toList relationsPlain)
-   State.warnUnmatchedImages (map picPath pics) relations
+      maybe (return Map.empty)
+         (State.readRotated (map picPath pics))
+         (Option.relations opt)
 
    let open =
          map
