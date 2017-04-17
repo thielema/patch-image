@@ -74,7 +74,8 @@ import Data.Maybe (mapMaybe, isJust, isNothing)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
-import Data.Tuple.HT (mapPair, mapFst, mapSnd, mapTriple, mapThd3, fst3, swap)
+import Data.Tuple.HT
+         (mapPair, mapFst, mapSnd, mapTriple, mapThd3, fst3, swap, uncurry3)
 import Data.Word (Word8, Word32)
 
 
@@ -1314,6 +1315,26 @@ distanceMap sh this others points =
       (distanceMapContained sh this others)
       (distanceMapPoints (pixelCoordinates sh) points)
 
+distanceMapRun ::
+   IO (Dim2 ->
+       Geometry Float ->
+       [Geometry Float] ->
+       [Arith.Point2 Float] ->
+       IO (Plane Word8))
+distanceMapRun = do
+   distances <-
+      RenderP.run $
+      \sh this others points ->
+         let scale =
+               case Expr.decompose atomDim2 sh of
+                  Vec2 y x -> 4 / fromInt (Expr.min x y)
+         in  imageByteFromFloat $ Symb.map (scale*) $
+             distanceMap sh this others points
+   return $ \sh this others points -> do
+      othersVec <- Phys.vectorFromList others
+      pointsVec <- Phys.vectorFromList points
+      distances sh this othersVec pointsVec
+
 
 pow ::
    (MultiValue.Repr LLVM.Value a ~ LLVM.Value ar,
@@ -1694,6 +1715,13 @@ process args = do
    let geometryRelations =
          Arith.geometryRelations $
          map (Arith.geometryFeatures . mapThd3 colorImageExtent) rotMovPics
+
+   forM_ (Option.outputDistanceMap opt) $ \format -> do
+      distMap <- distanceMapRun
+      forM_ (zip geometryRelations paths) $ \(geoms, path) -> do
+         let stem = FilePath.takeBaseName path
+         writeGrey (Option.quality opt) (printf format stem) =<<
+            uncurry3 (distMap canvasShape) geoms
 
    forM_ (Option.output opt) $ \path -> do
       notice "\nweighted composition"
