@@ -14,7 +14,6 @@ import Control.Monad (when)
 
 import qualified Data.EnumSet as EnumSet
 import qualified Data.Vector as Vector
-import Data.Vector (Vector)
 import Data.Tuple.HT (mapSnd)
 import Data.Monoid ((<>))
 import Data.Word (Word8)
@@ -39,7 +38,7 @@ defltArgs = Args {option = defltOption, inputs = []}
 data Option =
    Option {
       verbosity :: Verbosity,
-      state :: Vector State.Proposed,
+      state :: Maybe FilePath,
       relations :: Maybe FilePath,
       output :: Maybe FilePath,
       outputHard :: Maybe FilePath,
@@ -69,7 +68,7 @@ defltOption :: Option
 defltOption =
    Option {
       verbosity = Verbosity.verbose,
-      state = Vector.empty,
+      state = Nothing,
       relations = Nothing,
       output = Nothing,
       outputHard = Nothing,
@@ -156,9 +155,8 @@ optionDescription desc =
          (fromEnum $ verbosity defltOption)) :
 
    opt generic [] ["state"]
-      (flip ReqArg "PATH" $ \path flags -> do
-         xs <- State.read path
-         return $ flags{state = xs})
+      (flip ReqArg "PATH" $ \path flags ->
+         return $ flags{state = Just path})
       ("CSV file with predefined parameters") :
 
    opt generic [] ["relations"]
@@ -340,11 +338,7 @@ get engine = do
 
 images :: Args -> IO [State.Proposed]
 images args = do
-   let imgs =
-         (Vector.toList $ state $ option args)
-         ++
-         (reverse $ map proposedFromImage $ inputs args)
-
-   case imgs of
+   xs <- maybe (return Vector.empty) State.read (state $ option args)
+   case Vector.toList xs ++ (reverse $ map proposedFromImage $ inputs args) of
       [] -> exitFailureMsg "no input files"
-      _ -> return imgs
+      imgs -> return imgs
