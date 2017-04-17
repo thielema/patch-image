@@ -1577,10 +1577,7 @@ processOverlapRotate args = do
    forM_ (Option.outputState opt) $ \format ->
       State.writeRotated (printf format "relation") displacements
 
-   let overlaps =
-         concatMap
-            (\((ia,ib),_paths,ps) -> map (\(pa,pb) -> ((ia,pa), (ib,pb))) ps)
-            displacements
+   let overlaps = concatMap (\(i,_paths,ps) -> (,) i <$> ps) displacements
    let (posRots, dps) =
           layoutFromPairDisplacements
              (map (mapFst (fmap Degree.cis)) $

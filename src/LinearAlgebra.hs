@@ -131,7 +131,7 @@ This is usually not the case.
 -}
 layoutFromPairDisplacements ::
    [(Maybe (Float, Float), (Maybe Float, Maybe Float))] ->
-   [((Int, (Float, Float)), (Int, (Float, Float)))] ->
+   [((Int, Int), ((Float, Float), (Float, Float)))] ->
    ([((Double,Double), Complex Double)],
     [(Double,Double)])
 layoutFromPairDisplacements mrxys correspondences =
@@ -139,13 +139,13 @@ layoutFromPairDisplacements mrxys correspondences =
        weight =
           let xs =
                  concatMap
-                    (\((_ia,(xai,yai)),(_ib,(xbi,ybi))) -> [xai, yai, xbi, ybi])
+                    (\(_i, ((xai,yai),(xbi,ybi))) -> [xai, yai, xbi, ybi])
                     correspondences
           in  if null xs then 1 else realToFrac $ maximum xs - minimum xs
        matrix =
           sparseMatrix (2 * length correspondences) (4*numPics) $ concat $
           zipWith
-             (\k ((ia,(xai,yai)),(ib,(xbi,ybi))) ->
+             (\k ((ia,ib), ((xai,yai),(xbi,ybi))) ->
                 let xa = realToFrac xai
                     xb = realToFrac xbi
                     ya = realToFrac yai
