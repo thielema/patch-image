@@ -18,7 +18,7 @@ import Data.Foldable (foldMap)
 import Data.Csv ((.=), (.:))
 import Data.Vector (Vector)
 import Data.Monoid ((<>))
-import Data.Maybe (fromMaybe, catMaybes)
+import Data.Maybe (fromMaybe, catMaybes, isNothing)
 import Data.Tuple.HT (mapFst, mapSnd, mapPair, swap)
 import Data.Map (Map)
 
@@ -245,6 +245,26 @@ warnUnmatchedImages paths relations = do
 
 write :: (Csv.ToNamedRecord a, Csv.DefaultOrdered a) => FilePath -> [a] -> IO ()
 write path = BL.writeFile path . Csv.encodeDefaultOrderedByName
+
+
+writeDisplacement ::
+   FilePath -> [(ix, (FilePath, FilePath), Maybe (Float, Float))] -> IO ()
+writeDisplacement path =
+   write path .
+   map
+      (\(_, (pathA,pathB), md) ->
+         Displacement pathA pathB (Just $ unrelated $ isNothing md) md)
+
+writeRotated ::
+   FilePath ->
+   [(ix, (FilePath, FilePath), [((Float, Float), (Float, Float))])] -> IO ()
+writeRotated path =
+   write path .
+   concatMap
+      (\(_, paths, rots) ->
+         Rotated (Just (paths, Just $ unrelated $ null rots)) Nothing
+         :
+         map (\rot -> Rotated Nothing (Just rot)) rots)
 
 
 

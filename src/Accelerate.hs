@@ -1479,13 +1479,8 @@ processOverlap args = do
                   return $ toMaybe overlapping d
          return ((ia,ib), (pathA,pathB), md)
 
-   forM_ (Option.outputState opt) $ \format -> do
-      State.write (printf format "relation") $
-         map
-            (\(_, (pathA,pathB), md) ->
-               State.Displacement pathA pathB
-                  (Just $ State.unrelated $ isNothing md) md)
-            displacements
+   forM_ (Option.outputState opt) $ \format ->
+      State.writeDisplacement (printf format "relation") displacements
 
    let overlaps = mapMaybe (\(i,_paths,md) -> (,) i <$> md) displacements
    let (poss, dps) =
@@ -1579,15 +1574,8 @@ processOverlapRotate args = do
                   return $ map snd corrs
          return ((ia,ib), (pathA,pathB), correspondences)
 
-   forM_ (Option.outputState opt) $ \format -> do
-      State.write (printf format "relation") $
-         concatMap
-            (\(_, paths, rots) ->
-               State.Rotated
-                  (Just (paths, Just $ State.unrelated $ null rots)) Nothing
-               :
-               map (\rot -> State.Rotated Nothing (Just rot)) rots)
-            displacements
+   forM_ (Option.outputState opt) $ \format ->
+      State.writeRotated (printf format "relation") displacements
 
    let overlaps =
          concatMap
