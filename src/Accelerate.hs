@@ -1120,7 +1120,6 @@ separateDistanceMap arr =
 distanceMapBoxRun :: DIM2 -> Geometry Float -> Plane Word8
 distanceMapBoxRun =
    Run.with CUDA.run1 $ \sh geom ->
-      imageByteFromFloat $
       scaleDistanceMapGeom geom $
       A.map (Exp.modify (expr,expr) $ \(valid, dist) -> valid ? (dist, 0)) $
       maskedMinimum $
@@ -1184,17 +1183,15 @@ distanceMapContainedRun ::
 distanceMapContainedRun =
    let distances =
           Run.with CUDA.run1 $
-          \sh this others ->
-             imageByteFromFloat $ scaleDistanceMapGeom this $
-             distanceMapContained sh this others
+          \sh this -> scaleDistanceMapGeom this . distanceMapContained sh this
    in  \sh this others -> distances sh this $ array1FromList others
 
 scaleDistanceMapGeom ::
    (A.IsFloating a, A.Elt a, A.Elt b, A.Shape ix) =>
-   Exp (Geometry b) -> Acc (Array ix a) -> Acc (Array ix a)
+   Exp (Geometry b) -> Acc (Array ix a) -> Acc (Array ix Word8)
 scaleDistanceMapGeom this =
    let scale = (4/) $ A.fromIntegral $ A.uncurry min $ Exp.thd3 this
-   in  A.map (scale*)
+   in  imageByteFromFloat . A.map (scale*)
 
 
 pixelCoordinates ::
@@ -1219,18 +1216,16 @@ distanceMapPointsRun :: DIM2 -> [Point2 Float] -> Plane Word8
 distanceMapPointsRun =
    let distances =
           Run.with CUDA.run1 $
-          \sh points ->
-             imageByteFromFloat $ scaleDistanceMap $
-             distanceMapPoints (pixelCoordinates sh) points
+          \sh -> scaleDistanceMap . distanceMapPoints (pixelCoordinates sh)
    in  \sh points -> distances sh $ array1FromList points
 
 scaleDistanceMap ::
-   (A.Elt a, A.IsFloating a) => Acc (Channel Z a) -> Acc (Channel Z a)
+   (A.Elt a, A.IsFloating a) => Acc (Channel Z a) -> Acc (Channel Z Word8)
 scaleDistanceMap arr =
    let scale =
          case Exp.unlift (expr:.expr:.expr) (A.shape arr) of
             _z:.y:.x -> 4 / A.fromIntegral (min x y)
-   in  A.map (scale*) arr
+   in  imageByteFromFloat $ A.map (scale*) arr
 
 
 {- |
@@ -1269,9 +1264,7 @@ distanceMapRun ::
 distanceMapRun =
    let distances =
           Run.with CUDA.run1 $
-          \sh this others points ->
-             imageByteFromFloat $ scaleDistanceMap $
-             distanceMap sh this others points
+          \sh this others -> scaleDistanceMap . distanceMap sh this others
    in  \sh this others points ->
           distances sh this
              (array1FromList others)
