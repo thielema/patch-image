@@ -1592,6 +1592,7 @@ processOverlapRotate ::
 processOverlapRotate args = do
    let opt = Option.option args
    let info = CmdLine.info (Option.verbosity opt)
+   let infoPlain = when (Option.verbosity opt >= Verbosity.verbose) . putStr
 
    pics <-
       map (mapPicParam (mapFst State.getAngleCorrection)) <$>
@@ -1655,19 +1656,21 @@ processOverlapRotate args = do
               map picParam pics)
              overlaps
    info "\nabsolute positions and rotations: place, rotation (magnitude, phase)"
-   info $ unlines $
+   infoPlain $ unlines $
       map
-         (\(d,r) ->
-            printf "%s, %s (%7.5f, %6.2f)" (show d) (show r)
+         (\((dx,dy),r) ->
+            printf "(%8.2f,%8.2f), %8.6f :+ %9.6f (%8.6f, %7.3f)" dx dy
+               (Complex.realPart r) (Complex.imagPart r)
                (Complex.magnitude r)
                (getDegree $ Degree.fromRadian $ Complex.phase r))
          posRots
 
    info "\ncompare position differences with pair displacements"
-   info $ unlines $
+   infoPlain $ unlines $
       zipWith
-         (\(dpx,dpy) (_i, (pa,pb)) ->
-            printf "(%f,%f) %s ~ %s" dpx dpy (show pa) (show pb))
+         (\(dpx,dpy) (_i, ((xa,ya),(xb,yb))) ->
+            printf "(%8.5f,%8.5f) (%7.2f,%7.2f) ~ (%7.2f,%7.2f)"
+               dpx dpy xa ya xb yb)
          dps overlaps
 
    return
