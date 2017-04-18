@@ -1666,7 +1666,7 @@ processOverlapRotate args = do
    info "\ncompare position differences with pair displacements"
    info $ unlines $
       zipWith
-         (\(dpx,dpy) ((_ia,pa),(_ib,pb)) ->
+         (\(dpx,dpy) (_i, (pa,pb)) ->
             printf "(%f,%f) %s ~ %s" dpx dpy (show pa) (show pb))
          dps overlaps
 
