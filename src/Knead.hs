@@ -1765,31 +1765,31 @@ process args = do
          map (Arith.geometryFeatures . mapThd3 colorImageExtent) rotMovPics
 
    forM_ (Option.outputDistanceMap opt) $ \format -> do
-      when False $ do
-         distMapBox <- distanceMapBoxRun
-         distMapContained <- distanceMapContainedRun
-         distMapPoints <- distanceMapPointsRun
+      debug <-
+         if True
+           then return $ \ _stem _geoms -> return ()
+           else do
+            distMapBox <- distanceMapBoxRun
+            distMapContained <- distanceMapContainedRun
+            distMapPoints <- distanceMapPointsRun
 
-         forM_ (zip geometryRelations paths) $
-            \((thisGeom, otherGeoms, allPoints), path) -> do
+            return $ \stem (thisGeom, otherGeoms, allPoints) -> do
+               writeGrey (Option.quality opt)
+                  (printf "/tmp/%s-distance-box.jpeg" stem)
+                  =<< distMapBox canvasShape thisGeom
 
-            let stem = FilePath.takeBaseName path
+               writeGrey (Option.quality opt)
+                  (printf "/tmp/%s-distance-contained.jpeg" stem)
+                  =<< distMapContained canvasShape thisGeom otherGeoms
 
-            writeGrey (Option.quality opt)
-               (printf "/tmp/%s-distance-box.jpeg" stem)
-               =<< distMapBox canvasShape thisGeom
-
-            writeGrey (Option.quality opt)
-               (printf "/tmp/%s-distance-contained.jpeg" stem)
-               =<< distMapContained canvasShape thisGeom otherGeoms
-
-            writeGrey (Option.quality opt)
-               (printf "/tmp/%s-distance-points.jpeg" stem)
-               =<< distMapPoints canvasShape allPoints
+               writeGrey (Option.quality opt)
+                  (printf "/tmp/%s-distance-points.jpeg" stem)
+                  =<< distMapPoints canvasShape allPoints
 
       distMap <- distanceMapRun
       forM_ (zip geometryRelations paths) $ \(geoms, path) -> do
          let stem = FilePath.takeBaseName path
+         debug stem geoms
          writeGrey (Option.quality opt) (printf format stem) =<<
             uncurry3 (distMap canvasShape) geoms
 
