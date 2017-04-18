@@ -1714,6 +1714,32 @@ processRotation args = do
    prepOverlapMatching <- prepareOverlapMatching
    rotated <- mapM (prepOverlapMatching (Option.smooth opt)) picAngles
 
+   when False $ do
+      notice "write fft"
+      let pic0 : pic1 : _ = map snd rotated
+          csize = (1024,768)
+          size :: Dim2
+          size = Vec2 768 1024
+          sizeExpr = Expr.lift0 $ MultiValue.cons size
+
+      padImage <- RenderP.run $ imageByteFromFloat . pad 0 sizeExpr
+      writeGrey (Option.quality opt) "/tmp/padded.jpeg" =<< padImage pic0
+
+      cpic0 <- arrayCFromKnead pic0
+      cpic1 <- arrayCFromKnead pic1
+
+      makeByteImage <-
+         RenderP.run $ \k -> imageByteFromFloat . Symb.map (k*) . fixArray
+
+      writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" =<<
+         (makeByteImage 0.1 $ arrayKneadFromC $
+          CArray.liftArray Complex.magnitude $
+          FFT.dftRCN [0,1] $ padCArray 0 csize cpic0)
+
+      writeGrey (Option.quality opt) "/tmp/convolution.jpeg" =<<
+         (makeByteImage 0.1 $ arrayKneadFromC $
+          correlatePaddedCArray csize cpic0 cpic1)
+
    return $
       zipWith3
          (\(State.Proposed path (_,angleCorr) maybePos) colored plane ->
