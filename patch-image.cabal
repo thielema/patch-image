@@ -16,6 +16,16 @@ Description:
   It solves the problem that your scanner may be too small
   to capture a certain image as a whole.
   .
+  There are two versions of the program:
+  .
+  * A version using LLVM via the @knead@ package:
+    Enable it with the Cabal flag @-fllvm@.
+  .
+  * A version using CUDA via @accelerate-cuda@:
+    Enable it with the Cabal flag @-fcuda@.
+  .
+  Both of them have their individual installation difficulties.
+  .
   Restrictions:
   .
   * Only supports JPEG format.
