@@ -1,5 +1,10 @@
 # Change log for the `patch-image` package
 
+## 0.3:
+
+ * Allow to save program state, modify it manually
+   and re-run with adapted parameters using CSV files.
+
 ## 0.2:
 
  * Add new executable that is based on LLVM and `knead`.
