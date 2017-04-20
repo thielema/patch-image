@@ -99,7 +99,7 @@ Only the brightness channel of the image is analysed.
   It may help you to adjust the matching parameters.
   In the future we might add an option to ignore problematic pairs.
 
-Since in the first phase every image part is oriented individually
+Since in the first phase every image part is oriented individually,
 it may happen that the part orientations don't match.
 This would result in blurred areas in the final collage.
 In order to correct this,
@@ -126,7 +126,7 @@ Options:
 ## 3rd Phase
 
 The third phase composes a big image from the parts.
-The parts are weighted such that the part boundaries cannot be seen anymore
+These parts are weighted such that the part boundaries cannot be seen anymore
 and differences in brightness are faded into another.
 The downside is that the superposition may lead to blur.
 
@@ -160,8 +160,9 @@ Options:
   The downside is that it also reduces the area for adaption
   of differing brightness.
 
-The LLVM implementation provides an additional way to assemble the image parts.
-The weighting approach tries to blend across all the overlapping area.
+Our LLVM implementation provides an additional way to assemble the image parts.
+The already known weighting approach
+tries to blend across all the overlapping area.
 This can equalize differences in brightness.
 The downside is that imperfectly matching image parts
 lead to blurred content in the overlapping area.
