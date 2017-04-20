@@ -361,3 +361,22 @@ then the following options may help you.
     Files listed in `relation.csv` are not loaded.
   Instead of this, the program checks consistency
   with `state.csv` and files listed as command-line arguments.
+
+
+# Trouble shooting
+
+## Unrelated images are recognized as overlapping or vice versa
+
+If the program misses related image pairs
+or recognizes unrelated images as overlapping,
+you may first watch the overlap differences the program prints.
+You may then adapt the threshold via the `--maximum-difference` option.
+
+The total image might contain repetitive elements
+that make unrelated image parts look like they overlap.
+So, if there is no clear threshold
+or you find the above procedure inappropriate,
+you may alternatively let the program emit a `relation.csv` file
+using the `--output-state` option.
+You can then edit `relation.csv` file
+and re-run the program with the option `--relations=relation.csv`.
