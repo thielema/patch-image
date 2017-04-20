@@ -9,11 +9,15 @@ import qualified System.Environment as Env
 import System.Console.GetOpt (ArgDescr(NoArg, ReqArg), getOpt, usageInfo)
 
 import qualified System.Exit as Exit
+import qualified System.IO as IO
 
 import Control.Monad (when)
 
 import qualified Data.EnumSet as EnumSet
 import qualified Data.Vector as Vector
+import qualified Data.Map as Map
+import qualified Data.List.HT as ListHT
+import qualified Data.List as List
 import Data.Tuple.HT (mapSnd)
 import Data.Monoid ((<>))
 import Data.Word (Word8)
@@ -344,4 +348,12 @@ images args = do
    xs <- maybe (return Vector.empty) State.read (state $ option args)
    case Vector.toList xs ++ (reverse $ map proposedFromImage $ inputs args) of
       [] -> exitFailureMsg "no input files"
-      imgs -> return imgs
+      imgs -> do
+         let duplicates =
+               Map.keys $
+               Map.filter (ListHT.lengthAtLeast 2) $ Map.fromListWith (++) $
+               map (\img -> (State.propPath img, [img])) imgs
+         when (not $ null duplicates) $
+            IO.hPutStrLn IO.stderr $
+            "duplicate file paths: " ++ List.intercalate ", " duplicates
+         return imgs
