@@ -1301,8 +1301,7 @@ scaleDistanceMapGeom geom img =
 
 
 pixelCoordinates ::
-   (MultiValue.NativeFloating a ar) =>
-   Exp Dim2 -> SymbPlane (a,a)
+   (MultiValue.NativeFloating a ar) => Exp Dim2 -> SymbPlane (a,a)
 pixelCoordinates sh =
    generate sh $ Expr.modify atomIx2 $ \(Vec2 y x) -> fromSize2 (x,y)
 
