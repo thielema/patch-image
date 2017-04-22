@@ -1452,7 +1452,7 @@ updateWeightedCanvas = do
       update this pic dists weightSumCanvas
 
 
-finalizeWeightedCanvas :: IO ((Plane (Float, YUV Float)) -> IO ColorImage8)
+finalizeWeightedCanvas :: IO (Plane (Float, YUV Float) -> IO ColorImage8)
 finalizeWeightedCanvas =
    RenderP.run $
       colorImageByteFromFloat .
