@@ -582,7 +582,7 @@ lowpass count =
       A.stencil (\(a,m,b) -> smooth3 (smooth3 a, smooth3 m, smooth3 b)) A.Clamp
 
 highpass count arr =
-  A.zipWith (-) arr $ lowpass count arr
+   A.zipWith (-) arr $ lowpass count arr
 
 
 correlatePaddedSimple ::
