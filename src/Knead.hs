@@ -620,6 +620,20 @@ untangleSpectra2d ::
 untangleSpectra2d spec =
    CArray.liftArray2 untangleCoefficient spec (cyclicReverse2d spec)
 
+{- |
+Equivalent to @amap (uncurry Arith.mulConj) . untangleSpectra2d@
+but much faster, since it avoids the slow @instance Storable (a,b)@
+based on @storable-tuple:storePair@.
+-}
+mulConjUntangledSpectra2d ::
+   (RealFloat a, SV.Storable a) =>
+   CArray (Int,Int) (Complex a) -> CArray (Int,Int) (Complex a)
+mulConjUntangledSpectra2d spec =
+   CArray.liftArray2
+      ((uncurry Arith.mulConj .) . untangleCoefficient)
+      spec (cyclicReverse2d spec)
+
+
 {-
 This is more efficient than 'correlatePaddedSimpleCArray'
 since it needs only one complex forward Fourier transform,
@@ -638,8 +652,7 @@ correlatePaddedComplexCArray ::
    CArray (Int,Int) a
 correlatePaddedComplexCArray sh a b =
    amap realPart $ FFT.idftN [0,1] $
-   amap (uncurry Arith.mulConj) $
-   untangleSpectra2d $ FFT.dftN [0,1] $
+   mulConjUntangledSpectra2d $ FFT.dftN [0,1] $
    CArray.liftArray2 (:+) (padCArray 0 sh a) (padCArray 0 sh b)
 
 {- |
@@ -656,8 +669,7 @@ correlatePaddedCArray sh@(height,width) a b =
    (case divMod width 2 of
       (halfWidth,0) -> FFT.dftCRN [0,1] . clipCArray (height,halfWidth+1)
       (halfWidth,_) -> FFT.dftCRON [0,1] . clipCArray (height,halfWidth+1)) $
-   amap (uncurry Arith.mulConj) $
-   untangleSpectra2d $ FFT.dftN [0,1] $
+   mulConjUntangledSpectra2d $ FFT.dftN [0,1] $
    CArray.liftArray2 (:+) (padCArray 0 sh a) (padCArray 0 sh b)
 
 
