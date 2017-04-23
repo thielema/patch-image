@@ -1,5 +1,5 @@
 Name:           patch-image
-Version:        0.3.0.1
+Version:        0.3.1
 License:        BSD3
 License-File:   LICENSE
 Author:         Henning Thielemann <haskell@henning-thielemann.de>
@@ -41,7 +41,7 @@ Extra-Source-Files:
   README.md
 
 Source-Repository this
-  Tag:         0.3.0.1
+  Tag:         0.3.1
   Type:        darcs
   Location:    http://hub.darcs.net/thielema/patch-image/
 
