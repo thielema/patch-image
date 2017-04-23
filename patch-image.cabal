@@ -126,7 +126,7 @@ Executable patch-image-cuda
       accelerate-arithmetic >=0.1 && <0.2,
       accelerate-utility >=0.1 && <0.2,
       accelerate-cufft >=0.0 && <0.1,
-      accelerate-cuda >=0.15 && <0.15.1,
+      accelerate-cuda >=0.15 && <0.17,
       accelerate-io >=0.15 && <0.16,
       accelerate >=0.15 && <0.16,
       JuicyPixels >=2.0 && <3.3,
