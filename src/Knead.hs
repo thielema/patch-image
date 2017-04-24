@@ -75,8 +75,7 @@ import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
 import Data.Tuple.HT
-         (mapPair, mapFst, mapSnd, mapTriple, swap,
-          mapThd3, fst3, thd3, uncurry3)
+         (mapPair, mapFst, mapSnd, mapTriple, swap, mapThd3, fst3, uncurry3)
 import Data.Word (Word8, Word32)
 
 
@@ -1306,9 +1305,7 @@ scaleDistanceMapGeom ::
     MultiValue.NativeFloating a ar) =>
    Exp (Geometry b) -> SymbPlane a -> SymbPlane Word8
 scaleDistanceMapGeom geom img =
-   let scale =
-         (4/) $ fromInt $
-         Expr.modify (atom,atom,(atom,atom)) (uncurry Expr.min . thd3) geom
+   let scale = (4/) $ fromInt $ Expr.uncurry Expr.min $ Expr.thd3 geom
    in  imageByteFromFloat $ Symb.map (scale*) img
 
 
