@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE EmptyDataDecls #-}
-module KneadShape where
+module Knead.Shape where
 
 import qualified Data.Array.Knead.Index.Nested.Shape as Shape
 import qualified Data.Array.Knead.Expression as Expr

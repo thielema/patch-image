@@ -10,7 +10,7 @@ We do not recalculate the average if a pixel is removed from the priority queue.
 -}
 module MatchImageBorders where
 
-import KneadShape (Vec2(Vec2), Dim2)
+import Knead.Shape (Vec2(Vec2), Dim2)
 
 import qualified Data.Array.Knead.Simple.Physical as Phys
 

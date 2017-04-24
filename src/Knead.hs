@@ -13,7 +13,7 @@ import LinearAlgebra (
    absolutePositionsFromPairDisplacements, fixAtLeastOnePosition,
    layoutFromPairDisplacements, fixAtLeastOneAnglePosition,
    )
-import KneadShape
+import Knead.Shape
          (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Index2, Ix2,
           verticalVal, horizontalVal)
 import Degree (Degree(Degree), getDegree)

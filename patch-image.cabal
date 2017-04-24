@@ -67,7 +67,7 @@ Executable patch-image-llvm
   Main-Is: Knead.hs
   Other-Modules:
     MatchImageBorders
-    KneadShape
+    Knead.Shape
     State
     LinearAlgebra
     Arithmetic
