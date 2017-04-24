@@ -7,6 +7,7 @@ import qualified Math.FFT as FFT
 import Math.FFT.Base (FFTWReal)
 
 import Foreign.Storable (Storable)
+import Foreign.Storable.Tuple ()
 
 import qualified Data.Array.CArray as CArray
 import Data.Array.IArray (amap)
