@@ -6,6 +6,7 @@ import qualified State
 
 import qualified MatchImageBorders
 import qualified Arithmetic as Arith
+import qualified Knead.CArray as KneadCArray
 import qualified Degree
 import MatchImageBorders (arrayCFromKnead, arrayKneadFromC)
 import Arithmetic (guardedPairs, maximum0)
@@ -19,7 +20,6 @@ import Knead.Shape
 import Degree (Degree(Degree), getDegree)
 
 import qualified Math.FFT as FFT
-import Math.FFT.Base (FFTWReal)
 
 import qualified Data.Array.Knead.Parameterized.Render as RenderP
 import qualified Data.Array.Knead.Simple.Physical as Phys
@@ -45,7 +45,7 @@ import LLVM.Extra.Multi.Value (Atom, atom)
 import qualified LLVM.Core as LLVM
 
 import qualified Data.Complex as Complex
-import Data.Complex (Complex((:+)), conjugate, realPart)
+import Data.Complex (Complex)
 
 import qualified Codec.Picture as Pic
 
@@ -571,105 +571,8 @@ pad a sh img =
          let Vec2 y x = Expr.decompose atomIx2 p
          in  Expr.ifThenElse (y<*height &&* x<*width) (img ! p) a
 
-padCArray ::
-   (SV.Storable a) =>
-   a -> (Int,Int) -> CArray (Int,Int) a -> CArray (Int,Int) a
-padCArray a (height, width) img =
-   CArray.listArray ((0,0), (height-1, width-1)) (repeat a)
-   CArray.//
-   CArray.assocs img
-
-clipCArray ::
-   (SV.Storable a) => (Int,Int) -> CArray (Int,Int) a -> CArray (Int,Int) a
-clipCArray (height, width) =
-   CArray.ixmap ((0,0), (height-1, width-1)) id
-
 mapPairInt :: (Integral i, Integral j) => (i,i) -> (j,j)
 mapPairInt = mapPair (fromIntegral, fromIntegral)
-
-correlatePaddedSimpleCArray ::
-   (FFTWReal a) =>
-   (Int,Int) ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a
-correlatePaddedSimpleCArray sh =
-   let forward = FFT.dftRCN [0,1] . padCArray 0 sh
-       inverse = FFT.dftCRN [0,1]
-   in  \ a b ->
-         inverse $ CArray.liftArray2 Arith.mulConj (forward a) (forward b)
-
--- expects zero-based arrays
-cyclicReverse2d :: (SV.Storable a) => CArray (Int,Int) a -> CArray (Int,Int) a
-cyclicReverse2d spec =
-   let (height, width) = mapPair ((1+), (1+)) $ snd $ CArray.bounds spec
-   in  CArray.ixmap (CArray.bounds spec)
-         (\(y,x) -> (mod (-y) height, mod (-x) width)) spec
-
-untangleCoefficient ::
-   (RealFloat a) => Complex a -> Complex a -> (Complex a, Complex a)
-untangleCoefficient a b =
-   let bc = conjugate b
-   in  ((a + bc) / 2, (a - bc) * (0 :+ (-1/2)))
-
--- ToDo: could be moved to fft package
-untangleSpectra2d ::
-   (RealFloat a, SV.Storable a) =>
-   CArray (Int,Int) (Complex a) -> CArray (Int,Int) (Complex a, Complex a)
-untangleSpectra2d spec =
-   CArray.liftArray2 untangleCoefficient spec (cyclicReverse2d spec)
-
-{- |
-Equivalent to @amap (uncurry Arith.mulConj) . untangleSpectra2d@
-but much faster, since it avoids the slow @instance Storable (a,b)@
-based on @storable-tuple:storePair@.
--}
-mulConjUntangledSpectra2d ::
-   (RealFloat a, SV.Storable a) =>
-   CArray (Int,Int) (Complex a) -> CArray (Int,Int) (Complex a)
-mulConjUntangledSpectra2d spec =
-   CArray.liftArray2
-      ((uncurry Arith.mulConj .) . untangleCoefficient)
-      spec (cyclicReverse2d spec)
-
-
-{-
-This is more efficient than 'correlatePaddedSimpleCArray'
-since it needs only one complex forward Fourier transform,
-where 'correlatePaddedSimpleCArray' needs two real transforms.
-Especially for odd sizes
-two real transforms are slower than a complex transform.
-For the analysis part,
-perform two real-valued Fourier transforms using one complex-valued transform.
-Afterwards we untangle the superposed spectra.
--}
-correlatePaddedComplexCArray ::
-   (FFTWReal a) =>
-   (Int,Int) ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a
-correlatePaddedComplexCArray sh a b =
-   amap realPart $ FFT.idftN [0,1] $
-   mulConjUntangledSpectra2d $ FFT.dftN [0,1] $
-   CArray.liftArray2 (:+) (padCArray 0 sh a) (padCArray 0 sh b)
-
-{- |
-Should be yet a little bit more efficient than 'correlatePaddedComplexCArray'
-since it uses a real back transform.
--}
-correlatePaddedCArray ::
-   (FFTWReal a) =>
-   (Int,Int) ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a
-correlatePaddedCArray sh@(height,width) a b =
-   (case divMod width 2 of
-      (halfWidth,0) -> FFT.dftCRN [0,1] . clipCArray (height,halfWidth+1)
-      (halfWidth,_) -> FFT.dftCRON [0,1] . clipCArray (height,halfWidth+1)) $
-   mulConjUntangledSpectra2d $ FFT.dftN [0,1] $
-   CArray.liftArray2 (:+) (padCArray 0 sh a) (padCArray 0 sh b)
 
 
 liftCArray2 ::
@@ -785,7 +688,7 @@ allOverlapsRun padExtent@(Vec2 height width) = do
 
    return $ \overlap a b ->
       run overlap (Phys.shape a) (Phys.shape b)
-         =<< liftCArray2 (correlatePaddedCArray $ mapPairInt (height, width)) a b
+         =<< liftCArray2 (KneadCArray.correlatePadded $ mapPairInt (height, width)) a b
 
 
 argmax ::
@@ -809,7 +712,7 @@ optimalOverlap padExtent@(Vec2 height width) = do
 
    return $ \overlap a b ->
       run overlap (Phys.shape a, Phys.shape b)
-         =<< liftCArray2 (correlatePaddedCArray $ mapPairInt (height, width)) a b
+         =<< liftCArray2 (KneadCArray.correlatePadded $ mapPairInt (height, width)) a b
 
 
 shrink ::
@@ -1731,14 +1634,14 @@ processRotation args = do
       makeByteImage <-
          RenderP.run $ \k -> imageByteFromFloat . Symb.map (k*) . fixArray
       writeGrey (Option.quality opt) "/tmp/padded.jpeg" =<<
-         (makeByteImage 1 $ arrayKneadFromC $ padCArray 0 size cpic0)
+         (makeByteImage 1 $ arrayKneadFromC $ KneadCArray.pad 0 size cpic0)
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" =<<
          (makeByteImage 0.1 $ arrayKneadFromC $
           CArray.liftArray Complex.magnitude $
-          FFT.dftRCN [0,1] $ padCArray 0 size cpic0)
+          FFT.dftRCN [0,1] $ KneadCArray.pad 0 size cpic0)
       writeGrey (Option.quality opt) "/tmp/convolution.jpeg" =<<
          (makeByteImage 0.1 $ arrayKneadFromC $
-          correlatePaddedCArray size cpic0 cpic1)
+          KneadCArray.correlatePadded size cpic0 cpic1)
 
    return $
       zipWith3
