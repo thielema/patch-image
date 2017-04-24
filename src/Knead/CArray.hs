@@ -1,6 +1,7 @@
 module Knead.CArray where
 
 import qualified Arithmetic as Arith
+import Arithmetic (addComplex, subComplex, mulComplex, conjugate)
 
 import qualified Math.FFT as FFT
 import Math.FFT.Base (FFTWReal)
@@ -11,7 +12,7 @@ import qualified Data.Array.CArray as CArray
 import Data.Array.IArray (amap)
 import Data.Array.CArray (CArray)
 
-import Data.Complex (Complex((:+)), conjugate, realPart)
+import Data.Complex (Complex((:+)), realPart)
 
 import Data.Tuple.HT (mapPair)
 
@@ -46,14 +47,21 @@ cyclicReverse2d spec =
          (\(y,x) -> (mod (-y) height, mod (-x) width)) spec
 
 untangleCoefficient ::
-   (RealFloat a) => Complex a -> Complex a -> (Complex a, Complex a)
+   (Fractional a) => Complex a -> Complex a -> (Complex a, Complex a)
 untangleCoefficient a b =
+   let bc = conjugate b
+   in  (mulComplex (addComplex a bc) ((1/2) :+ 0),
+        mulComplex (subComplex a bc) (0 :+ (-1/2)))
+
+untangleCoefficient_ ::
+   (RealFloat a) => Complex a -> Complex a -> (Complex a, Complex a)
+untangleCoefficient_ a b =
    let bc = conjugate b
    in  ((a + bc) / 2, (a - bc) * (0 :+ (-1/2)))
 
 -- ToDo: could be moved to fft package
 untangleSpectra2d ::
-   (RealFloat a, Storable a) =>
+   (Fractional a, Storable a) =>
    CArray (Int,Int) (Complex a) -> CArray (Int,Int) (Complex a, Complex a)
 untangleSpectra2d spec =
    CArray.liftArray2 untangleCoefficient spec (cyclicReverse2d spec)
@@ -64,7 +72,7 @@ but much faster, since it avoids the slow @instance Storable (a,b)@
 based on @storable-tuple:storePair@.
 -}
 mulConjUntangledSpectra2d ::
-   (RealFloat a, Storable a) =>
+   (Fractional a, Storable a) =>
    CArray (Int,Int) (Complex a) -> CArray (Int,Int) (Complex a)
 mulConjUntangledSpectra2d spec =
    CArray.liftArray2
