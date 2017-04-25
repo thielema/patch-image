@@ -69,6 +69,7 @@ Executable patch-image-llvm
     MatchImageBorders
     Knead.CArray
     Knead.Shape
+    Complex
     State
     LinearAlgebra
     Arithmetic
@@ -114,6 +115,7 @@ Executable patch-image-cuda
     State
     LinearAlgebra
     Arithmetic
+    Complex
     Degree
     Option.Utility
     Option

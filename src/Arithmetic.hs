@@ -1,5 +1,6 @@
 module Arithmetic where
 
+import qualified Complex as Komplex
 import qualified Data.Complex as Complex
 import Data.Complex (Complex, )
 
@@ -10,7 +11,6 @@ import qualified Data.NonEmpty as NonEmpty
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import qualified Data.Bits as Bit
-import Data.Complex (Complex((:+)))
 import Data.NonEmpty ((!:))
 import Data.Maybe (catMaybes)
 import Data.Tuple.HT (mapPair, fst3, thd3)
@@ -72,7 +72,7 @@ canvasShape extent picAngles floatPosRots =
    let posRotPics =
          zipWith
             (\(angle,pic) (pos,rot) ->
-               (pos, (pairFromComplex (Complex.cis angle * rot), pic)))
+               (pos, (Komplex.toPair (Complex.cis angle * rot), pic)))
             picAngles floatPosRots
        bbox (rot, pic) =
          case extent pic of
@@ -308,31 +308,6 @@ correlationSize minOverlapPortion extents =
 divUp :: (Integral a) => a -> a -> a
 divUp a b = - div (-a) b
 
-
-
-pairFromComplex :: (RealFloat a) => Complex a -> (a,a)
-pairFromComplex z = (Complex.realPart z, Complex.imagPart z)
-
-mapComplex :: (a -> b) -> Complex a -> Complex b
-mapComplex f (r :+ i)  =  f r :+ f i
-
-conjugate :: (Num a) => Complex a -> Complex a
-conjugate (r :+ i)  =  r :+ negate i
-
-addComplex :: (Num a) => Complex a -> Complex a -> Complex a
-addComplex (xr:+xi) (yr:+yi) = (xr+yr) :+ (xi+yi)
-
-subComplex :: (Num a) => Complex a -> Complex a -> Complex a
-subComplex (xr:+xi) (yr:+yi) = (xr-yr) :+ (xi-yi)
-
-mulComplex :: (Num a) => Complex a -> Complex a -> Complex a
-mulComplex (xr:+xi) (yr:+yi) = (xr*yr-xi*yi) :+ (xr*yi+xi*yr)
-
-mulConj :: (Num a) => Complex a -> Complex a -> Complex a
-mulConj x y = mulComplex x $ conjugate y
-
-mulConj_ :: (RealFloat a) => Complex a -> Complex a -> Complex a
-mulConj_ x y = x * Complex.conjugate y
 
 
 -- ToDo: move to a new utility module

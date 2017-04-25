@@ -7,6 +7,7 @@ import qualified State
 import qualified MatchImageBorders
 import qualified Arithmetic as Arith
 import qualified Knead.CArray as KneadCArray
+import qualified Complex as Komplex
 import qualified Degree
 import MatchImageBorders (arrayCFromKnead, arrayKneadFromC)
 import Arithmetic (guardedPairs, maximum0)
@@ -1589,7 +1590,7 @@ processOverlapRotate args = do
        map picColored pics,
        map
          (mapPair
-            (mapPair (realToFrac, realToFrac), Arith.mapComplex realToFrac))
+            (mapPair (realToFrac, realToFrac), Komplex.map realToFrac))
          posRots)
 
 

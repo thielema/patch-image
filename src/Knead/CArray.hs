@@ -1,7 +1,6 @@
 module Knead.CArray where
 
-import qualified Arithmetic as Arith
-import Arithmetic (addComplex, subComplex, mulComplex, conjugate)
+import qualified Complex as Komplex
 
 import qualified Math.FFT as FFT
 import Math.FFT.Base (FFTWReal)
@@ -38,7 +37,7 @@ correlatePaddedSimple sh =
    let forward = FFT.dftRCN [0,1] . pad 0 sh
        inverse = FFT.dftCRN [0,1]
    in  \ a b ->
-         inverse $ CArray.liftArray2 Arith.mulConj (forward a) (forward b)
+         inverse $ CArray.liftArray2 Komplex.mulConj (forward a) (forward b)
 
 -- expects zero-based arrays
 cyclicReverse2d :: (Storable a) => CArray (Int,Int) a -> CArray (Int,Int) a
@@ -50,14 +49,14 @@ cyclicReverse2d spec =
 untangleCoefficient ::
    (Fractional a) => Complex a -> Complex a -> (Complex a, Complex a)
 untangleCoefficient a b =
-   let bc = conjugate b
-   in  (mulComplex (addComplex a bc) ((1/2) :+ 0),
-        mulComplex (subComplex a bc) (0 :+ (-1/2)))
+   let bc = Komplex.conjugate b
+   in  (Komplex.mul (Komplex.add a bc) ((1/2) :+ 0),
+        Komplex.mul (Komplex.sub a bc) (0 :+ (-1/2)))
 
 untangleCoefficient_ ::
    (RealFloat a) => Complex a -> Complex a -> (Complex a, Complex a)
 untangleCoefficient_ a b =
-   let bc = conjugate b
+   let bc = Komplex.conjugate b
    in  ((a + bc) / 2, (a - bc) * (0 :+ (-1/2)))
 
 -- ToDo: could be moved to fft package
@@ -68,7 +67,7 @@ untangleSpectra2d spec =
    CArray.liftArray2 untangleCoefficient spec (cyclicReverse2d spec)
 
 {- |
-Equivalent to @amap (uncurry Arith.mulConj) . untangleSpectra2d@
+Equivalent to @amap (uncurry Komplex.mulConj) . untangleSpectra2d@
 but much faster, since it avoids the slow @instance Storable (a,b)@
 based on @storable-tuple:storePair@.
 -}
@@ -77,7 +76,7 @@ mulConjUntangledSpectra2d ::
    CArray (Int,Int) (Complex a) -> CArray (Int,Int) (Complex a)
 mulConjUntangledSpectra2d spec =
    CArray.liftArray2
-      ((uncurry Arith.mulConj .) . untangleCoefficient)
+      ((uncurry Komplex.mulConj .) . untangleCoefficient)
       spec (cyclicReverse2d spec)
 
 

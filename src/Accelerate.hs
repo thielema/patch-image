@@ -5,6 +5,7 @@ import qualified Option
 import qualified State
 
 import qualified Arithmetic as Arith
+import qualified Complex as Komplex
 import qualified Degree
 import LinearAlgebra (
    absolutePositionsFromPairDisplacements, fixAtLeastOnePosition,
@@ -1597,7 +1598,7 @@ processOverlapRotate args = do
        map picColored pics,
        map
          (mapPair
-            (mapPair (realToFrac, realToFrac), Arith.mapComplex realToFrac))
+            (mapPair (realToFrac, realToFrac), Komplex.map realToFrac))
          posRots)
 
 
