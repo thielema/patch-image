@@ -21,6 +21,7 @@ import Knead.Shape
 import Degree (Degree(Degree), getDegree)
 
 import qualified Math.FFT as FFT
+import Math.FFT.Base (FFTWReal)
 
 import qualified Data.Array.Knead.Parameterized.Render as RenderP
 import qualified Data.Array.Knead.Simple.Physical as Phys
@@ -46,7 +47,7 @@ import LLVM.Extra.Multi.Value (Atom, atom)
 import qualified LLVM.Core as LLVM
 
 import qualified Data.Complex as Complex
-import Data.Complex (Complex)
+import Data.Complex (Complex((:+)))
 
 import qualified Codec.Picture as Pic
 
@@ -575,6 +576,56 @@ pad a sh img =
 mapPairInt :: (Integral i, Integral j) => (i,i) -> (j,j)
 mapPairInt = mapPair (fromIntegral, fromIntegral)
 
+cyclicReverse2d :: (MultiValue.C a) => SymbPlane a -> SymbPlane a
+cyclicReverse2d spec =
+   let (Vec2 height width) = Expr.decompose atomDim2 $ Symb.shape spec
+   in  Symb.backpermute (Symb.shape spec)
+         (Expr.modify atomIx2 $ \(Vec2 y x) ->
+            Vec2
+               (wrap height height (height-y))
+               (wrap width width (width-x)))
+         spec
+
+atomComplex :: Complex (Atom a)
+atomComplex = atom:+atom
+
+untangleSpectra2d ::
+   (MultiValue.C a, MultiValue.Field a,
+    MultiValue.Real a, MultiValue.RationalConstant a) =>
+   SymbPlane (Complex a) -> SymbPlane (Complex a, Complex a)
+untangleSpectra2d spec =
+   Symb.zipWith
+      (Expr.modify2 atomComplex atomComplex KneadCArray.untangleCoefficient)
+      spec (cyclicReverse2d spec)
+
+correlatePadded ::
+   (FFTWReal a, MultiValue.Real a, MultiMem.C a,
+    MultiValue.Field a, MultiValue.RationalConstant a) =>
+   (Int,Int) -> IO (Plane a -> Plane a -> IO (Plane a))
+correlatePadded (height,width) = do
+   let sh = Expr.cons $ Vec2 (fromIntegral height) (fromIntegral width)
+   let (halfWidth,parity) = divMod width 2
+   mergePlanes <-
+      RenderP.run $ \a b ->
+         Symb.zipWith Expr.consComplex (pad 0 sh a) (pad 0 sh b)
+   let exprFromInt = Expr.cons . fromIntegral
+   mulSpecs <-
+      RenderP.run $
+         clip (0,0) (exprFromInt $ halfWidth+1, exprFromInt height) .
+         Symb.map
+            (Expr.modify (atomComplex, atomComplex) $ uncurry Komplex.mulConj) .
+         untangleSpectra2d
+
+   return $ \ a b ->
+      liftCArray (if parity==0 then FFT.dftCRN [0,1] else FFT.dftCRON [0,1]) =<<
+      mulSpecs =<< liftCArray (FFT.dftN [0,1]) =<< mergePlanes a b
+
+
+liftCArray ::
+   (SV.Storable a, SV.Storable b) =>
+   (CArray (Int,Int) a -> CArray (Int,Int) b) ->
+   Plane a -> IO (Plane b)
+liftCArray f a = arrayKneadFromC . f <$> arrayCFromKnead a
 
 liftCArray2 ::
    (SV.Storable a) =>
@@ -686,10 +737,10 @@ allOverlapsRun padExtent@(Vec2 height width) = do
          Symb.map (0.0001*) $
          Symb.map Expr.fst $
          allOverlapsFromCorrelation padExtent minOverlapPortion sha shb img
+   correlate <- correlatePadded $ mapPairInt (height, width)
 
    return $ \overlap a b ->
-      run overlap (Phys.shape a) (Phys.shape b)
-         =<< liftCArray2 (KneadCArray.correlatePadded $ mapPairInt (height, width)) a b
+      run overlap (Phys.shape a) (Phys.shape b) =<< correlate a b
 
 
 argmax ::
@@ -710,10 +761,10 @@ optimalOverlap padExtent@(Vec2 height width) = do
       RenderP.run $ \minOverlapPortion (sha, shb) img ->
          argmaximum $
          allOverlapsFromCorrelation padExtent minOverlapPortion sha shb img
+   correlate <- correlatePadded $ mapPairInt (height, width)
 
    return $ \overlap a b ->
-      run overlap (Phys.shape a, Phys.shape b)
-         =<< liftCArray2 (KneadCArray.correlatePadded $ mapPairInt (height, width)) a b
+      run overlap (Phys.shape a, Phys.shape b) =<< correlate a b
 
 
 shrink ::
