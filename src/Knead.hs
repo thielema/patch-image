@@ -63,7 +63,7 @@ import Distribution.Verbosity (Verbosity)
 import Text.Printf (printf)
 
 import qualified Control.Monad.HT as MonadHT
-import Control.Monad (liftM2, when, join, foldM, (<=<))
+import Control.Monad (when, join, foldM, (<=<))
 import Control.Applicative (pure, (<$>), (<*>))
 
 import qualified Data.Foldable as Fold
@@ -626,16 +626,6 @@ liftCArray ::
    (CArray (Int,Int) a -> CArray (Int,Int) b) ->
    Plane a -> IO (Plane b)
 liftCArray f a = arrayKneadFromC . f <$> arrayCFromKnead a
-
-liftCArray2 ::
-   (SV.Storable a) =>
-   (CArray (Int,Int) a -> CArray (Int,Int) a -> CArray (Int,Int) a) ->
-   Plane a -> Plane a -> IO (Plane a)
-liftCArray2 f a b =
-   arrayKneadFromC <$>
-   liftM2 f
-      (arrayCFromKnead a)
-      (arrayCFromKnead b)
 
 
 fixArray :: Id (Symb.Array sh a)
