@@ -573,9 +573,6 @@ pad a sh img =
          let Vec2 y x = Expr.decompose atomIx2 p
          in  Expr.ifThenElse (y<*height &&* x<*width) (img ! p) a
 
-mapPairInt :: (Integral i, Integral j) => (i,i) -> (j,j)
-mapPairInt = mapPair (fromIntegral, fromIntegral)
-
 cyclicReverse2d :: (MultiValue.C a) => SymbPlane a -> SymbPlane a
 cyclicReverse2d spec =
    let (Vec2 height width) = Expr.decompose atomDim2 $ Symb.shape spec
@@ -601,9 +598,9 @@ untangleSpectra2d spec =
 correlatePadded ::
    (FFTWReal a, MultiValue.Real a, MultiMem.C a,
     MultiValue.Field a, MultiValue.RationalConstant a) =>
-   (Int,Int) -> IO (Plane a -> Plane a -> IO (Plane a))
-correlatePadded (height,width) = do
-   let sh = Expr.cons $ Vec2 (fromIntegral height) (fromIntegral width)
+   Dim2 -> IO (Plane a -> Plane a -> IO (Plane a))
+correlatePadded padExtent@(Vec2 height width) = do
+   let sh = Expr.cons padExtent
    let (halfWidth,parity) = divMod width 2
    mergePlanes <-
       RenderP.run $ \a b ->
@@ -720,14 +717,14 @@ allOverlapsFromCorrelation (Vec2 height width) minOverlapPortion =
 
 allOverlapsRun ::
    Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Plane Word8))
-allOverlapsRun padExtent@(Vec2 height width) = do
+allOverlapsRun padExtent = do
    run <-
       RenderP.run $ \minOverlapPortion sha shb img ->
          imageByteFromFloat $
          Symb.map (0.0001*) $
          Symb.map Expr.fst $
          allOverlapsFromCorrelation padExtent minOverlapPortion sha shb img
-   correlate <- correlatePadded $ mapPairInt (height, width)
+   correlate <- correlatePadded padExtent
 
    return $ \overlap a b ->
       run overlap (Phys.shape a) (Phys.shape b) =<< correlate a b
@@ -746,12 +743,12 @@ argmaximum = fold1All argmax
 
 optimalOverlap ::
    Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
-optimalOverlap padExtent@(Vec2 height width) = do
+optimalOverlap padExtent = do
    run <-
       RenderP.run $ \minOverlapPortion (sha, shb) img ->
          argmaximum $
          allOverlapsFromCorrelation padExtent minOverlapPortion sha shb img
-   correlate <- correlatePadded $ mapPairInt (height, width)
+   correlate <- correlatePadded padExtent
 
    return $ \overlap a b ->
       run overlap (Phys.shape a, Phys.shape b) =<< correlate a b
