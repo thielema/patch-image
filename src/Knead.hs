@@ -767,6 +767,13 @@ shrink (Vec2 yk xk) =
       (Expr.modify (atomIx2, atomIx2) $
          \(Vec2 yi xi, Vec2 yj xj) -> Vec2 (yi*yk+yj) (xi*xk+xj))
 
+{-
+The implementation accepts overlapping of at most minOverlapPortion
+of the two shrunken images.
+However, in practice this optimization is rarely effective.
+In most cases the shrink factors are the same
+independent from whether minOverlap is zero or not.
+-}
 shrinkFactors ::
    (Integral a) => Dim2 -> Float -> Shape2 a -> Shape2 a -> Shape2 a
 shrinkFactors (Vec2 heightPad widthPad) minOverlapPortion
