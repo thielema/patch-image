@@ -72,6 +72,7 @@ import Data.Function.HT (Id)
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (mapMaybe, isJust, isNothing)
+import Data.Bits (Bits)
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
@@ -776,6 +777,23 @@ shrinkFactors (Vec2 heightPad widthPad) minOverlapPortion
       in Vec2
             (Arith.divUp (heighta+heightb-minOverlap) $ fromIntegral heightPad)
             (Arith.divUp (widtha +widthb -minOverlap) $ fromIntegral widthPad)
+
+{-
+Should compute almost the same as shrinkFactors
+but is less optimized and more idiomatic.
+@correlationSize@ has a final @ceilingSmooth7@.
+This is not necessary here
+since we expect that the user chooses an FFT friendly target size.
+-}
+shrinkFactorsAlt ::
+   (Bits a, Integral a) => Float -> Dim2 -> Shape2 a -> Shape2 a -> Shape2 a
+shrinkFactorsAlt minOverlapPortion (Vec2 heightPad widthPad) a b =
+   let (widthc,heightc) =
+         Arith.correlationSize minOverlapPortion $
+         map (\(Vec2 height width) -> (width, height)) [a,b]
+   in Vec2
+         (Arith.divUp heightc $ fromIntegral heightPad)
+         (Arith.divUp widthc $ fromIntegral widthPad)
 
 
 optimalOverlapBig ::
