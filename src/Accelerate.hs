@@ -725,11 +725,24 @@ shrink (_:.yk:.xk) arr =
 
 type GenDIM2 a = Z :. a :. a
 
-shrinkFactors :: (Integral a) => DIM2 -> GenDIM2 a -> GenDIM2 a -> GenDIM2 a
-shrinkFactors (Z:.heightPad:.widthPad)
+-- cf. Arithmetic.minimumOverlapAbsFromPortion
+minimumOverlapAbsFromPortion ::
+   (Num a, Ord i) => (a -> i, i -> a) -> a -> (i, i) -> i
+minimumOverlapAbsFromPortion
+   (afloor, fromInt) minOverlapPortion (width, height) =
+      afloor $ minOverlapPortion * fromInt (min width height)
+
+shrinkFactors ::
+   (Num a, Integral i) =>
+   (a -> i, i -> a) ->
+   DIM2 -> a -> GenDIM2 i -> GenDIM2 i -> GenDIM2 i
+shrinkFactors methods (Z:.heightPad:.widthPad) minOverlapPortion
    (Z :. heighta :. widtha) (Z :. heightb :. widthb) =
-      let yk = divUp (heighta+heightb) $ fromIntegral heightPad
-          xk = divUp (widtha +widthb)  $ fromIntegral widthPad
+      let minOverlap =
+            minimumOverlapAbsFromPortion methods minOverlapPortion
+               (min widtha widthb, min heighta heightb)
+          yk = divUp (heighta+heightb-minOverlap) $ fromIntegral heightPad
+          xk = divUp (widtha +widthb -minOverlap) $ fromIntegral widthPad
       in  Z :. yk :. xk
 
 {-
@@ -741,7 +754,8 @@ optimalOverlapBig padExtent =
    let run =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
              let factors@(_z:.yk:.xk) =
-                    shrinkFactors padExtent
+                    shrinkFactors (A.floor, A.fromIntegral) padExtent
+                       minimumOverlap
                        (A.unlift $ A.shape a) (A.unlift $ A.shape b)
                  scalePos =
                     Exp.modify (expr, (expr,expr)) $
@@ -793,7 +807,9 @@ optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
           Run.with CUDA.run1 $ \minimumOverlap a b ->
              let shapeA = A.unlift $ A.shape a
                  shapeB = A.unlift $ A.shape b
-                 factors@(_z:.yk:.xk) = shrinkFactors padExtent shapeA shapeB
+                 factors@(_z:.yk:.xk) =
+                    shrinkFactors (A.floor, A.fromIntegral) padExtent
+                       minimumOverlap shapeA shapeB
                  coarsed@(coarsedx,coarsedy) =
                     mapPair ((xk*), (yk*)) $
                     Exp.unliftPair $ A.snd $ A.the $ argmaximum $
@@ -863,7 +879,8 @@ optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
 
    in  \minimumOverlap mMaximumDiff a b ->
           let factors@(Z:.yk:.xk) =
-                 shrinkFactors padExtent (A.arrayShape a) (A.arrayShape b)
+                 shrinkFactors (floor, fromIntegral) padExtent
+                    minimumOverlap (A.arrayShape a) (A.arrayShape b)
 
               (_score, shrunkd@(shrunkdx, shrunkdy)) =
                  Acc.the $ overlapShrunk minimumOverlap factors a b
