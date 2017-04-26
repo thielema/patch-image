@@ -33,7 +33,6 @@ import Data.Array.Knead.Simple.Symbolic ((!))
 import Data.Array.Knead.Expression
          (Exp, (==*), (/=*), (<*), (<=*), (>=*), (&&*))
 
-import qualified Data.Array.CArray as CArray
 import Data.Array.IArray (amap)
 import Data.Array.CArray (CArray)
 import Data.Array.MArray (thaw)
@@ -1667,20 +1666,22 @@ processRotation args = do
    when False $ do
       notice "write fft"
       let pic0 : pic1 : _ = map snd rotated
-          size = (1024,768)
-      cpic0 <- arrayCFromKnead pic0
-      cpic1 <- arrayCFromKnead pic1
+          size = Vec2 1024 768
       makeByteImage <-
          RenderP.run $ \k -> imageByteFromFloat . Symb.map (k*) . fixArray
+      runPad <- RenderP.run pad
       writeGrey (Option.quality opt) "/tmp/padded.jpeg" =<<
-         (makeByteImage 1 $ arrayKneadFromC $ KneadCArray.pad 0 size cpic0)
+         (makeByteImage 1 =<< runPad 0 size pic0)
+      runMagnitude <-
+         RenderP.run $
+         Symb.map (Expr.modify atomComplex $ \(r:+i) -> Expr.sqrt$ r*r+i*i)
+            . fixArray
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" =<<
-         (makeByteImage 0.1 $ arrayKneadFromC $
-          CArray.liftArray Complex.magnitude $
-          FFT.dftRCN [0,1] $ KneadCArray.pad 0 size cpic0)
+         (makeByteImage 0.1 =<< runMagnitude =<<
+          liftCArray (FFT.dftRCN [0,1]) =<< runPad 0 size pic0)
+      correlate <- correlatePadded size
       writeGrey (Option.quality opt) "/tmp/convolution.jpeg" =<<
-         (makeByteImage 0.1 $ arrayKneadFromC $
-          KneadCArray.correlatePadded size cpic0 cpic1)
+         (makeByteImage 0.1 =<< correlate pic0 pic1)
 
    return $
       zipWith3
