@@ -766,12 +766,16 @@ shrink (Vec2 yk xk) =
       (Expr.modify (atomIx2, atomIx2) $
          \(Vec2 yi xi, Vec2 yj xj) -> Vec2 (yi*yk+yj) (xi*xk+xj))
 
-shrinkFactors :: (Integral a) => Dim2 -> Shape2 a -> Shape2 a -> Shape2 a
-shrinkFactors (Vec2 heightPad widthPad)
+shrinkFactors ::
+   (Integral a) => Dim2 -> Float -> Shape2 a -> Shape2 a -> Shape2 a
+shrinkFactors (Vec2 heightPad widthPad) minOverlapPortion
    (Vec2 heighta widtha) (Vec2 heightb widthb) =
-      Vec2
-         (Arith.divUp (heighta+heightb) $ fromIntegral heightPad)
-         (Arith.divUp (widtha +widthb)  $ fromIntegral widthPad)
+      let minOverlap =
+            Arith.minimumOverlapAbsFromPortion minOverlapPortion
+               (min widtha widthb, min heighta heightb)
+      in Vec2
+            (Arith.divUp (heighta+heightb-minOverlap) $ fromIntegral heightPad)
+            (Arith.divUp (widtha +widthb -minOverlap) $ fromIntegral widthPad)
 
 
 optimalOverlapBig ::
@@ -781,7 +785,7 @@ optimalOverlapBig padExtent = do
    optOverlap <- optimalOverlap padExtent
    return $ \minimumOverlap a b -> do
       let factors@(Vec2 yk xk) =
-            shrinkFactors padExtent (Phys.shape a) (Phys.shape b)
+            shrinkFactors padExtent minimumOverlap (Phys.shape a) (Phys.shape b)
       aSmall <- shrnk factors a
       bSmall <- shrnk factors b
       mapSnd (mapPair ((*xk), (*yk))) <$>
@@ -876,7 +880,7 @@ optimalOverlapBigMulti padExtent (Vec2 heightStamp widthStamp) numCorrs = do
 
    return $ \minimumOverlap mMaximumDiff a b -> do
       let factors@(Vec2 yk xk) =
-            shrinkFactors padExtent (Phys.shape a) (Phys.shape b)
+            shrinkFactors padExtent minimumOverlap (Phys.shape a) (Phys.shape b)
       aSmall <- shrnk factors a
       bSmall <- shrnk factors b
 
