@@ -564,9 +564,7 @@ highpassMulti = do
 
 
 -- counterpart to 'clip'
-pad ::
-   (MultiValue.C a) =>
-   Exp a -> Exp Dim2 -> SymbPlane a -> SymbPlane a
+pad :: (MultiValue.C a) => Exp a -> Exp Dim2 -> SymbPlane a -> SymbPlane a
 pad a sh img =
    let Vec2 height width = Expr.decompose atomDim2 $ Symb.shape img
    in  generate sh $ \p ->
@@ -601,10 +599,10 @@ correlatePadded ::
    Dim2 -> IO (Plane a -> Plane a -> IO (Plane a))
 correlatePadded padExtent@(Vec2 height width) = do
    let sh = Expr.cons padExtent
-   let (halfWidth,parity) = divMod width 2
    mergePlanes <-
       RenderP.run $ \a b ->
          Symb.zipWith Expr.consComplex (pad 0 sh a) (pad 0 sh b)
+   let (halfWidth,parity) = divMod width 2
    let exprFromInt = Expr.cons . fromIntegral
    mulSpecs <-
       RenderP.run $
@@ -852,7 +850,7 @@ optimalOverlapBigFine ::
    Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
 optimalOverlapBigFine padExtent@(Vec2 heightPad widthPad) = do
    overlap <- optimalOverlap padExtent
-   -- optimalOverlap is rendered again here
+   -- optimalOverlap is compiled again here
    overlapBig <- optimalOverlapBig padExtent
    clp <- RenderP.run clip
    return $ \minimumOverlap a b -> do
