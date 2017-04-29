@@ -1,5 +1,9 @@
 # Change log for the `patch-image` package
 
+## 0.3.1:
+
+ * Speed up computation by moving more stuff to Knead/LLVM.
+
 ## 0.3:
 
  * Allow to save program state, modify it manually
