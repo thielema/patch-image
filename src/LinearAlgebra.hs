@@ -10,7 +10,7 @@ import qualified Data.List.HT as ListHT
 import qualified Data.List as List
 import Data.Array (Array, accumArray, bounds)
 import Data.Tuple.HT (mapPair, mapSnd)
-import Data.Maybe (isJust, fromMaybe)
+import Data.Maybe (isJust)
 
 import Control.Applicative ((<$>))
 
@@ -91,8 +91,7 @@ leastSquaresSelected m mas rhs0 =
        lhs = Matrix.fromColumns (bounds rhs0) lhsCols
        rhs = foldl Vector.add (Vector.scale 0 rhs0) rhsCols
        sol = QR.leastSquares lhs $ Vector.sub rhs0 rhs
-   in  if uncurry (>) $ bounds rhs0 then (map (fromMaybe 0) mas, []) else
-       (snd $
+   in  (snd $
         List.mapAccumL
            (curry $ \x ->
                case x of
@@ -138,7 +137,7 @@ layoutFromPairDisplacements mrxys correspondences =
                  concatMap
                     (\(_i, ((xai,yai),(xbi,ybi))) -> [xai, yai, xbi, ybi])
                     correspondences
-          in  if null xs then 1 else realToFrac $ maximum xs - minimum xs
+          in  realToFrac $ maximum xs - minimum xs
        matrix =
           sparseMatrix (2 * length correspondences) (4*numPics) $ concat $
           zipWith
