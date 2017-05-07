@@ -1,5 +1,13 @@
 # Change log for the `patch-image` package
 
+## 0.3.2:
+
+ * Use package `dsp` instead of `hmatrix`
+   for the solution of the linear least squares problem
+   for determining absolute coordinates from image pair displacements.
+   This removes dependency from LAPACK and GSL
+   and makes the code a bit simpler.
+
 ## 0.3.1:
 
  * Speed up computation by moving more stuff to Knead/LLVM.
