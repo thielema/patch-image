@@ -115,11 +115,12 @@ y1 = dy + s*x0 + c*y0
 \0 1 y0  x0/   |c |   \y1/
                \s /
 
-We try to scale dx and dy down using 'weight'.
-Otherwise they are weighted much more than the rotation.
-However the weight will only influence the result
+Formerly, we tried to scale dx and dy down using a weight,
+such that dx and dy had magnitude similar to c and s.
+However the weight would only influence the result
 for under-constrained equation systems.
-This is usually not the case.
+This is usually not the case and
+the solver does not support rank-deficient matrices, anyway.
 -}
 layoutFromPairDisplacements ::
    [(Maybe (Float, Float), (Maybe Float, Maybe Float))] ->
@@ -127,24 +128,18 @@ layoutFromPairDisplacements ::
    ([((Float,Float), Complex Float)], [(Float,Float)])
 layoutFromPairDisplacements mrxys correspondences =
    let numPics = length mrxys
-       weight =
-          let xs =
-                 concatMap
-                    (\(_i, ((xai,yai),(xbi,ybi))) -> [xai, yai, xbi, ybi])
-                    correspondences
-          in  maximum xs - minimum xs
        matrix =
           sparseMatrix (2 * length correspondences) (4*numPics) $ concat $
           zipWith
              (\k ((ia,ib), ((xa,ya),(xb,yb))) ->
-                elm (k+0) (4*ia+0) (-weight) :
-                elm (k+1) (4*ia+1) (-weight) :
+                elm (k+0) (4*ia+0) (-1) :
+                elm (k+1) (4*ia+1) (-1) :
                 elm (k+0) (4*ia+2) (-xa) :
                 elm (k+0) (4*ia+3) ya :
                 elm (k+1) (4*ia+2) (-ya) :
                 elm (k+1) (4*ia+3) (-xa) :
-                elm (k+0) (4*ib+0) weight :
-                elm (k+1) (4*ib+1) weight :
+                elm (k+0) (4*ib+0) 1 :
+                elm (k+1) (4*ib+1) 1 :
                 elm (k+0) (4*ib+2) xb :
                 elm (k+0) (4*ib+3) (-yb) :
                 elm (k+1) (4*ib+2) yb :
@@ -153,15 +148,10 @@ layoutFromPairDisplacements mrxys correspondences =
              [0,2..] correspondences
        (solution, projection) =
           leastSquaresSelected matrix
-             (concatMap
-                (\(mr, (mx,my)) ->
-                   [(/weight) <$> mx,
-                    (/weight) <$> my,
-                    fst <$> mr,
-                    snd <$> mr]) $
+             (concatMap (\(mr, (mx,my)) -> [mx, my, fst <$> mr, snd <$> mr]) $
               mrxys)
              (zeroVector (2 * length correspondences))
-   in  (map (\[dx,dy,rx,ry] -> ((weight*dx,weight*dy), rx :+ ry)) $
+   in  (map (\[dx,dy,rx,ry] -> ((dx,dy), rx :+ ry)) $
         ListHT.sliceVertical 4 solution,
         map (\[x,y] -> (x,y)) $
         ListHT.sliceVertical 2 projection)
