@@ -1,15 +1,14 @@
 module LinearAlgebra where
 
-import qualified Data.Packed.Matrix as Matrix
-import qualified Data.Packed.Vector as Vector
-import qualified Data.Packed.ST as PackST
-import qualified Numeric.Container as Container
-import Numeric.Container ((<\>), (<>))
+import qualified Matrix.Matrix as Matrix
+import qualified Matrix.Vector as Vector
+import qualified Matrix.QR as QR
 
 import Data.Complex (Complex((:+)))
 
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
+import Data.Array (Array, accumArray, bounds)
 import Data.Tuple.HT (mapPair, mapSnd)
 import Data.Maybe (isJust, fromMaybe)
 
@@ -47,12 +46,12 @@ parallel :: ([a0] -> [a1], [b0] -> [b1]) -> ([(a0,b0)] -> [(a1,b1)])
 parallel fs = uncurry zip . mapPair fs . unzip
 
 
-sparseMatrix :: Int -> Int -> [((Int, Int), Double)] -> Matrix.Matrix Double
-sparseMatrix numRows numCols xs =
-   PackST.runSTMatrix $ do
-      mat <- PackST.newMatrix 0 numRows numCols
-      mapM_ (\((r,c), x) -> PackST.writeMatrix mat r c x) xs
-      return mat
+type Matrix = Array (Int,Int)
+type Vector = Array Int
+
+sparseMatrix :: Int -> Int -> [((Int, Int), Double)] -> Matrix Double
+sparseMatrix numRows numCols =
+   accumArray (const id) 0 ((0,0), (numRows-1, numCols-1))
 
 elm :: Int -> Int -> a -> ((Int, Int), a)
 elm row col x = ((row, col), x)
@@ -78,7 +77,7 @@ absolutePositionsFromPairDisplacements mxys displacements =
 
 
 leastSquaresSelected ::
-   Matrix.Matrix Double -> [Maybe Double] -> Vector.Vector Double ->
+   Matrix Double -> [Maybe Double] -> Vector Double ->
    ([Double], [Double])
 leastSquaresSelected m mas rhs0 =
    let (lhsCols,rhsCols) =
@@ -87,12 +86,12 @@ leastSquaresSelected m mas rhs0 =
              (\col ma ->
                 case ma of
                    Nothing -> Left col
-                   Just a -> Right $ Container.scale a col)
+                   Just a -> Right $ Vector.scale a col)
              (Matrix.toColumns m) mas
-       lhs = Matrix.fromColumns lhsCols
-       rhs = foldl Container.add (Container.scale 0 rhs0) rhsCols
-       sol = lhs <\> Container.sub rhs0 rhs
-   in  if Vector.dim rhs0 == 0 then (map (fromMaybe 0) mas, []) else
+       lhs = Matrix.fromColumns (bounds rhs0) lhsCols
+       rhs = foldl Vector.add (Vector.scale 0 rhs0) rhsCols
+       sol = QR.leastSquares lhs $ Vector.sub rhs0 rhs
+   in  if uncurry (>) $ bounds rhs0 then (map (fromMaybe 0) mas, []) else
        (snd $
         List.mapAccumL
            (curry $ \x ->
@@ -102,13 +101,11 @@ leastSquaresSelected m mas rhs0 =
                   ([], Nothing) -> error "too few elements in solution vector")
            (Vector.toList sol) mas,
         Vector.toList $
-        Container.add (lhs <> sol) rhs)
+        Vector.add (Matrix.mv_mult lhs sol) rhs)
 
 
-zeroVector, _zeroVector :: Int -> Vector.Vector Double
+zeroVector :: Int -> Vector Double
 zeroVector n = Vector.fromList $ replicate n 0
--- fails for vectors of size 0
-_zeroVector n = Container.constant 0 n
 
 {-
 Approximate rotation from point correspondences.
