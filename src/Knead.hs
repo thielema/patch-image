@@ -80,6 +80,9 @@ import Data.Tuple.HT
          (mapPair, mapFst, mapSnd, mapTriple, swap, mapThd3, fst3, uncurry3)
 import Data.Word (Word8, Word32)
 
+import Prelude2010
+import Prelude ()
+
 
 
 type SmallSize = Word32
