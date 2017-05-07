@@ -90,11 +90,15 @@ prepareLocations mask border =
    //
    map (flip (,) locBorder) (Set.toList border)
 
+
+type
+   Queue i j =
+      MaxPQueue Float ((IOCArray (i,j) Location, CArray (i,j) Float), (i,j))
+
 prepareShaping ::
    (Ix i, Enum i, Ix j, Enum j) =>
    [(CArray (i,j) Bool, CArray (i,j) Float)] ->
-   IO ([IOCArray (i,j) Location],
-       MaxPQueue Float ((IOCArray (i,j) Location, CArray (i,j) Float), (i,j)))
+   IO ([IOCArray (i,j) Location], Queue i j)
 prepareShaping maskWeightss =
    fmap (mapSnd PQ.unions . unzip) $
    forM maskWeightss $ \(mask, weights) -> do
@@ -107,11 +111,10 @@ prepareShaping maskWeightss =
 shapeParts ::
    IOCArray (Int, Int) Int ->
    [IOCArray (Int, Int) Location] ->
-   MaxPQueue Float
-      ((IOCArray (Int, Int) Location, CArray (Int, Int) Float), (Int, Int)) ->
-   IO [CArray (Int, Int) Bool]
+   Queue Int Int -> IO [CArray (Int, Int) Bool]
 shapeParts count masks =
-   let loop queue =
+   let loop :: Queue Int Int -> IO [CArray (Int, Int) Bool]
+       loop queue =
          case PQ.maxView queue of
             Nothing -> mapM (fmap (amap (/=locOutside)) . freeze) masks
             Just (((locs, diffs), pos@(y,x)), remQueue) -> do
