@@ -49,7 +49,7 @@ parallel fs = uncurry zip . mapPair fs . unzip
 type Matrix = Array (Int,Int)
 type Vector = Array Int
 
-sparseMatrix :: Int -> Int -> [((Int, Int), Double)] -> Matrix Double
+sparseMatrix :: Int -> Int -> [((Int, Int), Float)] -> Matrix Float
 sparseMatrix numRows numCols =
    accumArray (const id) 0 ((0,0), (numRows-1, numCols-1))
 
@@ -59,7 +59,7 @@ elm row col x = ((row, col), x)
 
 absolutePositionsFromPairDisplacements ::
    [(Maybe Float, Maybe Float)] -> [((Int, Int), (Float, Float))] ->
-   ([(Double,Double)], [(Double,Double)])
+   ([(Float,Float)], [(Float,Float)])
 absolutePositionsFromPairDisplacements mxys displacements =
    let numPics = length mxys
        (mxs, mys) = unzip mxys
@@ -77,8 +77,7 @@ absolutePositionsFromPairDisplacements mxys displacements =
 
 
 leastSquaresSelected ::
-   Matrix Double -> [Maybe Double] -> Vector Double ->
-   ([Double], [Double])
+   Matrix Float -> [Maybe Float] -> Vector Float -> ([Float], [Float])
 leastSquaresSelected m mas rhs0 =
    let (lhsCols,rhsCols) =
           ListHT.unzipEithers $
@@ -103,7 +102,7 @@ leastSquaresSelected m mas rhs0 =
         Vector.add (Matrix.mv_mult lhs sol) rhs)
 
 
-zeroVector :: Int -> Vector Double
+zeroVector :: Int -> Vector Float
 zeroVector n = Vector.fromList $ replicate n 0
 
 {-
@@ -128,8 +127,7 @@ This is usually not the case.
 layoutFromPairDisplacements ::
    [(Maybe (Float, Float), (Maybe Float, Maybe Float))] ->
    [((Int, Int), ((Float, Float), (Float, Float)))] ->
-   ([((Double,Double), Complex Double)],
-    [(Double,Double)])
+   ([((Float,Float), Complex Float)], [(Float,Float)])
 layoutFromPairDisplacements mrxys correspondences =
    let numPics = length mrxys
        weight =
