@@ -5,7 +5,6 @@ import qualified Option
 import qualified State
 
 import qualified Arithmetic as Arith
-import qualified Complex as Komplex
 import qualified Degree
 import LinearAlgebra (
    absolutePositionsFromPairDisplacements, fixAtLeastOnePosition,
@@ -1505,8 +1504,7 @@ processOverlap args = do
    let (errdx,errdy) =
           mapPair (maximum0, maximum0) $ unzip $
           zipWith
-             (\(dpx,dpy) (dx,dy) ->
-                (abs $ dpx - realToFrac dx, abs $ dpy - realToFrac dy))
+             (\(dpx,dpy) (dx,dy) -> (abs $ dpx - dx, abs $ dpy - dy))
              dps (map snd overlaps)
 
    info $
@@ -1516,10 +1514,7 @@ processOverlap args = do
       ++
       printf "maximum vertical error: %f\n" errdy
 
-   return
-      (map picPath pics,
-       map picColored pics,
-       map (flip (,) 1) $ map (mapPair (realToFrac, realToFrac)) poss)
+   return (map picPath pics, map picColored pics, map (flip (,) 1) poss)
 
 
 processOverlapRotate ::
@@ -1610,13 +1605,7 @@ processOverlapRotate args = do
                dpx dpy xa ya xb yb)
          dps overlaps
 
-   return
-      (map picPath pics,
-       map picColored pics,
-       map
-         (mapPair
-            (mapPair (realToFrac, realToFrac), Komplex.map realToFrac))
-         posRots)
+   return (map picPath pics, map picColored pics, posRots)
 
 
 processRotation ::

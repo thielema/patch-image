@@ -67,10 +67,7 @@ absolutePositionsFromPairDisplacements mxys displacements =
        matrix =
           sparseMatrix (length is) numPics $ concat $
           zipWith (\k (ia,ib) -> [elm k ia (-1), elm k ib 1]) [0..] is
-       solve ms ds =
-          leastSquaresSelected matrix
-             (map (fmap realToFrac) ms)
-             (Vector.fromList (map realToFrac ds))
+       solve ms ds = leastSquaresSelected matrix ms (Vector.fromList ds)
        (pxs, achievedDxs) = solve mxs dxs
        (pys, achievedDys) = solve mys dys
    in  (zip pxs pys, zip achievedDxs achievedDys)
@@ -135,37 +132,33 @@ layoutFromPairDisplacements mrxys correspondences =
                  concatMap
                     (\(_i, ((xai,yai),(xbi,ybi))) -> [xai, yai, xbi, ybi])
                     correspondences
-          in  realToFrac $ maximum xs - minimum xs
+          in  maximum xs - minimum xs
        matrix =
           sparseMatrix (2 * length correspondences) (4*numPics) $ concat $
           zipWith
-             (\k ((ia,ib), ((xai,yai),(xbi,ybi))) ->
-                let xa = realToFrac xai
-                    xb = realToFrac xbi
-                    ya = realToFrac yai
-                    yb = realToFrac ybi
-                in  elm (k+0) (4*ia+0) (-weight) :
-                    elm (k+1) (4*ia+1) (-weight) :
-                    elm (k+0) (4*ia+2) (-xa) :
-                    elm (k+0) (4*ia+3) ya :
-                    elm (k+1) (4*ia+2) (-ya) :
-                    elm (k+1) (4*ia+3) (-xa) :
-                    elm (k+0) (4*ib+0) weight :
-                    elm (k+1) (4*ib+1) weight :
-                    elm (k+0) (4*ib+2) xb :
-                    elm (k+0) (4*ib+3) (-yb) :
-                    elm (k+1) (4*ib+2) yb :
-                    elm (k+1) (4*ib+3) xb :
-                    [])
+             (\k ((ia,ib), ((xa,ya),(xb,yb))) ->
+                elm (k+0) (4*ia+0) (-weight) :
+                elm (k+1) (4*ia+1) (-weight) :
+                elm (k+0) (4*ia+2) (-xa) :
+                elm (k+0) (4*ia+3) ya :
+                elm (k+1) (4*ia+2) (-ya) :
+                elm (k+1) (4*ia+3) (-xa) :
+                elm (k+0) (4*ib+0) weight :
+                elm (k+1) (4*ib+1) weight :
+                elm (k+0) (4*ib+2) xb :
+                elm (k+0) (4*ib+3) (-yb) :
+                elm (k+1) (4*ib+2) yb :
+                elm (k+1) (4*ib+3) xb :
+                [])
              [0,2..] correspondences
        (solution, projection) =
           leastSquaresSelected matrix
              (concatMap
                 (\(mr, (mx,my)) ->
-                   [(/weight) . realToFrac <$> mx,
-                    (/weight) . realToFrac <$> my,
-                    realToFrac . fst <$> mr,
-                    realToFrac . snd <$> mr]) $
+                   [(/weight) <$> mx,
+                    (/weight) <$> my,
+                    fst <$> mr,
+                    snd <$> mr]) $
               mrxys)
              (zeroVector (2 * length correspondences))
    in  (map (\[dx,dy,rx,ry] -> ((weight*dx,weight*dy), rx :+ ry)) $
