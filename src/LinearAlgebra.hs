@@ -1,16 +1,19 @@
 module LinearAlgebra where
 
-import qualified Matrix.Matrix as Matrix
+import qualified Matrix.Sparse as Sparse
 import qualified Matrix.Vector as Vector
-import qualified Matrix.QR as QR
+import qualified Matrix.QR.Givens as QR
 
 import Data.Complex (Complex((:+)))
 
 import qualified Data.List.HT as ListHT
 import qualified Data.List as List
-import Data.Array (Array, accumArray, bounds)
+import qualified Data.Array as Array
+import qualified Data.Map as Map
+import Data.Array (Array)
 import Data.Tuple.HT (mapPair, mapSnd)
 import Data.Maybe (isJust)
+import Data.Map (Map)
 
 import Control.Applicative ((<$>))
 
@@ -46,12 +49,25 @@ parallel :: ([a0] -> [a1], [b0] -> [b1]) -> ([(a0,b0)] -> [(a1,b1)])
 parallel fs = uncurry zip . mapPair fs . unzip
 
 
-type Matrix = Array (Int,Int)
+type Matrix = Sparse.Matrix Int Int
 type Vector = Array Int
 
 sparseMatrix :: Int -> Int -> [((Int, Int), Float)] -> Matrix Float
 sparseMatrix numRows numCols =
-   accumArray (const id) 0 ((0,0), (numRows-1, numCols-1))
+   Sparse.fromMap ((0,0), (numRows-1, numCols-1)) . Map.fromList
+
+-- every column must be non-empty
+sparseToColumns :: Matrix a -> [Map Int a]
+sparseToColumns = Map.elems . Sparse.toColumns
+
+sparseFromColumns :: (Int,Int) -> [Map Int a] -> Matrix a
+sparseFromColumns (m0,m1) cols =
+   Sparse.fromColumns ((m0,0), (m1, length cols-1)) $
+   Map.fromList $ zip [0..] cols
+
+addSparseColumn :: (Num a) => Vector a -> Map Int a -> Vector a
+addSparseColumn v col = Array.accum (+) v $ Map.toList col
+
 
 elm :: Int -> Int -> a -> ((Int, Int), a)
 elm row col x = ((row, col), x)
@@ -82,10 +98,10 @@ leastSquaresSelected m mas rhs0 =
              (\col ma ->
                 case ma of
                    Nothing -> Left col
-                   Just a -> Right $ Vector.scale a col)
-             (Matrix.toColumns m) mas
-       lhs = Matrix.fromColumns (bounds rhs0) lhsCols
-       rhs = foldl Vector.add (Vector.scale 0 rhs0) rhsCols
+                   Just a -> Right $ fmap (a*) col)
+             (sparseToColumns m) mas
+       lhs = sparseFromColumns (Array.bounds rhs0) lhsCols
+       rhs = foldl addSparseColumn (Vector.scale 0 rhs0) rhsCols
        sol = QR.leastSquares lhs $ Vector.sub rhs0 rhs
    in  (snd $
         List.mapAccumL
@@ -95,8 +111,7 @@ leastSquaresSelected m mas rhs0 =
                   (a:as, Nothing) -> (as, a)
                   ([], Nothing) -> error "too few elements in solution vector")
            (Vector.toList sol) mas,
-        Vector.toList $
-        Vector.add (Matrix.mv_mult lhs sol) rhs)
+        Vector.toList $ Vector.add (Sparse.mulVector lhs sol) rhs)
 
 
 zeroVector :: Int -> Vector Float
