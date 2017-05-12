@@ -15,7 +15,7 @@ import Data.Tuple.HT (mapPair, mapSnd)
 import Data.Maybe (isJust)
 import Data.Map (Map)
 
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<$))
 
 
 fixAtLeastOne :: a -> [Maybe a] -> [Maybe a]
@@ -101,7 +101,7 @@ leastSquaresSelected m mas rhs0 =
                    Just a -> Right $ fmap (a*) col)
              (sparseToColumns m) mas
        lhs = sparseFromColumns (Array.bounds rhs0) lhsCols
-       rhs = foldl addSparseColumn (Vector.scale 0 rhs0) rhsCols
+       rhs = foldl addSparseColumn (0 <$ rhs0) rhsCols
        sol = QR.leastSquares lhs $ Vector.sub rhs0 rhs
    in  (snd $
         List.mapAccumL
