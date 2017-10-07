@@ -7,6 +7,7 @@ import qualified Data.Array.Knead.Expression as Expr
 
 import qualified LLVM.Extra.Multi.Value.Memory as MultiMem
 import qualified LLVM.Extra.Multi.Value as MultiValue
+import qualified LLVM.Extra.Iterator as Iter
 import qualified LLVM.Extra.Arithmetic as A
 import LLVM.Extra.Multi.Value (atom)
 
@@ -159,6 +160,11 @@ instance (tag ~ ShapeTag, Shape.C i) => Shape.C (Vec2 tag i) where
       case unzipShape nm of
          Vec2 n m ->
             Shape.loop (\i -> Shape.loop (\j -> code (zipShape i j)) m) n
+   iterator nm =
+      case unzipShape nm of
+         Vec2 n m ->
+            fmap (uncurry zipShape) $
+            Iter.cartesian (Shape.iterator n) (Shape.iterator m)
 
 
 instance (Expr.Compose n) => Expr.Compose (Vec2 tag n) where
