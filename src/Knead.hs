@@ -31,7 +31,7 @@ import qualified Data.Array.Knead.Index.Nested.Shape as Shape
 import qualified Data.Array.Knead.Expression as Expr
 import Data.Array.Knead.Simple.Symbolic ((!))
 import Data.Array.Knead.Expression
-         (Exp, (==*), (/=*), (<*), (<=*), (>=*), (&&*))
+         (Exp, (==*), (/=*), (<*), (<=*), (>=*), (||*), (&&*))
 
 import Data.Array.IArray (amap)
 import Data.Array.CArray (CArray)
@@ -414,7 +414,7 @@ inBox ::
    (Exp a, Exp a) ->
    Exp Bool
 inBox (width,height) (x,y) =
-   Expr.liftM2 MultiValue.and (inRange width x) (inRange height y)
+   inRange width x &&* inRange height y
 
 validCoords ::
    (MultiValue.NativeFloating a ar,
@@ -1234,7 +1234,7 @@ containedAnywhere ::
    array sh (a,a) ->
    array sh Bool
 containedAnywhere geoms array =
-   Symb.fold1 (Expr.liftM2 MultiValue.or) $
+   Symb.fold1 (||*) $
    outerProduct
       (Expr.modify2 (atom,atom) ((atom,atom),(atom,atom),(atom,atom)) $
        \(xdst,ydst) (rot, mov, extent) ->
@@ -1260,7 +1260,7 @@ distanceMapContained sh this others =
        maskedMinimum $
        Symb.zipWith
           (Expr.modify2 atom (atom,(atom,atom)) $ \c (b,(dist,_)) ->
-             (Expr.liftM2 MultiValue.and c b, dist))
+             (c &&* b, dist))
           contained distMap
 
 distanceMapContainedRun ::
