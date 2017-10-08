@@ -504,16 +504,8 @@ differentiate ::
    (Symb.C array, MultiValue.Additive a) => array Dim1 a -> array Dim1 a
 differentiate xs = Symb.zipWith Expr.sub (tailArr xs) xs
 
-the :: Symb.Array () a -> Exp a
-the = Symb.the
-
-fold1All ::
-   (Shape.C sh, MultiValue.C a) =>
-   (Exp a -> Exp a -> Exp a) -> Symb.Array sh a -> Exp a
-fold1All f = the . Symb.fold1All f
-
 scoreHistogram :: (MultiValue.PseudoRing a) => Symb.Array Dim1 a -> Exp a
-scoreHistogram = fold1All Expr.add . Symb.map Expr.sqr . differentiate
+scoreHistogram = Symb.fold1All Expr.add . Symb.map Expr.sqr . differentiate
 
 
 runScoreRotation :: IO (Degree Float -> ColorImage8 -> IO Float)
@@ -740,7 +732,7 @@ argmaximum ::
    (Shape.C sh,
     MultiValue.Comparison a, MultiValue.Select a, MultiValue.Select b) =>
    Symb.Array sh (a, b) -> Exp (a, b)
-argmaximum = fold1All argmax
+argmaximum = Symb.fold1All argmax
 
 optimalOverlap ::
    Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
@@ -964,7 +956,7 @@ overlapDifference (dx,dy) a b =
        extentOverlap = (widthOverlap,heightOverlap)
    in  Expr.sqrt $
        (/(fromInt widthOverlap * fromInt heightOverlap)) $
-       fold1All (+) $
+       Symb.fold1All (+) $
        Symb.map Expr.sqr $
        Symb.zipWith (-)
           (clip (leftOverlap,topOverlap) extentOverlap a)
