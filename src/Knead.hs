@@ -68,7 +68,6 @@ import Control.Applicative (pure, (<$>), (<*>))
 import qualified Data.Foldable as Fold
 import qualified Data.List as List
 import qualified Data.Map as Map
-import Data.Function.HT (Id)
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (mapMaybe, isJust, isNothing)
@@ -553,7 +552,7 @@ lowpassMulti = do
 highpassMulti :: IO (Int -> Plane Float -> IO (Plane Float))
 highpassMulti = do
    lp <- lowpassMulti
-   sub <- RenderP.run $ Symb.zipWith Expr.sub . fixArray
+   sub <- RenderP.run $ Symb.zipWith Expr.sub . Symb.fix
    return $ \n img -> sub img =<< lp n img
 
 
@@ -618,13 +617,10 @@ liftCArray ::
 liftCArray f a = arrayKneadFromC . f <$> arrayCFromKnead a
 
 
-fixArray :: Id (Symb.Array sh a)
-fixArray = id
-
 prepareOverlapMatching ::
    IO (Int -> (Degree Float, ColorImage8) -> IO ((Float, Float), Plane Float))
 prepareOverlapMatching = do
-   bright <- RenderP.run $ brightnessPlane . colorImageFloatFromByte . fixArray
+   bright <- RenderP.run $ brightnessPlane . colorImageFloatFromByte . Symb.fix
    hp <- highpassMulti
    rotat <- RenderP.run $ rotate Arith.vecScalar
    return $ \radius (angle, img) ->
@@ -1058,7 +1054,7 @@ finalizeCountCanvas =
       Symb.map
          (Expr.modify (atom,atom) $ \(count, pixel) ->
             Arith.vecScale vecYUV (recip $ fromInt count) pixel) .
-      fixArray
+      Symb.fix
 
 
 diffAbs :: (MultiValue.Real a) => Exp a -> Exp a -> Exp a
@@ -1083,7 +1079,7 @@ finalizeCountCanvasFloat =
          (Expr.modify (atom,atom) $ \(count, pixel) ->
             Arith.vecScale vecYUV (recip $ fromInt count) pixel)
       .
-      fixArray
+      Symb.fix
 
 emptyCanvas :: IO (Dim2 -> IO ColorImage8)
 emptyCanvas = RenderP.run $ \sh -> Symb.fill sh (Expr.zip3 0 0 0)
@@ -1431,7 +1427,7 @@ finalizeWeightedCanvas =
       Symb.map
          (Expr.modify (atom,atom) $ \(weightSum, pixel) ->
             Arith.vecScale vecYUV (recip weightSum) pixel) .
-      fixArray
+      Symb.fix
 
 
 data
@@ -1680,14 +1676,14 @@ processRotation args = do
       let pic0 : pic1 : _ = map snd rotated
           size = Vec2 1024 768
       makeByteImage <-
-         RenderP.run $ \k -> imageByteFromFloat . Symb.map (k*) . fixArray
+         RenderP.run $ \k -> imageByteFromFloat . Symb.map (k*) . Symb.fix
       runPad <- RenderP.run pad
       writeGrey (Option.quality opt) "/tmp/padded.jpeg" =<<
          (makeByteImage 1 =<< runPad 0 size pic0)
       runMagnitude <-
          RenderP.run $
          Symb.map (Expr.modify atomComplex $ \(r:+i) -> Expr.sqrt$ r*r+i*i)
-            . fixArray
+            . Symb.fix
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" =<<
          (makeByteImage 0.1 =<< runMagnitude =<<
           liftCArray (FFT.dftRCN [0,1]) =<< runPad 0 size pic0)
@@ -1800,7 +1796,7 @@ process args = do
       avg <- finalizeCanv sumImg
       diff <- diffWithCanvas
       picDiffs <- mapM (flip diff avg) rotMovPics
-      getSnd <- RenderP.run $ Symb.map Expr.snd . fixArray
+      getSnd <- RenderP.run $ Symb.map Expr.snd . Symb.fix
       lp <- lowpassMulti
       masks <- map (amap ((0/=) . fst)) <$> mapM arrayCFromKnead picDiffs
       let smoothRadius = Option.shapeSmooth opt
@@ -1836,7 +1832,7 @@ process args = do
                 amap (fromIntegral . fromEnum))
                shapes
          forM_ (Option.outputShape opt) $ \format -> do
-            makeByteImage <- RenderP.run $ imageByteFromFloat . fixArray
+            makeByteImage <- RenderP.run $ imageByteFromFloat . Symb.fix
             forM_ (zip names smoothShapes) $ \(name,shape) ->
                writeGrey (Option.quality opt) (printf format name)
                   =<< makeByteImage shape
