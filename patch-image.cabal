@@ -79,6 +79,7 @@ Executable patch-image-llvm
   Hs-Source-Dirs: src
 
   GHC-Options: -Wall -threaded -fwarn-tabs -fwarn-incomplete-record-updates
+  GHC-Options: -pgmlg++
   GHC-Prof-Options: -fprof-auto -rtsopts
 
   If flag(llvm)
