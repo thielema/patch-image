@@ -31,7 +31,7 @@ import qualified Data.Array.Knead.Index.Nested.Shape as Shape
 import qualified Data.Array.Knead.Expression as Expr
 import Data.Array.Knead.Simple.Symbolic ((!))
 import Data.Array.Knead.Expression
-         (Exp, (==*), (/=*), (<*), (<=*), (>=*), (||*), (&&*))
+         (Exp, (==*), (<*), (<=*), (>=*), (||*), (&&*))
 
 import Data.Array.IArray (amap)
 import Data.Array.CArray (CArray)
@@ -41,7 +41,9 @@ import qualified LLVM.Extra.ScalarOrVector as SoV
 import qualified LLVM.Extra.Arithmetic as LLVMArith
 import qualified LLVM.Extra.Multi.Value.Memory as MultiMem
 import qualified LLVM.Extra.Multi.Value as MultiValue
+import qualified LLVM.Extra.Bool8 as Bool8
 import LLVM.Extra.Multi.Value (Atom, atom)
+import LLVM.Extra.Bool8 (Bool8)
 
 import qualified LLVM.Core as LLVM
 
@@ -420,10 +422,10 @@ validCoords ::
     MultiValue.Field a, MultiValue.Real a,
     MultiValue.RationalConstant a) =>
    (Exp Size, Exp Size) ->
-   SymbPlane (a, a) -> SymbPlane MaskBool
+   SymbPlane (a, a) -> SymbPlane Bool8
 validCoords (width,height) =
    Symb.map $ Expr.modify (atom,atom) $ \(x,y) ->
-      maskFromBool $ inBox (width,height) (fastRound x, fastRound y)
+      Expr.bool8From1 $ inBox (width,height) (fastRound x, fastRound y)
 
 {- |
 @rotateStretchMove rot mov@
@@ -440,7 +442,7 @@ rotateStretchMove ::
    Exp (a, a) ->
    Exp Dim2 ->
    SymbPlane v ->
-   SymbPlane (MaskBool, v)
+   SymbPlane (Bool8, v)
 rotateStretchMove vec rot mov sh img =
    let coords = rotateStretchMoveCoords rot mov sh
        (Vec2 heightSrc widthSrc) = Expr.decompose atomDim2 $ Symb.shape img
@@ -1011,31 +1013,20 @@ emptyCountCanvas =
    RenderP.run $ \sh -> Symb.fill sh (Expr.zip 0 $ Expr.zip3 0 0 0)
 
 
-type MaskBool = Word8
-
-maskFromBool :: Exp Bool -> Exp MaskBool
-maskFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.zext
-
-boolFromMask :: Exp MaskBool -> Exp Bool
-boolFromMask = (/=* 0)
-
-intFromBool :: Exp MaskBool -> Exp Word32
-intFromBool = Expr.liftM $ MultiValue.liftM $ LLVM.ext
-
 type RotatedImage = ((Float,Float), (Float,Float), ColorImage8)
 
 addToCountCanvas ::
    (MultiValue.PseudoRing a, MultiValue.NativeFloating a ar) =>
    VecExp a v ->
-   SymbPlane (MaskBool, v) ->
+   SymbPlane (Bool8, v) ->
    SymbPlane (Word32, v) ->
    SymbPlane (Word32, v)
 addToCountCanvas vec =
    Symb.zipWith
       (Expr.modify2 (atom,atom) (atom,atom) $ \(mask, pic) (count, canvas) ->
-         (Expr.add (intFromBool mask) count,
+         (Expr.add (Expr.intFromBool8 mask) count,
           Arith.vecAdd vec canvas $
-          Arith.vecScale vec (fromInt $ intFromBool mask) pic))
+          Arith.vecScale vec (Expr.floatFromBool8 mask) pic))
 
 updateCountCanvas ::
    IO (RotatedImage -> Plane (Word32, YUV Float) ->
@@ -1061,7 +1052,7 @@ diffAbs :: (MultiValue.Real a) => Exp a -> Exp a -> Exp a
 diffAbs = Expr.liftM2 $ \x y -> MultiValue.abs =<< MultiValue.sub x y
 
 diffWithCanvas ::
-   IO (RotatedImage -> Plane (YUV Float) -> IO (Plane (MaskBool, Float)))
+   IO (RotatedImage -> Plane (YUV Float) -> IO (Plane (Bool8, Float)))
 diffWithCanvas =
    RenderP.run $ \(rot, mov, pic) avg ->
       Symb.zipWith
@@ -1086,13 +1077,13 @@ emptyCanvas = RenderP.run $ \sh -> Symb.fill sh (Expr.zip3 0 0 0)
 
 addMaskedToCanvas ::
    IO (RotatedImage ->
-       Plane MaskBool ->
+       Plane Bool8 ->
        Plane (YUV Word8) ->
        IO (Plane (YUV Word8)))
 addMaskedToCanvas =
    RenderP.run $ \(rot, mov, pic) mask canvas ->
       Symb.zipWith3 Expr.ifThenElse
-         (Symb.map boolFromMask mask)
+         (Symb.map Expr.bool1From8 mask)
          (Symb.map (yuvByteFromFloat . Expr.snd) $
           rotateStretchMove vecYUV rot mov (Symb.shape canvas) $
           colorImageFloatFromByte pic)
@@ -1107,7 +1098,8 @@ updateShapedCanvas =
    RenderP.run $ \(rot, mov, pic) shape weightCanvas ->
       addToWeightedCanvas vecYUV
          (Symb.zipWith
-            (Expr.modify2 atom (atom,atom) $ \s (b,x) -> (fromInt b * s, x))
+            (Expr.modify2 atom (atom,atom) $ \s (b,x) ->
+               (Expr.floatFromBool8 b * s, x))
             shape $
           rotateStretchMove vecYUV rot mov (Symb.shape weightCanvas) $
           colorImageFloatFromByte pic)
@@ -1798,7 +1790,7 @@ process args = do
       picDiffs <- mapM (flip diff avg) rotMovPics
       getSnd <- RenderP.run $ Symb.map Expr.snd . Symb.fix
       lp <- lowpassMulti
-      masks <- map (amap ((0/=) . fst)) <$> mapM arrayCFromKnead picDiffs
+      masks <- map (amap (Bool8.toBool . fst)) <$> mapM arrayCFromKnead picDiffs
       let smoothRadius = Option.shapeSmooth opt
       smoothPicDiffs <-
          mapM (arrayCFromKnead <=< lp smoothRadius <=< getSnd) picDiffs
@@ -1821,7 +1813,7 @@ process args = do
             foldM
                (\canvas (shape, rotMovPic) ->
                   addMasked rotMovPic
-                     (arrayKneadFromC $ amap (fromIntegral . fromEnum) shape)
+                     (arrayKneadFromC $ amap Bool8.fromBool shape)
                      canvas)
                emptyPlain (zip shapes rotMovPics)
 
