@@ -96,6 +96,7 @@ Executable patch-image-llvm
       containers >=0.4.2 && <0.6,
       fft >=0.1.7 && <0.2,
       storable-tuple >=0.0.3 && <0.1,
+      bool8 >=0.0 && <0.1,
       carray >=0.1.5 && <0.2,
       array >=0.4 && <0.6,
       cassava >=0.4.5 && <0.5,

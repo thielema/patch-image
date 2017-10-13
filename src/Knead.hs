@@ -41,9 +41,7 @@ import qualified LLVM.Extra.ScalarOrVector as SoV
 import qualified LLVM.Extra.Arithmetic as LLVMArith
 import qualified LLVM.Extra.Multi.Value.Memory as MultiMem
 import qualified LLVM.Extra.Multi.Value as MultiValue
-import qualified LLVM.Extra.Bool8 as Bool8
 import LLVM.Extra.Multi.Value (Atom, atom)
-import LLVM.Extra.Bool8 (Bool8)
 
 import qualified LLVM.Core as LLVM
 
@@ -70,6 +68,7 @@ import Control.Applicative (pure, (<$>), (<*>))
 import qualified Data.Foldable as Fold
 import qualified Data.List as List
 import qualified Data.Map as Map
+import qualified Data.Bool8 as Bool8
 import Data.Monoid ((<>))
 import Data.Maybe.HT (toMaybe)
 import Data.Maybe (mapMaybe, isJust, isNothing)
@@ -80,6 +79,7 @@ import Data.Ord.HT (comparing)
 import Data.Tuple.HT
          (mapPair, mapFst, mapSnd, mapTriple, swap, mapThd3, fst3, uncurry3)
 import Data.Word (Word8, Word32)
+import Data.Bool8 (Bool8)
 
 import Prelude2010
 import Prelude ()
