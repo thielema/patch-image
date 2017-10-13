@@ -425,7 +425,7 @@ validCoords ::
    SymbPlane (a, a) -> SymbPlane Bool8
 validCoords (width,height) =
    Symb.map $ Expr.modify (atom,atom) $ \(x,y) ->
-      Expr.bool8From1 $ inBox (width,height) (fastRound x, fastRound y)
+      Expr.bool8FromP $ inBox (width,height) (fastRound x, fastRound y)
 
 {- |
 @rotateStretchMove rot mov@
@@ -1083,7 +1083,7 @@ addMaskedToCanvas ::
 addMaskedToCanvas =
    RenderP.run $ \(rot, mov, pic) mask canvas ->
       Symb.zipWith3 Expr.ifThenElse
-         (Symb.map Expr.bool1From8 mask)
+         (Symb.map Expr.boolPFrom8 mask)
          (Symb.map (yuvByteFromFloat . Expr.snd) $
           rotateStretchMove vecYUV rot mov (Symb.shape canvas) $
           colorImageFloatFromByte pic)
