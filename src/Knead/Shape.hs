@@ -2,7 +2,7 @@
 {-# LANGUAGE EmptyDataDecls #-}
 module Knead.Shape where
 
-import qualified Data.Array.Knead.Index.Nested.Shape as Shape
+import qualified Data.Array.Knead.Shape.Nested as Shape
 import qualified Data.Array.Knead.Expression as Expr
 
 import qualified LLVM.Extra.Multi.Value.Memory as MultiMem

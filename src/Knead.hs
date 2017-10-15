@@ -27,7 +27,7 @@ import qualified Data.Array.Knead.Parameterized.Render as RenderP
 import qualified Data.Array.Knead.Simple.Physical as Phys
 import qualified Data.Array.Knead.Simple.ShapeDependent as ShapeDep
 import qualified Data.Array.Knead.Simple.Symbolic as Symb
-import qualified Data.Array.Knead.Index.Nested.Shape as Shape
+import qualified Data.Array.Knead.Shape.Nested as Shape
 import qualified Data.Array.Knead.Expression as Expr
 import Data.Array.Knead.Simple.Symbolic ((!))
 import Data.Array.Knead.Expression
