@@ -128,13 +128,13 @@ Executable patch-image-cuda
 
   If flag(cuda)
     Build-Depends:
-      accelerate-fourier >=0.0 && <0.1,
-      accelerate-arithmetic >=0.1 && <0.2,
-      accelerate-utility >=0.1 && <0.2,
-      accelerate-cufft >=0.0 && <0.1,
-      accelerate-cuda >=0.15 && <0.17,
-      accelerate-io >=0.15 && <0.16,
-      accelerate >=0.15 && <0.16,
+      accelerate-fourier >=1.0 && <1.1,
+      accelerate-arithmetic >=1.0 && <1.1,
+      accelerate-utility >=1.0 && <1.1,
+      accelerate-cufft >=1.0 && <1.1,
+      accelerate-llvm-ptx >=1.1 && <1.2,
+      accelerate-io >=1.0 && <1.1,
+      accelerate >=1.1 && <1.2,
       JuicyPixels >=2.0 && <3.3,
       cassava >=0.4.5 && <0.5,
       dsp >=0.2.4 && <0.3,

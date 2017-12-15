@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Main where
 
 import qualified Option
@@ -30,8 +31,8 @@ import Arithmetic (
 import qualified Data.Array.Accelerate.Fourier.Real as FourierReal
 import qualified Data.Array.Accelerate.CUFFT.Single as CUFFT
 import qualified Data.Array.Accelerate.Data.Complex as AComplex
-import qualified Data.Array.Accelerate.CUDA.Foreign as CUDAForeign
-import qualified Data.Array.Accelerate.CUDA as CUDA
+import qualified Data.Array.Accelerate.Data.Bits as ABits
+import qualified Data.Array.Accelerate.LLVM.PTX as CUDA
 import qualified Data.Array.Accelerate.IO as AIO
 import qualified Data.Array.Accelerate.LinearAlgebra as LinAlg
 import qualified Data.Array.Accelerate.Utility.Lift.Run as Run
@@ -45,8 +46,7 @@ import Data.Array.Accelerate.Utility.Lift.Exp (expr)
 import Data.Array.Accelerate.Utility.Ord (argmaximum)
 import Data.Array.Accelerate
           (Acc, Array, Exp, DIM1, DIM2, DIM3,
-           (:.)((:.)), Z(Z), Any(Any), All(All),
-           (<*), (<=*), (>=*), (==*), (&&*), (||*), (?), (!), )
+           (:.)((:.)), Z(Z), Any(Any), All(All), (?), (!), )
 
 import qualified Graphics.Gnuplot.Advanced as GP
 import qualified Graphics.Gnuplot.LineSpecification as LineSpec
@@ -105,8 +105,7 @@ readImage verbosity path = do
                      (SV.length dat)
                return $
                   AIO.fromVectors
-                     (Z :. Pic.imageHeight pic :. Pic.imageWidth pic :. 3)
-                     ((), dat)
+                     (Z :. Pic.imageHeight pic :. Pic.imageWidth pic :. 3) dat
             _ -> ioError $ userError "unsupported image type"
 
 writeImage :: Int -> FilePath -> ColorImage8 -> IO ()
@@ -116,7 +115,7 @@ writeImage quality path arr = do
       Pic.Image {
          Pic.imageWidth = width,
          Pic.imageHeight = height,
-         Pic.imageData = snd $ AIO.toVectors arr
+         Pic.imageData = AIO.toVectors arr
       }
 
 writeGrey :: Int -> FilePath -> Array DIM2 Word8 -> IO ()
@@ -126,7 +125,7 @@ writeGrey quality path arr = do
       Pic.Image {
          Pic.imageWidth = width,
          Pic.imageHeight = height,
-         Pic.imageData = snd $ AIO.toVectors arr
+         Pic.imageData = AIO.toVectors arr
       }
 
 colorImageExtent :: ColorImage8 -> (Int, Int)
@@ -134,12 +133,12 @@ colorImageExtent pic =
    case A.arrayShape pic of Z:.height:.width:._chans -> (width, height)
 
 imageFloatFromByte ::
-   (A.Shape sh, A.Elt a, A.IsFloating a) =>
+   (A.Shape sh, A.Floating a, A.FromIntegral Word8 a) =>
    Acc (Array sh Word8) -> Acc (Array sh a)
 imageFloatFromByte = A.map ((/255) . A.fromIntegral)
 
 imageByteFromFloat ::
-   (A.Shape sh, A.Elt a, A.IsFloating a) =>
+   (A.Shape sh, A.RealFloat a) =>
    Acc (Array sh a) -> Acc (Array sh Word8)
 imageByteFromFloat = A.map (fastRound . (255*) . max 0 . min 1)
 
@@ -171,19 +170,28 @@ interleaveChannels arr =
       arr
 
 
-fastRound ::
-   (A.Elt i, A.IsIntegral i, A.Elt a, A.IsFloating a) => Exp a -> Exp i
+fastRound :: (A.Elt i, A.IsIntegral i, A.RealFloat a) => Exp a -> Exp i
 fastRound x = A.floor (x+0.5)
 
 floatArray :: Acc (Array sh Float) -> Acc (Array sh Float)
 floatArray = id
 
 
-splitFraction :: (A.Elt a, A.IsFloating a) => Exp a -> (Exp Int, Exp a)
+splitFraction ::
+   (A.RealFloat a, A.FromIntegral Int a) => Exp a -> (Exp Int, Exp a)
 splitFraction x =
    let i = A.floor x
    in  (i, x - A.fromIntegral i)
 
+
+target :: CUDA.PTX
+target = unsafePerformIO CUFFT.getBestTarget
+
+cudaRun :: (A.Arrays a) => Acc a -> a
+cudaRun = CUDA.runWith target
+
+cudaRun1 :: (A.Arrays a, A.Arrays b) => (Acc a -> Acc b) -> a -> b
+cudaRun1 = CUDA.run1With target
 
 
 type Channel ix = Array (ix :. Int :. Int)
@@ -208,7 +216,7 @@ indexLimit arr (ix:.y:.x) =
    in  arr ! A.lift (ix :. yc :. xc)
 
 indexFrac ::
-   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   (A.Slice ix, A.Shape ix, A.RealFloat a, A.FromIntegral Int a) =>
    Acc (Channel ix a) -> Exp ix :. Exp a :. Exp a -> Exp a
 indexFrac arr (ix:.y:.x) =
    let (xi,xf) = splitFraction x
@@ -229,7 +237,7 @@ indexFrac arr (ix:.y:.x) =
 
 
 rotateStretchMoveCoords ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.Floating a, A.FromIntegral Int a) =>
    (Exp a, Exp a) ->
    (Exp a, Exp a) ->
    (Exp Int, Exp Int) ->
@@ -241,15 +249,15 @@ rotateStretchMoveCoords rot mov (width,height) =
           in  A.lift $ trans (A.fromIntegral xdst, A.fromIntegral ydst)
 
 inBox ::
-   (A.Elt a, A.IsNum a, A.IsScalar a) =>
+   (A.Num a, A.Ord a) =>
    (Exp a, Exp a) ->
    (Exp a, Exp a) ->
    Exp Bool
 inBox (width,height) (x,y) =
-   0<=*x &&* x<*width &&* 0<=*y &&* y<*height
+   0 A.<= x  A.&&  x A.< width  A.&&  0 A.<= y  A.&&  y A.< height
 
 validCoords ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.RealFloat a) =>
    (Exp Int, Exp Int) ->
    Acc (Channel Z (a, a)) ->
    Acc (Channel Z Bool)
@@ -268,7 +276,7 @@ first rotate and stretches the image according to 'rot'
 and then moves the picture.
 -}
 rotateStretchMove ::
-   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   (A.Slice ix, A.Shape ix, A.RealFloat a, A.FromIntegral Int a) =>
    (Exp a, Exp a) ->
    (Exp a, Exp a) ->
    ExpDIM2 ix -> Acc (Channel ix a) ->
@@ -288,7 +296,7 @@ rotateStretchMove rot mov sh arr =
 
 
 rotateLeftTop ::
-   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   (A.Slice ix, A.Shape ix, A.RealFloat a, A.FromIntegral Int a) =>
    (Exp a, Exp a) -> Acc (Channel ix a) ->
    ((Acc (A.Scalar a), Acc (A.Scalar a)), Acc (Channel ix a))
 rotateLeftTop rot arr =
@@ -301,7 +309,7 @@ rotateLeftTop rot arr =
            (chans :. A.ceiling (bottom-top) :. A.ceiling (right-left)) arr)
 
 rotate ::
-   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   (A.Slice ix, A.Shape ix, A.RealFloat a, A.FromIntegral Int a) =>
    (Exp a, Exp a) ->
    Acc (Channel ix a) -> Acc (Channel ix a)
 rotate rot arr = snd $ rotateLeftTop rot arr
@@ -320,7 +328,7 @@ rotateHistogram ::
    Degree Float -> ColorImage8 -> (ColorImage8, Array DIM1 Float)
 rotateHistogram =
    let rot =
-          Run.with CUDA.run1 $ \orient arr ->
+          Run.with cudaRun1 $ \orient arr ->
              let rotated =
                     rotate orient $
                     separateChannels $ imageFloatFromByte arr
@@ -356,9 +364,7 @@ analyseRotations angles pic = do
 
 
 
-differentiate ::
-   (A.Elt a, A.IsNum a) =>
-   Acc (Array DIM1 a) -> Acc (Array DIM1 a)
+differentiate :: (A.Num a) => Acc (Array DIM1 a) -> Acc (Array DIM1 a)
 differentiate arr =
    let size = A.unindex1 $ A.shape arr
    in  A.generate (A.index1 (size-1)) $ \i ->
@@ -367,7 +373,7 @@ differentiate arr =
 scoreRotation :: Degree Float -> ColorImage8 -> Float
 scoreRotation =
    let rot =
-          Run.with CUDA.run1 $ \orient arr ->
+          Run.with cudaRun1 $ \orient arr ->
              A.sum $ A.map (^(2::Int)) $ differentiate $ rowHistogram $
              rotate orient $ separateChannels $ imageFloatFromByte arr
    in  \angle arr -> Acc.the $ rot (Degree.cis angle) arr
@@ -377,18 +383,16 @@ findOptimalRotation angles pic =
    Key.maximum (flip scoreRotation pic) angles
 
 
-magnitudeSqr :: (A.Elt a, A.IsNum a) => Exp (Complex a) -> Exp a
+magnitudeSqr :: (A.Num a) => Exp (Complex a) -> Exp a
 magnitudeSqr =
    Exp.modify (expr:+expr) $ \(r:+i) -> r*r+i*i
 
 fourierTransformationRun :: ColorImage8 -> IO (Array DIM2 Word8)
 fourierTransformationRun pic = do
    let (shape@(Z:.height:.width):._) = A.arrayShape pic
-   plan <-
-      CUDAForeign.inDefaultContext $
-      CUFFT.plan2D CUFFT.forwardReal shape
+   plan <- CUFFT.plan2D target CUFFT.forwardReal shape
    let trans =
-          Run.with CUDA.run1 $ \arr ->
+          Run.with cudaRun1 $ \arr ->
              imageByteFromFloat $
              A.map (1e-9*) $
              A.zipWith (*)
@@ -422,7 +426,7 @@ However, I do not know for a universally good solution,
 thus I leave it as it is.
 -}
 scoreSlopes ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.RealFloat a, A.FromIntegral Int a) =>
    (Exp Int, Exp Int) ->
    Acc (Channel Z (Complex a)) -> Acc (Array DIM1 a)
 scoreSlopes (minX, maxX) arr =
@@ -452,16 +456,14 @@ radonAngle ::
    (Degree Float, Degree Float) -> ColorImage8 -> IO (Degree Float)
 radonAngle (minAngle,maxAngle) pic = do
    let (shape@(Z :. height :. _width):._) = A.arrayShape pic
-   plan <-
-      CUDAForeign.inDefaultContext $
-      CUFFT.plan2D CUFFT.forwardReal shape
+   plan <- CUFFT.plan2D target CUFFT.forwardReal shape
    let height2 = fromIntegral (div height 2)
    let slope w = tan (Degree.toRadian w) * height2
    let minX = floor $ slope minAngle
    let maxX = ceiling $ slope maxAngle
    let angle s = Degree.fromRadian $ atan (s/height2)
    let trans =
-          Run.with CUDA.run1 $ \arr ->
+          Run.with cudaRun1 $ \arr ->
              A.map A.snd $ argmaximum $
              Arrange.mapWithIndex (\ix s -> A.lift (s, A.unindex1 ix)) $
              scoreSlopes (A.constant minX, A.constant maxX) $
@@ -474,7 +476,7 @@ radonAngle (minAngle,maxAngle) pic = do
 rotateManifest :: Degree Float -> ColorImage8 -> Array DIM3 Float
 rotateManifest =
    let rot =
-          Run.with CUDA.run1 $ \orient arr ->
+          Run.with cudaRun1 $ \orient arr ->
              rotate orient $ separateChannels $ imageFloatFromByte arr
    in  \angle arr -> rot (Degree.cis angle) arr
 
@@ -483,7 +485,7 @@ prepareOverlapMatching ::
    Int -> (Degree Float, ColorImage8) -> ((Float,Float), Plane Float)
 prepareOverlapMatching =
    let rot =
-          Run.with CUDA.run1 $ \radius orient arr ->
+          Run.with cudaRun1 $ \radius orient arr ->
              rotateLeftTop orient $
              (if True
                 then highpass radius
@@ -496,7 +498,7 @@ prepareOverlapMatching =
 
 ceilingPow2 :: Exp Int -> Exp Int
 ceilingPow2 n =
-   A.setBit 0 $ A.ceiling $ logBase 2 (fromIntegral n :: Exp Double)
+   ABits.setBit 0 $ A.ceiling $ logBase 2 (fromIntegral n :: Exp Double)
 
 pad ::
    (A.Elt a) =>
@@ -505,12 +507,12 @@ pad a sh arr =
    let (height, width) = A.unlift $ A.unindex2 $ A.shape arr
    in  A.generate sh $ \p ->
           let (y, x) = A.unlift $ A.unindex2 p
-          in  (y<*height &&* x<*width)
+          in  (y A.< height  A.&&  x A.< width)
               ?
               (arr ! A.index2 y x, a)
 
 mulConj ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.RealFloat a, A.FromIntegral Int a) =>
    Exp (Complex a) -> Exp (Complex a) -> Exp (Complex a)
 mulConj x y = x * AComplex.conjugate y
 
@@ -519,15 +521,14 @@ fft2DGen ::
    (A.Elt e, CUFFT.Real e) =>
    CUFFT.Mode DIM2 e a b -> DIM2 -> CUFFT.Transform DIM2 a b
 fft2DGen mode sh =
-   CUFFT.transform $ unsafePerformIO $
-      CUDAForeign.inDefaultContext $ CUFFT.plan2D mode sh
+   CUFFT.transform $ unsafePerformIO $ CUFFT.plan2D target mode sh
 
 fft2DPlain ::
    (A.Elt e, CUFFT.Real e, A.Elt a, A.Elt b) =>
    CUFFT.Mode DIM2 e a b ->
    Channel Z a -> Acc (Channel Z b)
 fft2DPlain mode arr =
-   A.use $ CUDA.run1 (fft2DGen mode $ A.arrayShape arr) arr
+   A.use $ cudaRun1 (fft2DGen mode $ A.arrayShape arr) arr
 
 fft2D ::
    (A.Elt e, CUFFT.Real e, A.Elt a, A.Elt b) =>
@@ -546,13 +547,14 @@ correlateImpossible x y =
        width  = ceilingPow2 $ widthx  + widthy
        height = ceilingPow2 $ heightx + heighty
        sh = A.index2 height width
-       forward z = fft2DPlain CUFFT.forwardReal $ CUDA.run $ pad 0 sh z
-   in  fft2DPlain CUFFT.inverseReal $ CUDA.run $
+       forward z = fft2DPlain CUFFT.forwardReal $ cudaRun $ pad 0 sh z
+   in  fft2DPlain CUFFT.inverseReal $ cudaRun $
        A.zipWith mulConj (forward x) (forward y)
 
 
 removeDCOffset ::
-   (A.Elt a, A.IsFloating a) => Acc (Channel Z a) -> Acc (Channel Z a)
+   (A.Floating a, A.FromIntegral Int a) =>
+   Acc (Channel Z a) -> Acc (Channel Z a)
 removeDCOffset arr =
    let sh = A.shape arr
        (_z :. height :. width) = unliftDim2 sh
@@ -566,20 +568,19 @@ We cannot remove DC offset in the spectrum,
 because we already padded the images with zeros.
 -}
 clearDCCoefficient ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.RealFloat a, A.FromIntegral Int a) =>
    Acc (Array DIM2 (Complex a)) -> Acc (Array DIM2 (Complex a))
 clearDCCoefficient arr =
    A.generate (A.shape arr) $ \p ->
       let (_z:.y:.x) = unliftDim2 p
-      in  x==*0 ||* y==*0 ? (0, arr!p)
+      in  x A.== 0  A.||  y A.== 0 ? (0, arr!p)
 
 
 lowpass, highpass ::
-   (A.Elt a, A.IsFloating a) =>
-   Exp Int -> Acc (Channel Z a) -> Acc (Channel Z a)
+   (A.Floating a) => Exp Int -> Acc (Channel Z a) -> Acc (Channel Z a)
 lowpass count =
    Loop.nest count $
-      A.stencil (\(a,m,b) -> smooth3 (smooth3 a, smooth3 m, smooth3 b)) A.Clamp
+      A.stencil (\(a,m,b) -> smooth3 (smooth3 a, smooth3 m, smooth3 b)) A.clamp
 
 highpass count arr =
    A.zipWith (-) arr $ lowpass count arr
@@ -618,7 +619,7 @@ correlatePadded sh@(Z :. height :. width) =
 
 
 wrap :: Exp Int -> Exp Int -> Exp Int -> Exp Int
-wrap size split c = c<*split ? (c, c-size)
+wrap size split c = c A.< split ? (c, c-size)
 
 displacementMap ::
    Exp Int -> Exp Int -> Exp DIM2 -> Acc (Channel Z (Int, Int))
@@ -642,7 +643,7 @@ Otherwise the matching algorithm will try to match strong bars at the borders
 that are actually digitalization artifacts.
 -}
 minimumOverlapScores ::
-   (A.Elt a, A.IsFloating a, A.IsScalar a) =>
+   (A.Floating a, A.IsScalar a) =>
    ((Exp Int, Exp Int) -> Exp a -> Exp a) ->
    Exp Int -> (Exp Int, Exp Int) -> (Exp Int, Exp Int) ->
    Acc (Channel Z (a, (Int, Int))) ->
@@ -652,7 +653,7 @@ minimumOverlapScores weight minOverlap (widtha,heighta) (widthb,heightb) =
        (Exp.modify (expr,(expr,expr)) $ \(v, dp@(dx,dy)) ->
           let clipWidth  = min widtha  (widthb  + dx) - max 0 dx
               clipHeight = min heighta (heightb + dy) - max 0 dy
-          in  ((clipWidth >=* minOverlap  &&*  clipHeight >=* minOverlap)
+          in  ((clipWidth A.>= minOverlap   A.&&   clipHeight A.>= minOverlap)
                ?
                (weight (clipWidth, clipHeight) v, 0),
                dp))
@@ -693,7 +694,7 @@ allOverlaps size@(Z :. height :. width) minOverlapPortion =
 allOverlapsRun ::
    DIM2 -> Float -> Plane Float -> Plane Float -> Plane Word8
 allOverlapsRun padExtent =
-   Run.with CUDA.run1 $ \minOverlap picA picB ->
+   Run.with cudaRun1 $ \minOverlap picA picB ->
       imageByteFromFloat $
       -- A.map (2*) $
       A.map (0.0001*) $
@@ -703,13 +704,13 @@ optimalOverlap ::
    DIM2 -> Float -> Plane Float -> Plane Float -> (Float, (Int, Int))
 optimalOverlap padExtent =
    let run =
-          Run.with CUDA.run1 $ \minimumOverlap a b ->
+          Run.with cudaRun1 $ \minimumOverlap a b ->
           argmaximum $ allOverlaps padExtent minimumOverlap a b
    in  \overlap a b -> Acc.the $ run overlap a b
 
 
 shrink ::
-   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   (A.Slice ix, A.Shape ix, A.Floating a, A.FromIntegral Int a) =>
    GenDIM2 (Exp Int) -> Acc (Channel ix a) -> Acc (Channel ix a)
 shrink (_:.yk:.xk) arr =
    let (shape:.height:.width) = unliftDim2 $ A.shape arr
@@ -751,7 +752,7 @@ optimalOverlapBig ::
    DIM2 -> Float -> Plane Float -> Plane Float -> (Float, (Int, Int))
 optimalOverlapBig padExtent =
    let run =
-          Run.with CUDA.run1 $ \minimumOverlap a b ->
+          Run.with cudaRun1 $ \minimumOverlap a b ->
              let factors@(_z:.yk:.xk) =
                     shrinkFactors (A.floor, A.fromIntegral) padExtent
                        minimumOverlap
@@ -803,7 +804,7 @@ optimalOverlapBigFine ::
 optimalOverlapBigFine padExtent@(Z:.heightPad:.widthPad) =
    let overlaps = allOverlaps padExtent
        run =
-          Run.with CUDA.run1 $ \minimumOverlap a b ->
+          Run.with cudaRun1 $ \minimumOverlap a b ->
              let shapeA = A.unlift $ A.shape a
                  shapeB = A.unlift $ A.shape b
                  factors@(_z:.yk:.xk) =
@@ -847,20 +848,20 @@ optimalOverlapBigMulti ::
    [(Float, (Int, Int), (Int, Int))]
 optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
    let overlapShrunk =
-          Run.with CUDA.run1 $
+          Run.with cudaRun1 $
           \minimumOverlap factors a b ->
              argmaximum $
              allOverlaps padExtent minimumOverlap
                 (shrink factors a) (shrink factors b)
        diffShrunk =
-          Run.with CUDA.run1 $
+          Run.with cudaRun1 $
           \shrunkd factors a b ->
              overlapDifference shrunkd
                 (shrink factors a) (shrink factors b)
 
        allOverlapsFine = allOverlaps (Z :. 2*heightStamp :. 2*widthStamp)
        overlapFine =
-          Run.with CUDA.run1 $
+          Run.with cudaRun1 $
           \minimumOverlap a b anchorA@(leftA, topA) anchorB@(leftB, topB)
                 extent@(width,height) ->
              let addCoarsePos =
@@ -921,7 +922,7 @@ optimalOverlapBigMulti padExtent (Z:.heightStamp:.widthStamp) numCorrs =
 
 
 overlapDifference ::
-   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   (A.Slice ix, A.Shape ix, A.Floating a, A.FromIntegral Int a) =>
    (Exp Int, Exp Int) ->
    Acc (Channel ix a) -> Acc (Channel ix a) -> Acc (A.Scalar a)
 overlapDifference (dx,dy) a b =
@@ -946,7 +947,7 @@ overlapDifferenceRun ::
    (Int, Int) ->
    Plane Float -> Plane Float -> Float
 overlapDifferenceRun =
-   let diff = Run.with CUDA.run1 overlapDifference
+   let diff = Run.with cudaRun1 overlapDifference
    in  \d a b -> Acc.the $ diff d a b
 
 
@@ -982,7 +983,7 @@ composeOverlap =
    let rotat (rot,pic) =
           rotate rot $ separateChannels $ imageFloatFromByte pic
    in  (\f d (a,b) -> f d (mapFst Degree.cis a, mapFst Degree.cis b)) $
-       Run.with CUDA.run1 $
+       Run.with cudaRun1 $
        \(dx,dy) (a,b) ->
           imageByteFromFloat $ interleaveChannels $
           overlap2 (dx, dy) (rotat a, rotat b)
@@ -993,14 +994,14 @@ emptyCountCanvas ::
    ix :. Int :. Int ->
    (Plane Int, Channel ix Float)
 emptyCountCanvas =
-   Run.with CUDA.run1 $ \sh ->
+   Run.with cudaRun1 $ \sh ->
       let (_ix :. height :. width) = unliftDim2 sh
       in  (A.fill (A.lift $ Z:.height:.width) 0,
            A.fill sh 0)
 
 
 addToCountCanvas ::
-   (A.Slice ix, A.Shape ix, A.Elt a, A.IsNum a) =>
+   (A.Slice ix, A.Shape ix, A.Num a, A.FromIntegral Int a) =>
    (Acc (Plane Bool), Acc (Channel ix a)) ->
    (Acc (Plane Int),  Acc (Channel ix a)) ->
    (Acc (Plane Int),  Acc (Channel ix a))
@@ -1015,7 +1016,7 @@ updateCountCanvas ::
    (Plane Int, Channel DIM1 Float) ->
    (Plane Int, Channel DIM1 Float)
 updateCountCanvas =
-   Run.with CUDA.run1 $
+   Run.with cudaRun1 $
    \(rot, mov, pic) (count,canvas) ->
       addToCountCanvas
          (rotateStretchMove rot mov (unliftDim2 $ A.shape canvas) $
@@ -1024,7 +1025,7 @@ updateCountCanvas =
 
 finalizeCountCanvas :: (Plane Int, Channel DIM1 Float) -> ColorImage8
 finalizeCountCanvas =
-   Run.with CUDA.run1 $
+   Run.with cudaRun1 $
    \(count, canvas) ->
       imageByteFromFloat $ interleaveChannels $
       A.zipWith (/) canvas $
@@ -1043,30 +1044,30 @@ maybePlus f x y =
    in  A.cond xb (A.lift (True, A.cond yb (f xv yv) xv)) y
 
 maskedMinimum ::
-   (A.Shape ix, A.Elt a, A.IsScalar a) =>
+   (A.Shape ix, A.Ord a) =>
    LinAlg.Vector ix (Bool, a) ->
    LinAlg.Scalar ix (Bool, a)
 maskedMinimum = A.fold1 (maybePlus min)
 
 maskedMaximum ::
-   (A.Shape ix, A.Elt a, A.IsScalar a) =>
+   (A.Shape ix, A.Ord a) =>
    LinAlg.Vector ix (Bool, a) ->
    LinAlg.Scalar ix (Bool, a)
 maskedMaximum = A.fold1 (maybePlus max)
 
 
 project ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.RealFloat a, A.FromIntegral Int a) =>
    Point2 (Exp a) ->
    (Point2 (Exp a), Point2 (Exp a)) ->
    (Exp Bool, Point2 (Exp a))
 project x ab =
    let (r, y) = projectPerp x ab
-   in  (0<=*r &&* r<=*1, y)
+   in  (0 A.<= r  A.&&  r A.<= 1, y)
 
 
 distanceMapEdges ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.RealFloat a, A.FromIntegral Int a) =>
    Exp DIM2 -> Acc (Array DIM1 ((a,a),(a,a))) -> Acc (Channel Z a)
 distanceMapEdges sh edges =
    A.map (Exp.modify (expr,expr) $ \(valid, dist) -> valid ? (dist, 0)) $
@@ -1080,13 +1081,13 @@ distanceMapEdges sh edges =
 distanceMapEdgesRun ::
    DIM2 -> Array DIM1 ((Float,Float),(Float,Float)) -> Plane Word8
 distanceMapEdgesRun =
-   Run.with CUDA.run1 $ \sh ->
+   Run.with cudaRun1 $ \sh ->
       imageByteFromFloat . A.map (0.01*) . distanceMapEdges sh
 
 type Geometry a = Arith.Geometry Int a
 
 distanceMapBox ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.RealFloat a, A.FromIntegral Int a) =>
    Exp DIM2 ->
    Exp (Geometry a) ->
    Acc (Channel Z (Bool, (((a,(a,a)), (a,(a,a))), ((a,(a,a)), (a,(a,a))))))
@@ -1137,7 +1138,7 @@ separateDistanceMap arr =
 
 distanceMapBoxRun :: DIM2 -> Geometry Float -> Plane Word8
 distanceMapBoxRun =
-   Run.with CUDA.run1 $ \sh geom ->
+   Run.with cudaRun1 $ \sh geom ->
       scaleDistanceMapGeom geom $
       A.map (Exp.modify (expr,expr) $ \(valid, dist) -> valid ? (dist, 0)) $
       maskedMinimum $
@@ -1160,12 +1161,12 @@ array1FromList xs = A.fromList (Z :. length xs) xs
 
 
 containedAnywhere ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.RealFloat a) =>
    Acc (Array DIM1 (Geometry a)) ->
    Acc (Array DIM3 (a,a)) ->
    Acc (Array DIM3 Bool)
 containedAnywhere geoms arr =
-   A.fold1 (||*) $
+   A.fold1 (A.||) $
    breakFusion $
    outerVector
       (Exp.modify2 (expr,expr) ((expr,expr),(expr,expr),(expr,expr)) $
@@ -1176,7 +1177,7 @@ containedAnywhere geoms arr =
 
 
 distanceMapContained ::
-   (A.IsFloating a, A.Elt a) =>
+   (A.RealFloat a, A.FromIntegral Int a) =>
    Exp DIM2 ->
    Exp (Geometry a) ->
    Acc (Array DIM1 (Geometry a)) ->
@@ -1188,19 +1189,19 @@ distanceMapContained sh this others =
        maskedMinimum $
        A.zipWith
           (Exp.modify2 expr (expr,(expr,expr)) $ \c (b,(dist,_)) ->
-             (c&&*b, dist))
+             (c A.&& b, dist))
           contained distMap
 
 distanceMapContainedRun ::
    DIM2 -> Geometry Float -> [Geometry Float] -> Plane Word8
 distanceMapContainedRun =
    let distances =
-          Run.with CUDA.run1 $
+          Run.with cudaRun1 $
           \sh this -> scaleDistanceMapGeom this . distanceMapContained sh this
    in  \sh this others -> distances sh this $ array1FromList others
 
 scaleDistanceMapGeom ::
-   (A.IsFloating a, A.Elt a, A.Elt b, A.Shape ix) =>
+   (A.RealFloat a, A.FromIntegral Int a, A.Elt b, A.Shape ix) =>
    Exp (Geometry b) -> Acc (Array ix a) -> Acc (Array ix Word8)
 scaleDistanceMapGeom this =
    let scale = (4/) $ A.fromIntegral $ A.uncurry min $ Exp.thd3 this
@@ -1208,14 +1209,13 @@ scaleDistanceMapGeom this =
 
 
 pixelCoordinates ::
-   (A.Elt a, A.IsFloating a) =>
-   Exp DIM2 -> Acc (Channel Z (a,a))
+   (A.RealFloat a, A.FromIntegral Int a) => Exp DIM2 -> Acc (Channel Z (a,a))
 pixelCoordinates sh =
    A.generate sh $ Exp.modify (expr:.expr:.expr) $ \(_z:.y:.x) ->
       (A.fromIntegral x, A.fromIntegral y)
 
 distanceMapPoints ::
-   (A.Slice ix, A.Shape ix, A.Elt a, A.IsFloating a) =>
+   (A.Slice ix, A.Shape ix, A.RealFloat a) =>
    Acc (Array ix (a,a)) ->
    Acc (Array DIM1 (a,a)) ->
    Acc (Array ix a)
@@ -1228,12 +1228,13 @@ distanceMapPoints a b =
 distanceMapPointsRun :: DIM2 -> [Point2 Float] -> Plane Word8
 distanceMapPointsRun =
    let distances =
-          Run.with CUDA.run1 $
+          Run.with cudaRun1 $
           \sh -> scaleDistanceMap . distanceMapPoints (pixelCoordinates sh)
    in  \sh points -> distances sh $ array1FromList points
 
 scaleDistanceMap ::
-   (A.Elt a, A.IsFloating a) => Acc (Channel Z a) -> Acc (Channel Z Word8)
+   (A.RealFloat a, A.FromIntegral Int a) =>
+   Acc (Channel Z a) -> Acc (Channel Z Word8)
 scaleDistanceMap arr =
    let scale =
          case Exp.unlift (expr:.expr:.expr) (A.shape arr) of
@@ -1257,7 +1258,7 @@ We simply compute the distances to all special points
 and chose the minimal distance.
 -}
 distanceMap ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.RealFloat a, A.FromIntegral Int a) =>
    Exp DIM2 ->
    Exp (Geometry a) ->
    Acc (Array DIM1 (Geometry a)) ->
@@ -1276,7 +1277,7 @@ distanceMapRun ::
    Plane Word8
 distanceMapRun =
    let distances =
-          Run.with CUDA.run1 $
+          Run.with cudaRun1 $
           \sh this others -> scaleDistanceMap . distanceMap sh this others
    in  \sh this others points ->
           distances sh this
@@ -1285,7 +1286,7 @@ distanceMapRun =
 
 
 distanceMapGamma ::
-   (A.Elt a, A.IsFloating a) =>
+   (A.RealFloat a, A.FromIntegral Int a) =>
    Exp a ->
    Exp DIM2 ->
    Exp (Geometry a) ->
@@ -1301,14 +1302,14 @@ emptyWeightedCanvas ::
    ix :. Int :. Int ->
    (Plane Float, Channel ix Float)
 emptyWeightedCanvas =
-   Run.with CUDA.run1 $ \sh ->
+   Run.with cudaRun1 $ \sh ->
       let (_ix :. height :. width) = unliftDim2 sh
       in  (A.fill (A.lift $ Z:.height:.width) 0,
            A.fill sh 0)
 
 
 addToWeightedCanvas ::
-   (A.Slice ix, A.Shape ix, A.Elt a, A.IsNum a) =>
+   (A.Slice ix, A.Shape ix, A.Num a) =>
    (Acc (Channel Z a), Acc (Channel ix a)) ->
    (Acc (Channel Z a), Acc (Channel ix a)) ->
    (Acc (Channel Z a), Acc (Channel ix a))
@@ -1327,7 +1328,7 @@ updateWeightedCanvasMerged ::
    (Plane Float, Channel DIM1 Float)
 updateWeightedCanvasMerged =
    let update =
-          Run.with CUDA.run1 $
+          Run.with cudaRun1 $
           \this others points pic (weightSum,canvas) ->
              let (rot, mov, _) =
                     Exp.unlift ((expr,expr), (expr,expr), expr) this
@@ -1351,9 +1352,9 @@ updateWeightedCanvas ::
    (Plane Float, Channel DIM1 Float) ->
    (Plane Float, Channel DIM1 Float)
 updateWeightedCanvas =
-   let distances = Run.with CUDA.run1 distanceMapGamma
+   let distances = Run.with cudaRun1 distanceMapGamma
        update =
-          Run.with CUDA.run1 $
+          Run.with cudaRun1 $
           \this pic dist (weightSum,canvas) ->
              let (rot, mov, _) =
                     Exp.unlift ((expr,expr), (expr,expr), expr) this
@@ -1378,10 +1379,10 @@ updateWeightedCanvasSplit ::
    (Plane Float, Channel DIM1 Float) ->
    (Plane Float, Channel DIM1 Float)
 updateWeightedCanvasSplit =
-   let update = Run.with CUDA.run1 addToWeightedCanvas
-       distances = Run.with CUDA.run1 distanceMap
+   let update = Run.with cudaRun1 addToWeightedCanvas
+       distances = Run.with cudaRun1 distanceMap
        rotated =
-          Run.with CUDA.run1 $
+          Run.with cudaRun1 $
           \sh rot mov pic ->
              snd $ rotateStretchMove rot mov (unliftDim2 sh) $
              separateChannels $ imageFloatFromByte pic
@@ -1397,7 +1398,7 @@ updateWeightedCanvasSplit =
 finalizeWeightedCanvas ::
    (Plane Float, Channel DIM1 Float) -> ColorImage8
 finalizeWeightedCanvas =
-   Run.with CUDA.run1 $
+   Run.with cudaRun1 $
    \(weightSum, canvas) ->
       imageByteFromFloat $ interleaveChannels $
       A.zipWith (/) canvas $
@@ -1648,14 +1649,14 @@ processRotation args = do
       let pic0 : pic1 : _ = map snd rotated
           size = (Z:.512:.1024 :: DIM2)
       writeGrey (Option.quality opt) "/tmp/padded.jpeg" $
-         CUDA.run1 (imageByteFromFloat . pad 0 (A.lift size)) pic0
+         cudaRun1 (imageByteFromFloat . pad 0 (A.lift size)) pic0
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" $
-         CUDA.run $ imageByteFromFloat $ A.map AComplex.magnitude $
+         cudaRun $ imageByteFromFloat $ A.map AComplex.magnitude $
          fft2DPlain CUFFT.forwardReal $
-         CUDA.run1 (pad 0 (A.lift size)) $
+         cudaRun1 (pad 0 (A.lift size)) $
          pic0
       writeGrey (Option.quality opt) "/tmp/convolution.jpeg" $
-         CUDA.run $ imageByteFromFloat $ A.map (0.000001*) $
+         cudaRun $ imageByteFromFloat $ A.map (0.000001*) $
          correlatePadded size (A.use pic0) (A.use pic1)
 
    return $
