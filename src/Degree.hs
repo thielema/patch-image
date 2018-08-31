@@ -4,14 +4,18 @@ import qualified Arithmetic as Arith
 
 import qualified Data.Csv as Csv
 import Data.Monoid (Monoid, mempty, mappend)
+import Data.Semigroup (Semigroup, (<>))
 
 
 newtype Degree a = Degree {getDegree :: a}
    deriving (Eq, Show)
 
+instance (Num a) => Semigroup (Degree a) where
+   Degree x <> Degree y = Degree $ x+y
+
 instance (Num a) => Monoid (Degree a) where
    mempty = Degree 0
-   mappend (Degree x) (Degree y) = Degree $ x+y
+   mappend = (<>)
 
 instance Functor Degree where
    fmap f (Degree x) = Degree $ f x
