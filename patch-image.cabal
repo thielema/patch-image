@@ -95,6 +95,7 @@ Executable patch-image-llvm
       containers >=0.4.2 && <0.7,
       semigroups >=0.1 && <1.0,
       fft >=0.1.7 && <0.2,
+      storable-complex >=0.2.2 && <0.3,
       storable-tuple >=0.0.3 && <0.1,
       bool8 >=0.0 && <0.1,
       carray >=0.1.5 && <0.2,

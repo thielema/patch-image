@@ -52,6 +52,7 @@ import qualified Codec.Picture as Pic
 
 import qualified Data.Vector.Storable as SV
 import Foreign.ForeignPtr (ForeignPtr, castForeignPtr)
+import Foreign.Storable.Complex ()
 
 import qualified System.FilePath as FilePath
 import qualified System.IO as IO
