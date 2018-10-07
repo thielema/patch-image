@@ -1,3 +1,73 @@
+cabal run patch-image-llvm -- --output-overlap='/tmp/overlap-%s-%s.jpeg' --output=/tmp/collage-smooth.jpeg --output-hard=/tmp/collage-hard.jpeg data/wmb?small.jpeg
+
+Geht Drehen schneller, wenn man es auf kleine Bild-Kacheln anwendet?
+   Die Frage ist, ob das Cache-freundlicher wäre.
+
+MatchImageBorders verwendet immer noch Routinen auf CArray.
+   Das muss doch ziemlich langsam sein.
+   Vielleicht sollten wir die Routinen doch mal optimieren?
+
+Option: benutze optparse-applicative
+   erlaube output-overlap-Option nur, wenn kein finetune-rotate angegeben
+
+Demonstriere Progamm an Beispielbildern:
+   zerschnippelter Lorem-Ipsum-Text mit Fotos
+
+Benutze mehrere Kerne
+   sollte man immer +RTS -N - auf maximale Anzahl Prozesse setzen,
+   und dann mit einer -j-Option nur einen Teil davon nutzen lassen?
+   Das ginge zumindest schon mit GHC-7.4.2.
+   Eine einfache Parallelisierung bestünde darin,
+   die Rotations- und Überlappungsphasen hintereinander laufen zu lassen
+   und die einzelnen Rotations- und Überlappungsjobs zu parallelisieren.
+   Sobald man die ersten zwei Bilder rotiert hat,
+   kann man sie aber in die Überlappungsroutine stecken.
+   Nötig ist das aber nicht.
+   Es reicht auch, die Rotationsjobs erst alle parallelisiert abzuarbeiten
+   und dann die Überlappungsjobs bereits halb parallel mitabzuarbeiten.
+   Sinnvoll wäre es, die Überlappungsjobs so anzuordnen,
+   dass erst die Bilder mit den kleinen Nummern drankommen,
+   denn deren Rotationsbestimmungen sind am ehesten durch.
+   Die Unterteilung des Programmes in Phasen
+   ist dann vielleicht nicht mehr so sinnvoll,
+
+benutze NonEmpty für Liste von Bildern
+
+move to accelerate-1.0
+
+State.Rotated:
+   Wir testen zwar überall auf Konsistenz,
+   aber der Csv.Parser zeigt am Ende meistens nur EndOfInput als Meldung. :-(
+
+leastSquaresSelected:
+   würde auch eine schöne Hilfsfunktion für ein LAPACK-Utility-Paket abgeben
+
+layoutFromPairDisplacements:
+   NonEmptyMixed.sliceVertical: könnte das Zerlegen typsicher machen
+
+layoutFromPairDisplacements, alternative Implementierung:
+   setze Matrixmultiplikation so um, wie sie im Kommentar steht,
+   also als Beziehung zwischen zwei Bildern.
+   Weil das von Anordnung des Bildpaares abhängt,
+   schreibe immer beide Richtungen in Gleichungssystem.
+   Das haut aber auch nicht hin,
+   weil man in umgekehrter Richtung Rotation und Verschiebung vertauschen müsste.
+   Oder man arbeitet von beiden Bilden zu einem gemeinsamen Mittelpunkt
+      auf halber Strecke mit halber Drehung.
+   Damit kann man nur Drehungen zueinander bestimmen.
+   Das könnten wir aber für Paartabelle nutzen.
+
+LibreOffice ist nicht gut im Lesen von CSV mit englischen Zahlen
+   Können das alternative Tabellenkalkulationen besser?
+   gnumeric, calligrasheets, pyspread
+
+Is correlation the right operation for matching shifted images?
+   Could we compute norms of image differences instead?
+
+correlatePadded:
+   wrap array, such that negative offsets are at negative indices
+   shrink to the real size
+
 MatchImageBorders: denkbare Verbesserungen
    Ist es sinnvoll und möglich, weniger ausgefranste Umrisse zu erhalten?
       Bestrafe auf irgendeine Weise die Entfernung von Punkten,
@@ -82,6 +152,10 @@ besseres Überlagern der Teilbilder
          Nimm Silhouetten von abgeknabberten Bildern
          und glätte sie mit Gaußfilter.
          Nimm geglättete Silhouetten als Wichtung bei Überlagerung.
+
+Schritte bei Drehung daran orientieren,
+   um wieviele Bildpunkte das Bild aus der Waagerechten gedreht wird.
+   Um halbe Punkte zu drehen ist wahrscheinlich nicht sehr sinnvoll, oder?
 
 besserer Matching-Score
    bei "Kaltes Herz" schlägt die Erkennung der optimalen relativen Verschiebung
