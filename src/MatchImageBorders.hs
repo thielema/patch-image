@@ -12,7 +12,8 @@ module MatchImageBorders where
 
 import Knead.Shape (Vec2(Vec2), Dim2)
 
-import qualified Data.Array.Knead.Simple.Physical as Phys
+import qualified Data.Array.Comfort.Shape as ComfortShape
+import Data.Array.Comfort.Storable.Internal (Array(Array))
 
 import qualified Data.PQueue.Prio.Max as PQ
 import qualified Data.Set as Set
@@ -37,20 +38,23 @@ import Control.Monad (filterM)
 import Control.Applicative ((<$>))
 
 
-arrayCFromKnead :: Phys.Array Dim2 a -> IO (CArray (Int,Int) a)
-arrayCFromKnead (Phys.Array (Vec2 height width) fptr) =
+arrayCFromKnead :: Array Dim2 a -> IO (CArray (Int,Int) a)
+arrayCFromKnead
+   (Array
+      (Vec2 (ComfortShape.ZeroBased height) (ComfortShape.ZeroBased width))
+      fptr) =
    CArrayPriv.unsafeForeignPtrToCArray fptr
       ((0,0), (fromIntegral height - 1, fromIntegral width - 1))
 
 arrayKneadFromC ::
-   (Storable a) => CArray (Int,Int) a -> Phys.Array Dim2 a
+   (Storable a) => CArray (Int,Int) a -> Array Dim2 a
 arrayKneadFromC carray =
    case bounds carray of
       ((ly,lx), (uy,ux)) ->
-         Phys.Array
+         Array
             (Vec2
-               (fromIntegral (rangeSize (ly,uy)))
-               (fromIntegral (rangeSize (lx,ux))))
+               (ComfortShape.ZeroBased $ fromIntegral $ rangeSize (ly,uy))
+               (ComfortShape.ZeroBased $ fromIntegral $ rangeSize (lx,ux)))
             (snd $ CArrayPriv.toForeignPtr carray)
 
 

@@ -16,8 +16,8 @@ import LinearAlgebra (
    layoutFromPairDisplacements, fixAtLeastOneAnglePosition,
    )
 import Knead.Shape
-         (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Index2, Ix2, Factor2,
-          verticalVal, horizontalVal)
+         (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Shape2ZB, Index2, Ix2, Factor2,
+          verticalSize, verticalVal, horizontalVal)
 import Degree (Degree(Degree), getDegree)
 
 import qualified Math.FFT as FFT
@@ -32,6 +32,9 @@ import qualified Data.Array.Knead.Expression as Expr
 import Data.Array.Knead.Simple.Symbolic ((!))
 import Data.Array.Knead.Expression
          (Exp, (==*), (<*), (<=*), (>=*), (||*), (&&*))
+
+import qualified Data.Array.Comfort.Storable.Internal as ComfortArray
+import qualified Data.Array.Comfort.Shape as ComfortShape
 
 import Data.Array.IArray (amap)
 import Data.Array.CArray (CArray)
@@ -88,6 +91,7 @@ import Prelude ()
 
 
 type SmallSize = Word32
+type SmallDim = Shape.ZeroBased SmallSize
 
 type Plane = Phys.Array Dim2
 type SymbPlane = Symb.Array Dim2
@@ -97,7 +101,10 @@ type ColorImage8 = ColorImage Word8
 type YUV a = (a,a,a)
 
 shape2 :: (Integral i) => i -> i -> Dim2
-shape2 height width = Vec2 (fromIntegral height) (fromIntegral width)
+shape2 height width =
+   Vec2
+      (Shape.ZeroBased $ fromIntegral height)
+      (Shape.ZeroBased $ fromIntegral width)
 
 
 readImage :: Verbosity -> FilePath -> IO ColorImage8
@@ -115,7 +122,7 @@ readImage verbosity path = do
                      (Pic.imageHeight pic)
                      (SV.length dat)
                return $
-                  Phys.Array
+                  ComfortArray.Array
                      (shape2 (Pic.imageHeight pic) (Pic.imageWidth pic))
                      (castForeignPtr $ fst $ SV.unsafeToForeignPtr0 dat)
             _ -> ioError $ userError "unsupported image type"
@@ -127,13 +134,14 @@ vectorStorableFrom ::
    Phys.Array sh c -> SV.Vector a
 vectorStorableFrom castArray img =
    SV.unsafeFromForeignPtr0
-      (castArray $ Phys.buffer img) (fromIntegral $ Shape.size $ Phys.shape img)
+      (castArray $ ComfortArray.buffer img)
+      (fromIntegral $ ComfortShape.size $ Phys.shape img)
 
 imageFromArray ::
    (Pic.PixelBaseComponent c ~ a, SV.Storable a) =>
    (ForeignPtr b -> ForeignPtr a) -> Phys.Array Dim2 b -> Pic.Image c
 imageFromArray castArray img =
-   let Vec2 height width = Phys.shape img
+   let Vec2 (Shape.ZeroBased height) (Shape.ZeroBased width) = Phys.shape img
    in Pic.Image {
          Pic.imageWidth = fromIntegral width,
          Pic.imageHeight = fromIntegral height,
@@ -152,7 +160,8 @@ writeGrey quality path img =
 
 colorImageExtent :: ColorImage8 -> (Size, Size)
 colorImageExtent pic =
-   case Phys.shape pic of Vec2 height width -> (width, height)
+   case Phys.shape pic of
+      Vec2 (Shape.ZeroBased height) (Shape.ZeroBased width) -> (width, height)
 
 
 fromInt ::
@@ -238,8 +247,8 @@ ceilingToInt = Expr.liftM MultiValue.ceilingToInt
 
 
 
-atomDim2 :: Shape2 (Atom i)
-atomDim2 = Vec2 atom atom
+atomDim2 :: Shape2ZB (Atom i)
+atomDim2 = Vec2 (Shape.ZeroBased atom) (Shape.ZeroBased atom)
 
 atomIx2 :: Index2 (Atom i)
 atomIx2 = Vec2 atom atom
@@ -247,14 +256,16 @@ atomIx2 = Vec2 atom atom
 atomFactor2 :: Factor2 (Atom i)
 atomFactor2 = Vec2 atom atom
 
-decomposeDim2 :: Exp (Shape2 i) -> Shape2 (Exp i)
-decomposeDim2 = Expr.decompose atomDim2
+decomposeDim2 :: Exp (Shape2ZB i) -> Shape2 (Exp i)
+decomposeDim2 sh =
+   case Expr.decompose atomDim2 sh of
+      Vec2 (Shape.ZeroBased h) (Shape.ZeroBased w) -> Vec2 h w
 
 decomposeFactor2 :: Exp (Factor2 i) -> Factor2 (Exp i)
 decomposeFactor2 = Expr.decompose atomFactor2
 
-dim2 :: Exp i -> Exp i -> Exp (Shape2 i)
-dim2 h w = Expr.compose (Vec2 h w)
+dim2 :: Exp i -> Exp i -> Exp (Shape2ZB i)
+dim2 h w = Expr.compose (Vec2 (Shape.ZeroBased h) (Shape.ZeroBased w))
 
 ix2 :: Exp i -> Exp i -> Exp (Index2 i)
 ix2 y x = Expr.compose (Vec2 y x)
@@ -509,7 +520,11 @@ rowHistogram =
 
 
 tailArr :: (Symb.C array) => array Dim1 a -> array Dim1 a
-tailArr = ShapeDep.backpermute (Expr.max 0 . flip Expr.sub 1) (Expr.add 1)
+tailArr =
+   ShapeDep.backpermute
+      (Expr.modify (Shape.ZeroBased atom)
+         (fmap (Expr.max 0 . flip Expr.sub 1)))
+      (Expr.add 1)
 
 differentiate ::
    (Symb.C array, MultiValue.Additive a) => array Dim1 a -> array Dim1 a
@@ -546,7 +561,7 @@ lowpassVert, lowpass ::
    (MultiValue.Field a, MultiValue.Real a, MultiValue.RationalConstant a) =>
    SymbPlane a -> SymbPlane a
 lowpassVert img =
-   let height = verticalVal $ Symb.shape img
+   let height = verticalSize $ Symb.shape img
    in  generate (Symb.shape img) $ Expr.modify atomIx2 $ \(Vec2 y x) ->
          Arith.smooth3
             (img ! ix2 (Expr.max 0 (y-1)) x,
@@ -603,7 +618,8 @@ correlatePadded ::
    (FFTWReal a, MultiValue.Real a, MultiMem.C a,
     MultiValue.Field a, MultiValue.RationalConstant a) =>
    Dim2 -> IO (Plane a -> Plane a -> IO (Plane a))
-correlatePadded padExtent@(Vec2 height width) = do
+correlatePadded
+      padExtent@(Vec2 (Shape.ZeroBased height) (Shape.ZeroBased width)) = do
    let sh = Expr.cons padExtent
    mergePlanes <-
       RenderP.run $ \a b ->
@@ -636,7 +652,7 @@ prepareOverlapMatching = do
    hp <- highpassMulti
    rotat <- RenderP.run $ rotate Arith.vecScalar
    return $ \radius (angle, img) ->
-      let Vec2 height width = Phys.shape img
+      let Vec2 (Shape.ZeroBased height) (Shape.ZeroBased width) = Phys.shape img
           rot = Degree.cis angle
           ((left, _right), (top, _bottom)) =
             Arith.boundingBoxOfRotated rot
@@ -690,7 +706,8 @@ allOverlapsFromCorrelation ::
    Exp Float ->
    Exp Dim2 -> Exp Dim2 -> SymbPlane Float ->
    SymbPlane (Float, (Size, Size))
-allOverlapsFromCorrelation (Vec2 height width) minOverlapPortion =
+allOverlapsFromCorrelation
+   (Vec2 (Shape.ZeroBased height) (Shape.ZeroBased width)) minOverlapPortion =
    \sha shb correlated ->
       let (Vec2 heighta widtha) = decomposeDim2 sha
           (Vec2 heightb widthb) = decomposeDim2 shb
@@ -763,8 +780,12 @@ shrink (Vec2 yk xk) =
    Symb.map (/ (fromInt xk * fromInt yk)) .
    Symb.fold1 Expr.add .
    ShapeDep.backpermute
-      (Expr.modify atomDim2 $ \(Vec2 height width) ->
-         (Vec2 (Expr.idiv height yk) (Expr.idiv width xk), Vec2 yk xk))
+      (Expr.modify atomDim2 $
+         \(Vec2 (Shape.ZeroBased height) (Shape.ZeroBased width)) ->
+            (Vec2
+               (Shape.ZeroBased (Expr.idiv height yk))
+               (Shape.ZeroBased (Expr.idiv width xk)),
+             Vec2 (Shape.ZeroBased yk) (Shape.ZeroBased xk)))
       (Expr.modify (atomIx2, atomIx2) $
          \(Vec2 yi xi, Vec2 yj xj) -> Vec2 (yi*yk+yj) (xi*xk+xj))
 
@@ -776,9 +797,12 @@ In most cases the shrink factors are the same
 independent from whether minOverlap is zero or not.
 -}
 shrinkFactors ::
-   (Integral a) => Dim2 -> Float -> Shape2 a -> Shape2 a -> Factor2 a
-shrinkFactors (Vec2 heightPad widthPad) minOverlapPortion
-   (Vec2 heighta widtha) (Vec2 heightb widthb) =
+   (Integral a) => Dim2 -> Float -> Shape2ZB a -> Shape2ZB a -> Factor2 a
+shrinkFactors
+   (Vec2 (Shape.ZeroBased heightPad) (Shape.ZeroBased widthPad))
+   minOverlapPortion
+   (Vec2 (Shape.ZeroBased heighta) (Shape.ZeroBased widtha))
+   (Vec2 (Shape.ZeroBased heightb) (Shape.ZeroBased widthb)) =
       let minOverlap =
             Arith.minimumOverlapAbsFromPortion minOverlapPortion
                (min widtha widthb, min heighta heightb)
@@ -794,11 +818,14 @@ This is not necessary here
 since we expect that the user chooses an FFT friendly target size.
 -}
 shrinkFactorsAlt ::
-   (Bits a, Integral a) => Float -> Dim2 -> Shape2 a -> Shape2 a -> Factor2 a
-shrinkFactorsAlt minOverlapPortion (Vec2 heightPad widthPad) a b =
+   (Bits a, Integral a) =>
+   Float -> Dim2 -> Shape2ZB a -> Shape2ZB a -> Factor2 a
+shrinkFactorsAlt minOverlapPortion
+      (Vec2 (Shape.ZeroBased heightPad) (Shape.ZeroBased widthPad)) a b =
    let (widthc,heightc) =
          Arith.correlationSize minOverlapPortion $
-         map (\(Vec2 height width) -> (width, height)) [a,b]
+         map (\(Vec2 (Shape.ZeroBased height) (Shape.ZeroBased width)) ->
+                  (width, height)) [a,b]
    in Vec2
          (Arith.divUp heightc $ fromIntegral heightPad)
          (Arith.divUp widthc $ fromIntegral widthPad)
@@ -830,10 +857,12 @@ clip (left,top) (width,height) =
 
 overlappingArea ::
    (Ord a, Num a) =>
-   Shape2 a ->
-   Shape2 a ->
+   Shape2ZB a ->
+   Shape2ZB a ->
    (a, a) -> ((a, a), (a, a), (a, a))
-overlappingArea (Vec2 heighta widtha) (Vec2 heightb widthb) (dx, dy) =
+overlappingArea
+      (Vec2 (Shape.ZeroBased heighta) (Shape.ZeroBased widtha))
+      (Vec2 (Shape.ZeroBased heightb) (Shape.ZeroBased widthb)) (dx, dy) =
    let left = max 0 dx
        top  = max 0 dy
        right  = min widtha  (widthb  + dx)
@@ -850,7 +879,9 @@ using a part in the overlapping area.
 -}
 optimalOverlapBigFine ::
    Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
-optimalOverlapBigFine padExtent@(Vec2 heightPad widthPad) = do
+optimalOverlapBigFine
+   padExtent@(Vec2 (Shape.ZeroBased heightPad) (Shape.ZeroBased widthPad)) =
+   do
    overlap <- optimalOverlap padExtent
    -- optimalOverlap is compiled again here
    overlapBig <- optimalOverlapBig padExtent
@@ -884,13 +915,17 @@ optimalOverlapBigMulti ::
    Dim2 -> Dim2 -> Int ->
    IO (Float -> Maybe Float -> Plane Float -> Plane Float ->
        IO [(Float, (Size, Size), (Size, Size))])
-optimalOverlapBigMulti padExtent (Vec2 heightStamp widthStamp) numCorrs = do
+optimalOverlapBigMulti padExtent
+      (Vec2 (Shape.ZeroBased heightStamp) (Shape.ZeroBased widthStamp))
+      numCorrs = do
    shrnk <- RenderP.run $ shrink . decomposeFactor2
    optOverlap <- optimalOverlap padExtent
    overDiff <- overlapDifferenceRun
    clp <- RenderP.run clip
 
-   optOverlapFine <- optimalOverlap $ Vec2 (2*heightStamp) (2*widthStamp)
+   optOverlapFine <-
+      optimalOverlap $
+      Vec2 (Shape.ZeroBased (2*heightStamp)) (Shape.ZeroBased (2*widthStamp))
    let overlapFine minimumOverlap a b
          anchorA@(leftA, topA) anchorB@(leftB, topB) extent@(width,height) = do
             let addCoarsePos (score, (xm,ym)) =
@@ -1127,7 +1162,7 @@ maybePlus f x y =
 
 maskedMinimum ::
    (Shape.C sh, Symb.C array, MultiValue.Real a) =>
-   array (sh, SmallSize) (Bool, a) -> array sh (Bool, a)
+   array (sh, SmallDim) (Bool, a) -> array sh (Bool, a)
 maskedMinimum = Symb.fold1 (maybePlus Expr.min)
 
 
@@ -1191,7 +1226,7 @@ expEven = isZero . flip Expr.irem 2
 separateDistanceMap ::
    (Symb.C array, Shape.C sh, MultiValue.C a) =>
    array sh (bool, ((a, a), (a, a))) ->
-   array (sh, SmallSize) (bool, a)
+   array (sh, SmallDim) (bool, a)
 separateDistanceMap array =
    outerProduct
       (Expr.modify2 (atom, ((atom, atom), (atom, atom))) atom $
@@ -1200,7 +1235,8 @@ separateDistanceMap array =
            Expr.ifThenElse (expEven $ Expr.idiv sel 2)
                (uncurry (Expr.ifThenElse (expEven sel)) horiz)
                (uncurry (Expr.ifThenElse (expEven sel)) vert)))
-      array (Symb.lift0 $ Symb.id 4)
+      array (Symb.lift0 $ Symb.id $
+             Expr.compose $ Shape.ZeroBased (4 :: Exp SmallSize))
 
 distanceMapBoxRun ::
    IO (Dim2 -> Geometry Float -> IO (Plane Word8))
@@ -1219,7 +1255,7 @@ containedAnywhere ::
    (Symb.C array, Shape.C sh,
     MultiValue.Field a, MultiValue.NativeFloating a ar,
     MultiValue.Real a, MultiValue.RationalConstant a) =>
-   array SmallSize (Geometry a) ->
+   array SmallDim (Geometry a) ->
    array sh (a,a) ->
    array sh Bool
 containedAnywhere geoms array =
@@ -1237,7 +1273,7 @@ distanceMapContained ::
     MultiValue.PseudoRing a, MultiValue.Field a, MultiValue.Real a) =>
    Exp Dim2 ->
    Exp (Geometry a) ->
-   Symb.Array SmallSize (Geometry a) ->
+   Symb.Array SmallDim (Geometry a) ->
    SymbPlane a
 distanceMapContained sh this others =
    let distMap = separateDistanceMap $ distanceMapBox sh this
@@ -1278,7 +1314,7 @@ distanceMapPoints ::
    (Shape.C sh, Symb.C array,
     MultiValue.Real a, MultiValue.Algebraic a, MultiValue.IntegerConstant a) =>
    array sh (a,a) ->
-   array SmallSize (a,a) ->
+   array SmallDim (a,a) ->
    array sh a
 distanceMapPoints a b =
    Symb.fold1 Expr.min $
@@ -1325,8 +1361,8 @@ distanceMap ::
     MultiValue.NativeFloating a ar) =>
    Exp Dim2 ->
    Exp (Geometry a) ->
-   Symb.Array SmallSize (Geometry a) ->
-   Symb.Array SmallSize (a, a) ->
+   Symb.Array SmallDim (Geometry a) ->
+   Symb.Array SmallDim (a, a) ->
    SymbPlane a
 distanceMap sh this others points =
    Symb.zipWith Expr.min
@@ -1365,8 +1401,8 @@ distanceMapGamma ::
    Exp a ->
    Exp Dim2 ->
    Exp (Geometry a) ->
-   Symb.Array SmallSize (Geometry a) ->
-   Symb.Array SmallSize (a, a) ->
+   Symb.Array SmallDim (Geometry a) ->
+   Symb.Array SmallDim (a, a) ->
    SymbPlane a
 distanceMapGamma gamma sh this others points =
    Symb.map (pow gamma) $ distanceMap sh this others points
@@ -1455,7 +1491,7 @@ processOverlap args = do
    pics <-
       map (mapPicParam (\(State.NoAngleCorrection, pos) -> pos)) <$>
       processRotation args
-   let padSize = fromIntegral $ Option.padSize opt
+   let padSize = Shape.ZeroBased $ fromIntegral $ Option.padSize opt
    (maybeAllOverlapsShared, optimalOverlapShared) <-
       case Just $ Vec2 padSize padSize of
          Just padExtent -> do
@@ -1464,6 +1500,7 @@ processOverlap args = do
          Nothing -> do
             let padExtent =
                    uncurry Vec2 $ swap $
+                   mapPair (Shape.ZeroBased, Shape.ZeroBased) $
                    Arith.correlationSize (Option.minimumOverlap opt) $
                    map (colorImageExtent . snd . picColored) pics
             overlap <- optimalOverlap padExtent
@@ -1675,7 +1712,7 @@ processRotation args = do
    when False $ do
       notice "write fft"
       let pic0 : pic1 : _ = map snd rotated
-          size = Vec2 1024 768
+          size = Vec2 (Shape.ZeroBased 1024) (Shape.ZeroBased 768)
       makeByteImage <-
          RenderP.run $ \k -> imageByteFromFloat . Symb.map (k*) . Symb.fix
       runPad <- RenderP.run pad

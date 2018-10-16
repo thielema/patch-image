@@ -5,6 +5,8 @@ module Knead.Shape where
 import qualified Data.Array.Knead.Shape.Nested as Shape
 import qualified Data.Array.Knead.Expression as Expr
 
+import qualified Data.Array.Comfort.Shape as ComfortShape
+
 import qualified LLVM.Extra.Multi.Value.Memory as MultiMem
 import qualified LLVM.Extra.Multi.Value as MultiValue
 import qualified LLVM.Extra.Iterator as Iter
@@ -43,8 +45,8 @@ but it is certainly the cleanest solution.
 -}
 type Size = Int64
 type Dim0 = ()
-type Dim1 = Size
-type Dim2 = Shape2 Size
+type Dim1 = Shape.ZeroBased Size
+type Dim2 = Shape2ZB Size
 type Ix2  = Index2 Size
 
 data Vec2 tag i = Vec2 {vertical, horizontal :: i}
@@ -54,6 +56,7 @@ data IndexTag
 data FactorTag
 
 type Shape2 = Vec2 ShapeTag
+type Shape2ZB n = Shape2 (Shape.ZeroBased n)
 type Index2 = Vec2 IndexTag
 type Factor2 = Vec2 FactorTag
 
@@ -137,24 +140,33 @@ unzipShape = MultiValue.decompose (squareShape atom)
 zipShape :: MultiValue.T n -> MultiValue.T n -> MultiValue.T (Vec2 tag n)
 zipShape y x = MultiValue.compose $ Vec2 y x
 
-instance (tag ~ ShapeTag, Shape.C i) => Shape.C (Vec2 tag i) where
+instance (tag ~ ShapeTag, ComfortShape.C i) => ComfortShape.C (Vec2 tag i) where
+   size (Vec2 n m) = ComfortShape.size n * ComfortShape.size m
+
+instance
+   (tag ~ ShapeTag, ComfortShape.Indexed i) =>
+      ComfortShape.Indexed (Vec2 tag i) where
    type Index (Vec2 tag i) = Index2 (Shape.Index i)
+   indices (Vec2 n m) = map (uncurry Vec2) $ ComfortShape.indices (n,m)
+   sizeOffset (Vec2 n m) (Vec2 i j) = ComfortShape.sizeOffset (n,m) (i,j)
+   inBounds (Vec2 n m) (Vec2 i j) = ComfortShape.inBounds (n,m) (i,j)
+
+instance (tag ~ ShapeTag, Shape.C i) => Shape.C (Vec2 tag i) where
    intersectCode a b =
       case (unzipShape a, unzipShape b) of
          (Vec2 an am, Vec2 bn bm) ->
             Monad.lift2 zipShape
                (Shape.intersectCode an bn)
                (Shape.intersectCode am bm)
-   sizeCode nm =
+   size nm =
       case unzipShape nm of
          Vec2 n m ->
-            join $ Monad.lift2 A.mul (Shape.sizeCode n) (Shape.sizeCode m)
-   size (Vec2 n m) = Shape.size n * Shape.size m
-   flattenIndexRec nm ij =
+            join $ Monad.lift2 A.mul (Shape.size n) (Shape.size m)
+   sizeOffset nm ij =
       case (unzipShape nm, unzipShape ij) of
          (Vec2 n m, Vec2 i j) -> do
-            (ns, il) <- Shape.flattenIndexRec n i
-            (ms, jl) <- Shape.flattenIndexRec m j
+            (ns, il) <- Shape.sizeOffset n i
+            (ms, jl) <- Shape.sizeOffset m j
             Monad.lift2 (,)
                (A.mul ns ms)
                (A.add jl =<< A.mul ms il)
@@ -182,3 +194,14 @@ instance (Expr.Decompose p) => Expr.Decompose (Vec2 tag p) where
 verticalVal, horizontalVal :: (Expr.Value val) => val (Vec2 tag n) -> val n
 verticalVal = Expr.lift1 (MultiValue.lift1 vertical)
 horizontalVal = Expr.lift1 (MultiValue.lift1 horizontal)
+
+verticalSize, horizontalSize ::
+   (Expr.Value val) => val (Shape2 (Shape.ZeroBased n)) -> val n
+verticalSize =
+   Expr.lift1
+      (Shape.zeroBasedSize . MultiValue.decompose (Shape.ZeroBased atom)) .
+   verticalVal
+horizontalSize =
+   Expr.lift1
+      (Shape.zeroBasedSize . MultiValue.decompose (Shape.ZeroBased atom)) .
+   horizontalVal
