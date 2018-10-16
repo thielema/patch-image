@@ -51,9 +51,11 @@ data Vec2 tag i = Vec2 {vertical, horizontal :: i}
 
 data ShapeTag
 data IndexTag
+data FactorTag
 
 type Shape2 = Vec2 ShapeTag
 type Index2 = Vec2 IndexTag
+type Factor2 = Vec2 FactorTag
 
 
 

@@ -16,7 +16,7 @@ import LinearAlgebra (
    layoutFromPairDisplacements, fixAtLeastOneAnglePosition,
    )
 import Knead.Shape
-         (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Index2, Ix2,
+         (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Index2, Ix2, Factor2,
           verticalVal, horizontalVal)
 import Degree (Degree(Degree), getDegree)
 
@@ -243,6 +243,9 @@ atomDim2 = Vec2 atom atom
 
 atomIx2 :: Index2 (Atom i)
 atomIx2 = Vec2 atom atom
+
+atomFactor2 :: Factor2 (Atom i)
+atomFactor2 = Vec2 atom atom
 
 dim2 :: Exp i -> Exp i -> Exp (Shape2 i)
 dim2 y x = Expr.compose (Vec2 y x)
@@ -749,7 +752,7 @@ optimalOverlap padExtent = do
 shrink ::
    (MultiValue.Field a, MultiValue.RationalConstant a, MultiValue.Real a,
     MultiValue.NativeFloating a ar) =>
-   Shape2 (Exp Size) -> SymbPlane a -> SymbPlane a
+   Factor2 (Exp Size) -> SymbPlane a -> SymbPlane a
 shrink (Vec2 yk xk) =
    Symb.map (/ (fromInt xk * fromInt yk)) .
    Symb.fold1 Expr.add .
@@ -767,7 +770,7 @@ In most cases the shrink factors are the same
 independent from whether minOverlap is zero or not.
 -}
 shrinkFactors ::
-   (Integral a) => Dim2 -> Float -> Shape2 a -> Shape2 a -> Shape2 a
+   (Integral a) => Dim2 -> Float -> Shape2 a -> Shape2 a -> Factor2 a
 shrinkFactors (Vec2 heightPad widthPad) minOverlapPortion
    (Vec2 heighta widtha) (Vec2 heightb widthb) =
       let minOverlap =
@@ -785,7 +788,7 @@ This is not necessary here
 since we expect that the user chooses an FFT friendly target size.
 -}
 shrinkFactorsAlt ::
-   (Bits a, Integral a) => Float -> Dim2 -> Shape2 a -> Shape2 a -> Shape2 a
+   (Bits a, Integral a) => Float -> Dim2 -> Shape2 a -> Shape2 a -> Factor2 a
 shrinkFactorsAlt minOverlapPortion (Vec2 heightPad widthPad) a b =
    let (widthc,heightc) =
          Arith.correlationSize minOverlapPortion $
@@ -798,7 +801,7 @@ shrinkFactorsAlt minOverlapPortion (Vec2 heightPad widthPad) a b =
 optimalOverlapBig ::
    Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
 optimalOverlapBig padExtent = do
-   shrnk <- RenderP.run $ shrink . Expr.decompose atomDim2
+   shrnk <- RenderP.run $ shrink . Expr.decompose atomFactor2
    optOverlap <- optimalOverlap padExtent
    return $ \minimumOverlap a b -> do
       let factors@(Vec2 yk xk) =
@@ -877,7 +880,7 @@ optimalOverlapBigMulti ::
    IO (Float -> Maybe Float -> Plane Float -> Plane Float ->
        IO [(Float, (Size, Size), (Size, Size))])
 optimalOverlapBigMulti padExtent (Vec2 heightStamp widthStamp) numCorrs = do
-   shrnk <- RenderP.run $ shrink . Expr.decompose atomDim2
+   shrnk <- RenderP.run $ shrink . Expr.decompose atomFactor2
    optOverlap <- optimalOverlap padExtent
    overDiff <- overlapDifferenceRun
    clp <- RenderP.run clip
