@@ -254,7 +254,7 @@ decomposeFactor2 :: Exp (Factor2 i) -> Factor2 (Exp i)
 decomposeFactor2 = Expr.decompose atomFactor2
 
 dim2 :: Exp i -> Exp i -> Exp (Shape2 i)
-dim2 y x = Expr.compose (Vec2 y x)
+dim2 h w = Expr.compose (Vec2 h w)
 
 ix2 :: Exp i -> Exp i -> Exp (Index2 i)
 ix2 y x = Expr.compose (Vec2 y x)
@@ -1301,7 +1301,7 @@ scaleDistanceMap ::
 scaleDistanceMap img =
    let scale =
          case decomposeDim2 $ Symb.shape img of
-            Vec2 y x -> 4 / fromInt (Expr.min x y)
+            Vec2 h w -> 4 / fromInt (Expr.min w h)
    in  imageByteFromFloat $ Symb.map (scale*) img
 
 
