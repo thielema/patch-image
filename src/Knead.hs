@@ -247,6 +247,12 @@ atomIx2 = Vec2 atom atom
 atomFactor2 :: Factor2 (Atom i)
 atomFactor2 = Vec2 atom atom
 
+decomposeDim2 :: Exp (Shape2 i) -> Shape2 (Exp i)
+decomposeDim2 = Expr.decompose atomDim2
+
+decomposeFactor2 :: Exp (Factor2 i) -> Factor2 (Exp i)
+decomposeFactor2 = Expr.decompose atomFactor2
+
 dim2 :: Exp i -> Exp i -> Exp (Shape2 i)
 dim2 y x = Expr.compose (Vec2 y x)
 
@@ -263,7 +269,7 @@ fromSize2 (x,y) = (fromInt x, fromInt y)
 
 indexLimit :: SymbPlane a -> Index2 (Exp Size) -> Exp a
 indexLimit img (Vec2 y x) =
-   let (Vec2 height width) = Expr.decompose atomDim2 $ Symb.shape img
+   let (Vec2 height width) = decomposeDim2 $ Symb.shape img
        xc = Expr.max 0 $ Expr.min (width -1) x
        yc = Expr.max 0 $ Expr.min (height-1) y
    in  img ! ix2 yc xc
@@ -273,8 +279,8 @@ limitIndices ::
    Exp Dim2 -> array sh Ix2 -> array sh Ix2
 limitIndices sh =
    Symb.map
-      (case Expr.decompose atomDim2 sh of
-         (Vec2 height width) ->
+      (case decomposeDim2 sh of
+         Vec2 height width ->
             Expr.modify atomIx2 $
                \(Vec2 y x) ->
                   let xc = Expr.max 0 $ Expr.min (width -1) x
@@ -449,7 +455,7 @@ rotateStretchMove ::
    SymbPlane (Bool8, v)
 rotateStretchMove vec rot mov sh img =
    let coords = rotateStretchMoveCoords rot mov sh
-       (Vec2 heightSrc widthSrc) = Expr.decompose atomDim2 $ Symb.shape img
+       (Vec2 heightSrc widthSrc) = decomposeDim2 $ Symb.shape img
    in  Symb.zip
          (validCoords (widthSrc, heightSrc) coords)
          (gatherFrac vec img $
@@ -465,7 +471,7 @@ rotate ::
    SymbPlane v ->
    SymbPlane v
 rotate vec rot img =
-   let (Vec2 height width) = Expr.decompose atomDim2 $ Symb.shape img
+   let (Vec2 height width) = decomposeDim2 $ Symb.shape img
        ((left, right), (top, bottom)) =
          Arith.boundingBoxOfRotatedGen (Expr.min, Expr.max)
             (Expr.unzip rot) (fromSize2 (width, height))
@@ -566,14 +572,14 @@ highpassMulti = do
 -- counterpart to 'clip'
 pad :: (MultiValue.C a) => Exp a -> Exp Dim2 -> SymbPlane a -> SymbPlane a
 pad a sh img =
-   let Vec2 height width = Expr.decompose atomDim2 $ Symb.shape img
+   let Vec2 height width = decomposeDim2 $ Symb.shape img
    in  generate sh $ \p ->
          let Vec2 y x = Expr.decompose atomIx2 p
          in  Expr.ifThenElse (y<*height &&* x<*width) (img ! p) a
 
 cyclicReverse2d :: (MultiValue.C a) => SymbPlane a -> SymbPlane a
 cyclicReverse2d spec =
-   let (Vec2 height width) = Expr.decompose atomDim2 $ Symb.shape spec
+   let (Vec2 height width) = decomposeDim2 $ Symb.shape spec
    in  Symb.backpermute (Symb.shape spec)
          (Expr.modify atomIx2 $ \(Vec2 y x) ->
             Vec2
@@ -645,7 +651,7 @@ wrap size split c = Expr.select (c<*split) c (c-size)
 displacementMap ::
    Exp Size -> Exp Size -> Exp Dim2 -> SymbPlane (Size, Size)
 displacementMap xsplit ysplit sh =
-   let Vec2 height width = Expr.decompose atomDim2 sh
+   let Vec2 height width = decomposeDim2 sh
    in  generate sh $ Expr.modify atomIx2 $ \(Vec2 y x) ->
          (wrap width xsplit x, wrap height ysplit y)
 
@@ -686,8 +692,8 @@ allOverlapsFromCorrelation ::
    SymbPlane (Float, (Size, Size))
 allOverlapsFromCorrelation (Vec2 height width) minOverlapPortion =
    \sha shb correlated ->
-      let (Vec2 heighta widtha) = Expr.decompose atomDim2 sha
-          (Vec2 heightb widthb) = Expr.decompose atomDim2 shb
+      let (Vec2 heighta widtha) = decomposeDim2 sha
+          (Vec2 heightb widthb) = decomposeDim2 shb
           half = flip Expr.idiv 2
           minOverlap =
              fastRound $
@@ -801,7 +807,7 @@ shrinkFactorsAlt minOverlapPortion (Vec2 heightPad widthPad) a b =
 optimalOverlapBig ::
    Dim2 -> IO (Float -> Plane Float -> Plane Float -> IO (Float, (Size, Size)))
 optimalOverlapBig padExtent = do
-   shrnk <- RenderP.run $ shrink . Expr.decompose atomFactor2
+   shrnk <- RenderP.run $ shrink . decomposeFactor2
    optOverlap <- optimalOverlap padExtent
    return $ \minimumOverlap a b -> do
       let factors@(Vec2 yk xk) =
@@ -880,7 +886,7 @@ optimalOverlapBigMulti ::
    IO (Float -> Maybe Float -> Plane Float -> Plane Float ->
        IO [(Float, (Size, Size), (Size, Size))])
 optimalOverlapBigMulti padExtent (Vec2 heightStamp widthStamp) numCorrs = do
-   shrnk <- RenderP.run $ shrink . Expr.decompose atomFactor2
+   shrnk <- RenderP.run $ shrink . decomposeFactor2
    optOverlap <- optimalOverlap padExtent
    overDiff <- overlapDifferenceRun
    clp <- RenderP.run clip
@@ -947,8 +953,8 @@ overlapDifference ::
    (Exp Size, Exp Size) ->
    SymbPlane a -> SymbPlane a -> Exp a
 overlapDifference (dx,dy) a b =
-   let (Vec2 heighta widtha) = Expr.decompose atomDim2 $ Symb.shape a
-       (Vec2 heightb widthb) = Expr.decompose atomDim2 $ Symb.shape b
+   let (Vec2 heighta widtha) = decomposeDim2 $ Symb.shape a
+       (Vec2 heightb widthb) = decomposeDim2 $ Symb.shape b
        leftOverlap = Expr.max 0 dx
        topOverlap  = Expr.max 0 dy
        rightOverlap  = Expr.min widtha  (widthb  + dx)
@@ -976,8 +982,8 @@ overlap2 ::
    (Exp Size, Exp Size) ->
    (SymbPlane v, SymbPlane v) -> SymbPlane v
 overlap2 vec (dx,dy) (a,b) =
-   let (Vec2 heighta widtha) = Expr.decompose atomDim2 $ Symb.shape a
-       (Vec2 heightb widthb) = Expr.decompose atomDim2 $ Symb.shape b
+   let (Vec2 heighta widtha) = decomposeDim2 $ Symb.shape a
+       (Vec2 heightb widthb) = decomposeDim2 $ Symb.shape b
        left = Expr.min 0 dx; right  = Expr.max widtha  (widthb  + dx)
        top  = Expr.min 0 dy; bottom = Expr.max heighta (heightb + dy)
        width  = right - left
@@ -1294,7 +1300,7 @@ scaleDistanceMap ::
    SymbPlane a -> SymbPlane Word8
 scaleDistanceMap img =
    let scale =
-         case Expr.decompose atomDim2 $ Symb.shape img of
+         case decomposeDim2 $ Symb.shape img of
             Vec2 y x -> 4 / fromInt (Expr.min x y)
    in  imageByteFromFloat $ Symb.map (scale*) img
 
