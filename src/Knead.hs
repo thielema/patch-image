@@ -824,8 +824,7 @@ clip ::
    (Exp Size, Exp Size) ->
    SymbPlane a -> SymbPlane a
 clip (left,top) (width,height) =
-   Symb.backpermute
-      (Expr.compose $ Vec2 height width)
+   Symb.backpermute (dim2 height width)
       (Expr.modify (Vec2 atom atom) $ \(Vec2 y x) -> Vec2 (y+top) (x+left))
 
 
