@@ -197,11 +197,5 @@ horizontalVal = Expr.lift1 (MultiValue.lift1 horizontal)
 
 verticalSize, horizontalSize ::
    (Expr.Value val) => val (Shape2 (Shape.ZeroBased n)) -> val n
-verticalSize =
-   Expr.lift1
-      (Shape.zeroBasedSize . MultiValue.decompose (Shape.ZeroBased atom)) .
-   verticalVal
-horizontalSize =
-   Expr.lift1
-      (Shape.zeroBasedSize . MultiValue.decompose (Shape.ZeroBased atom)) .
-   horizontalVal
+verticalSize = Shape.zeroBasedSize . verticalVal
+horizontalSize = Shape.zeroBasedSize . horizontalVal
