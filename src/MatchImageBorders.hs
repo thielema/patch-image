@@ -22,7 +22,7 @@ import Data.Set (Set)
 
 import qualified Data.Array.CArray.Base as CArrayPriv
 import Data.Array.IOCArray (IOCArray)
-import Data.Array.MArray (readArray, writeArray, freeze, thaw)
+import Data.Array.MArray (readArray, writeArray, thaw)
 import Data.Array.CArray (CArray)
 import Data.Array.IArray
          (Ix, amap, bounds, range, rangeSize, inRange, (!), (//))
@@ -120,7 +120,9 @@ shapeParts count masks =
    let loop :: Queue Int Int -> IO [CArray (Int, Int) Bool]
        loop queue =
          case PQ.maxView queue of
-            Nothing -> mapM (fmap (amap (/=locOutside)) . freeze) masks
+            Nothing ->
+               forM masks $
+                  fmap (amap (/=locOutside)) . CArrayPriv.freezeIOCArray
             Just (((locs, diffs), pos@(y,x)), remQueue) -> do
                n <- readArray count pos
                if n<=1
