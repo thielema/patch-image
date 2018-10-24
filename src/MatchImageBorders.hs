@@ -113,31 +113,34 @@ prepareShaping maskWeightss =
          (locations,
           fmap ((,) (locations, weights)) $ pqueueFromBorder weights border)
 
+
+loopQueue ::
+   (Monad m, Ord k) => (a -> m (MaxPQueue k a)) -> MaxPQueue k a -> m ()
+loopQueue f =
+   let loop queue =
+         case PQ.maxView queue of
+            Nothing -> return ()
+            Just (first, remQueue) -> loop . PQ.union remQueue =<< f first
+   in loop
+
 shapeParts ::
    IOCArray (Int, Int) Int ->
    [IOCArray (Int, Int) Location] ->
    Queue Int Int -> IO [CArray (Int, Int) Bool]
-shapeParts count masks =
-   let loop :: Queue Int Int -> IO [CArray (Int, Int) Bool]
-       loop queue =
-         case PQ.maxView queue of
-            Nothing ->
-               forM masks $
-                  fmap (amap (/=locOutside)) . CArrayPriv.freezeIOCArray
-            Just (((locs, diffs), pos@(y,x)), remQueue) -> do
-               n <- readArray count pos
-               if n<=1
-                 then loop remQueue
-                 else do
-                     writeArray count pos (n-1)
-                     writeArray locs pos locOutside
-                     envPoss <-
-                        filterM (fmap (locInside ==) . readArray locs) $
-                        filter (inRange (bounds diffs)) $
-                        map (mapPair ((y+), (x+)))
-                           [(0,1), (1,0), (0,-1), (-1,0)]
-                     forM_ envPoss $ \envPos ->
-                        writeArray locs envPos locBorder
-                     loop $ PQ.union remQueue $ PQ.fromList $
-                        map (\envPos -> (diffs!envPos, ((locs, diffs), envPos))) envPoss
-   in  loop
+shapeParts count masks queue = do
+   flip loopQueue queue $ \((locs, diffs), pos@(y,x)) -> do
+      n <- readArray count pos
+      if n<=1
+        then return PQ.empty
+        else do
+            writeArray count pos (n-1)
+            writeArray locs pos locOutside
+            envPoss <-
+               filterM (fmap (locInside ==) . readArray locs) $
+               filter (inRange (bounds diffs)) $
+               map (mapPair ((y+), (x+))) [(0,1), (1,0), (0,-1), (-1,0)]
+            forM_ envPoss $ \envPos -> writeArray locs envPos locBorder
+            return $ PQ.fromList $
+               map (\envPos -> (diffs!envPos, ((locs, diffs), envPos))) envPoss
+
+   forM masks $ fmap (amap (/=locOutside)) . CArrayPriv.freezeIOCArray
