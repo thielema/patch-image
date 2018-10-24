@@ -1836,7 +1836,7 @@ process args = do
       picDiffs <- mapM (flip diff avg) rotMovPics
       getSnd <- RenderP.run $ Symb.map Expr.snd . Symb.fix
       lp <- lowpassMulti
-      masks <- map (amap (Bool8.toBool . fst)) <$> mapM arrayCFromKnead picDiffs
+      masks <- map (amap fst) <$> mapM arrayCFromKnead picDiffs
       let smoothRadius = Option.shapeSmooth opt
       smoothPicDiffs <-
          mapM (arrayCFromKnead <=< lp smoothRadius <=< getSnd) picDiffs
@@ -1850,7 +1850,8 @@ process args = do
          forM_ (Option.outputShapeHard opt) $ \format ->
             forM_ (zip names shapes) $ \(name,shape) ->
                writeGrey (Option.quality opt) (printf format name) $
-               arrayKneadFromC $ amap (\b -> if b then 255 else 0) shape
+               arrayKneadFromC $
+               amap (\b -> if Bool8.toBool b then 255 else 0) shape
 
          emptyPlainCanv <- emptyCanvas
          addMasked <- addMaskedToCanvas
@@ -1858,9 +1859,7 @@ process args = do
          writeImage (Option.quality opt) path =<<
             foldM
                (\canvas (shape, rotMovPic) ->
-                  addMasked rotMovPic
-                     (arrayKneadFromC $ amap Bool8.fromBool shape)
-                     canvas)
+                  addMasked rotMovPic (arrayKneadFromC shape) canvas)
                emptyPlain (zip shapes rotMovPics)
 
       forM_ (Option.outputShaped opt) $ \path -> do

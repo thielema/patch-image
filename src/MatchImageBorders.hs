@@ -29,11 +29,13 @@ import Data.Array.IArray
 
 import Foreign.Storable (Storable)
 
+import qualified Data.Bool8 as Bool8
 import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Tuple.HT (mapPair, mapSnd)
 import Data.Maybe (mapMaybe, listToMaybe)
 import Data.Word (Word8)
+import Data.Bool8 (Bool8)
 
 import Control.Monad (filterM)
 import Control.Applicative ((<$>))
@@ -59,11 +61,11 @@ arrayKneadFromC carray =
             (snd $ CArrayPriv.toForeignPtr carray)
 
 
-findBorder :: (Ix i, Enum i, Ix j, Enum j) => CArray (i,j) Bool -> Set (i,j)
+findBorder :: (Ix i, Enum i, Ix j, Enum j) => CArray (i,j) Bool8 -> Set (i,j)
 findBorder mask =
    let ((yl,xl), (yu,xu)) = bounds mask
        revRange (l,u) = [u, pred u .. l]
-       first p = listToMaybe . dropWhile (not . p)
+       first p = listToMaybe . dropWhile (not . Bool8.toBool . p)
        findLeft   y = first (\x -> mask!(y,x)) $ range (xl,xu)
        findRight  y = first (\x -> mask!(y,x)) $ revRange (xl,xu)
        findTop    x = first (\y -> mask!(y,x)) $ range (yl,yu)
@@ -86,9 +88,9 @@ locOutside = 0
 locBorder = 1
 locInside = 2
 
-prepareLocations :: (Ix ix) => CArray ix Bool -> Set ix -> CArray ix Location
+prepareLocations :: (Ix ix) => CArray ix Bool8 -> Set ix -> CArray ix Location
 prepareLocations mask border =
-   amap (\b -> if b then locInside else locOutside) mask
+   amap (\b -> if Bool8.toBool b then locInside else locOutside) mask
    //
    map (flip (,) locBorder) (Set.toList border)
 
@@ -99,7 +101,7 @@ type
 
 prepareShaping ::
    (Ix i, Enum i, Ix j, Enum j) =>
-   [(CArray (i,j) Bool, CArray (i,j) Float)] ->
+   [(CArray (i,j) Bool8, CArray (i,j) Float)] ->
    IO ([IOCArray (i,j) Location], Queue i j)
 prepareShaping maskWeightss =
    fmap (mapSnd PQ.unions . unzip) $
@@ -123,7 +125,7 @@ loopQueue f =
 shapeParts ::
    IOCArray (Int, Int) Int ->
    [IOCArray (Int, Int) Location] ->
-   Queue Int Int -> IO [CArray (Int, Int) Bool]
+   Queue Int Int -> IO [CArray (Int, Int) Bool8]
 shapeParts count masks queue = do
    flip loopQueue queue $ \((locs, diffs), pos@(y,x)) -> do
       n <- readArray count pos
@@ -140,4 +142,5 @@ shapeParts count masks queue = do
             return $ PQ.fromList $
                map (\envPos -> (diffs!envPos, ((locs, diffs), envPos))) envPoss
 
-   forM masks $ fmap (amap (/=locOutside)) . CArrayPriv.freezeIOCArray
+   forM masks $
+      fmap (amap (Bool8.fromBool . (/=locOutside))) . CArrayPriv.freezeIOCArray
