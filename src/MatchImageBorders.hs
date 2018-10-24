@@ -30,7 +30,8 @@ import Data.Array.IArray
 import Foreign.Storable (Storable)
 
 import Data.Traversable (forM)
-import Data.Tuple.HT (mapSnd)
+import Data.Foldable (forM_)
+import Data.Tuple.HT (mapPair, mapSnd)
 import Data.Maybe (mapMaybe, listToMaybe)
 import Data.Word (Word8)
 
@@ -133,12 +134,10 @@ shapeParts count masks =
                      envPoss <-
                         filterM (fmap (locInside ==) . readArray locs) $
                         filter (inRange (bounds diffs)) $
-                        map
-                           (\(dy,dx) -> (y+dy, x+dx))
+                        map (mapPair ((y+), (x+)))
                            [(0,1), (1,0), (0,-1), (-1,0)]
-                     mapM_
-                        (\envPos -> writeArray locs envPos locBorder)
-                        envPoss
+                     forM_ envPoss $ \envPos ->
+                        writeArray locs envPos locBorder
                      loop $ PQ.union remQueue $ PQ.fromList $
                         map (\envPos -> (diffs!envPos, ((locs, diffs), envPos))) envPoss
    in  loop
