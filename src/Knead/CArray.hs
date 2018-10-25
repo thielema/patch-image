@@ -18,6 +18,8 @@ import qualified Data.Array.CArray as CArray
 import Data.Array.IArray (Ix, amap, bounds, rangeSize)
 import Data.Array.CArray (CArray)
 
+import Control.Applicative ((<$>))
+
 import Data.Complex (Complex((:+)), realPart)
 
 import Data.Tuple.HT (mapPair)
@@ -41,6 +43,12 @@ arrayKneadFromC carray =
                (ComfortShape.ZeroBased $ fromIntegral $ rangeSize (ly,uy))
                (ComfortShape.ZeroBased $ fromIntegral $ rangeSize (lx,ux)))
             (snd $ CArrayPriv.toForeignPtr carray)
+
+liftCArray ::
+   (Storable a, Storable b) =>
+   (CArray (Int,Int) a -> CArray (Int,Int) b) ->
+   Array Dim2 a -> IO (Array Dim2 b)
+liftCArray f a = arrayKneadFromC . f <$> arrayCFromKnead a
 
 
 pad ::

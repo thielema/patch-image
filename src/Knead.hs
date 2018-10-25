@@ -14,7 +14,7 @@ import LinearAlgebra (
    absolutePositionsFromPairDisplacements, fixAtLeastOnePosition,
    layoutFromPairDisplacements, fixAtLeastOneAnglePosition,
    )
-import Knead.CArray (arrayCFromKnead, arrayKneadFromC)
+import Knead.CArray (liftCArray, arrayCFromKnead, arrayKneadFromC)
 import Knead.Shape
          (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Shape2ZB, Index2, Ix2, Factor2,
           verticalSize, verticalVal, horizontalVal)
@@ -37,7 +37,6 @@ import qualified Data.Array.Comfort.Storable.Internal as ComfortArray
 import qualified Data.Array.Comfort.Shape as ComfortShape
 
 import Data.Array.IArray (amap)
-import Data.Array.CArray (CArray)
 import Data.Array.MArray (thaw)
 
 import qualified LLVM.Extra.ScalarOrVector as SoV
@@ -636,13 +635,6 @@ correlatePadded
    return $ \ a b ->
       liftCArray (if parity==0 then FFT.dftCRN [0,1] else FFT.dftCRON [0,1]) =<<
       mulSpecs =<< liftCArray (FFT.dftN [0,1]) =<< mergePlanes a b
-
-
-liftCArray ::
-   (SV.Storable a, SV.Storable b) =>
-   (CArray (Int,Int) a -> CArray (Int,Int) b) ->
-   Plane a -> IO (Plane b)
-liftCArray f a = arrayKneadFromC . f <$> arrayCFromKnead a
 
 
 prepareOverlapMatching ::
