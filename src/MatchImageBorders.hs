@@ -36,17 +36,18 @@ import Control.Applicative ((<$>))
 findBorder :: (Ix i, Enum i, Ix j, Enum j) => CArray (i,j) Bool8 -> Set (i,j)
 findBorder mask =
    let ((yl,xl), (yu,xu)) = bounds mask
+       yrng = (yl,yu); xrng = (xl,xu)
        revRange (l,u) = [u, pred u .. l]
        first p = listToMaybe . dropWhile (not . Bool8.toBool . p)
-       findLeft   y = first (\x -> mask!(y,x)) $ range (xl,xu)
-       findRight  y = first (\x -> mask!(y,x)) $ revRange (xl,xu)
-       findTop    x = first (\y -> mask!(y,x)) $ range (yl,yu)
-       findBottom x = first (\y -> mask!(y,x)) $ revRange (yl,yu)
+       findLeft   y = first (\x -> mask!(y,x)) $ range xrng
+       findRight  y = first (\x -> mask!(y,x)) $ revRange xrng
+       findTop    x = first (\y -> mask!(y,x)) $ range yrng
+       findBottom x = first (\y -> mask!(y,x)) $ revRange yrng
    in  Set.fromList $
-         mapMaybe (\y -> (,) y <$> findLeft y) (range (yl,yu)) ++
-         mapMaybe (\y -> (,) y <$> findRight y) (range (yl,yu)) ++
-         mapMaybe (\x -> flip (,) x <$> findTop x) (range (xl,xu)) ++
-         mapMaybe (\x -> flip (,) x <$> findBottom x) (range (xl,xu))
+         mapMaybe (\y -> (,) y <$> findLeft y) (range yrng) ++
+         mapMaybe (\y -> (,) y <$> findRight y) (range yrng) ++
+         mapMaybe (\x -> flip (,) x <$> findTop x) (range xrng) ++
+         mapMaybe (\x -> flip (,) x <$> findBottom x) (range xrng)
 
 pqueueFromBorder :: (Ix ix) => CArray ix Float -> Set ix -> MaxPQueue Float ix
 pqueueFromBorder weights =
