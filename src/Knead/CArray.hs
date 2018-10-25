@@ -1,5 +1,7 @@
 module Knead.CArray where
 
+import Knead.Shape (Vec2(Vec2), Dim2)
+
 import qualified Complex as Komplex
 
 import qualified Math.FFT as FFT
@@ -8,13 +10,37 @@ import Math.FFT.Base (FFTWReal)
 import Foreign.Storable (Storable)
 import Foreign.Storable.Tuple ()
 
+import qualified Data.Array.Comfort.Shape as ComfortShape
+import Data.Array.Comfort.Storable.Internal (Array(Array))
+
+import qualified Data.Array.CArray.Base as CArrayPriv
 import qualified Data.Array.CArray as CArray
-import Data.Array.IArray (amap)
+import Data.Array.IArray (Ix, amap, bounds, rangeSize)
 import Data.Array.CArray (CArray)
 
 import Data.Complex (Complex((:+)), realPart)
 
 import Data.Tuple.HT (mapPair)
+
+
+arrayCFromKnead :: Array Dim2 a -> IO (CArray (Int,Int) a)
+arrayCFromKnead
+   (Array
+      (Vec2 (ComfortShape.ZeroBased height) (ComfortShape.ZeroBased width))
+      fptr) =
+   CArrayPriv.unsafeForeignPtrToCArray fptr
+      ((0,0), (fromIntegral height - 1, fromIntegral width - 1))
+
+arrayKneadFromC ::
+   (Storable a) => CArray (Int,Int) a -> Array Dim2 a
+arrayKneadFromC carray =
+   case bounds carray of
+      ((ly,lx), (uy,ux)) ->
+         Array
+            (Vec2
+               (ComfortShape.ZeroBased $ fromIntegral $ rangeSize (ly,uy))
+               (ComfortShape.ZeroBased $ fromIntegral $ rangeSize (lx,ux)))
+            (snd $ CArrayPriv.toForeignPtr carray)
 
 
 pad ::

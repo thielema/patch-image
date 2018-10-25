@@ -9,12 +9,12 @@ import qualified Arithmetic as Arith
 import qualified Knead.CArray as KneadCArray
 import qualified Complex as Komplex
 import qualified Degree
-import MatchImageBorders (arrayCFromKnead, arrayKneadFromC)
 import Arithmetic (guardedPairs, maximum0)
 import LinearAlgebra (
    absolutePositionsFromPairDisplacements, fixAtLeastOnePosition,
    layoutFromPairDisplacements, fixAtLeastOneAnglePosition,
    )
+import Knead.CArray (arrayCFromKnead, arrayKneadFromC)
 import Knead.Shape
          (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Shape2ZB, Index2, Ix2, Factor2,
           verticalSize, verticalVal, horizontalVal)

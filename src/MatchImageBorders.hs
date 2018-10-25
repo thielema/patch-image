@@ -10,11 +10,6 @@ We do not recalculate the average if a pixel is removed from the priority queue.
 -}
 module MatchImageBorders where
 
-import Knead.Shape (Vec2(Vec2), Dim2)
-
-import qualified Data.Array.Comfort.Shape as ComfortShape
-import Data.Array.Comfort.Storable.Internal (Array(Array))
-
 import qualified Data.PQueue.Prio.Max as PQ
 import qualified Data.Set as Set
 import Data.PQueue.Prio.Max (MaxPQueue)
@@ -24,10 +19,7 @@ import qualified Data.Array.CArray.Base as CArrayPriv
 import Data.Array.IOCArray (IOCArray)
 import Data.Array.MArray (readArray, writeArray, thaw)
 import Data.Array.CArray (CArray)
-import Data.Array.IArray
-         (Ix, amap, bounds, range, rangeSize, inRange, (!), (//))
-
-import Foreign.Storable (Storable)
+import Data.Array.IArray (Ix, amap, bounds, range, inRange, (!), (//))
 
 import qualified Data.Bool8 as Bool8
 import Data.Traversable (forM)
@@ -39,26 +31,6 @@ import Data.Bool8 (Bool8)
 
 import Control.Monad (filterM)
 import Control.Applicative ((<$>))
-
-
-arrayCFromKnead :: Array Dim2 a -> IO (CArray (Int,Int) a)
-arrayCFromKnead
-   (Array
-      (Vec2 (ComfortShape.ZeroBased height) (ComfortShape.ZeroBased width))
-      fptr) =
-   CArrayPriv.unsafeForeignPtrToCArray fptr
-      ((0,0), (fromIntegral height - 1, fromIntegral width - 1))
-
-arrayKneadFromC ::
-   (Storable a) => CArray (Int,Int) a -> Array Dim2 a
-arrayKneadFromC carray =
-   case bounds carray of
-      ((ly,lx), (uy,ux)) ->
-         Array
-            (Vec2
-               (ComfortShape.ZeroBased $ fromIntegral $ rangeSize (ly,uy))
-               (ComfortShape.ZeroBased $ fromIntegral $ rangeSize (lx,ux)))
-            (snd $ CArrayPriv.toForeignPtr carray)
 
 
 findBorder :: (Ix i, Enum i, Ix j, Enum j) => CArray (i,j) Bool8 -> Set (i,j)
