@@ -3,10 +3,6 @@ cabal run patch-image-llvm -- --output-overlap='/tmp/overlap-%s-%s.jpeg' --outpu
 Geht Drehen schneller, wenn man es auf kleine Bild-Kacheln anwendet?
    Die Frage ist, ob das Cache-freundlicher wäre.
 
-MatchImageBorders verwendet immer noch Routinen auf CArray.
-   Das muss doch ziemlich langsam sein.
-   Vielleicht sollten wir die Routinen doch mal optimieren?
-
 Option: benutze optparse-applicative
    erlaube output-overlap-Option nur, wenn kein finetune-rotate angegeben
 

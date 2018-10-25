@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 {- |
 This is an approach for stitching images at narrow bands
 along lines of small image differences.
@@ -10,16 +11,17 @@ We do not recalculate the average if a pixel is removed from the priority queue.
 -}
 module MatchImageBorders where
 
+import Knead.Shape (Vec2(Vec2), Dim2, Size)
+
+import qualified Data.Array.Comfort.Storable.Mutable as MutArray
+import qualified Data.Array.Comfort.Storable.Internal as Array
+import qualified Data.Array.Comfort.Shape as ComfortShape
+import Data.Array.Comfort.Storable (Array, (!), (//))
+
 import qualified Data.PQueue.Prio.Max as PQ
 import qualified Data.Set as Set
 import Data.PQueue.Prio.Max (MaxPQueue)
 import Data.Set (Set)
-
-import qualified Data.Array.CArray.Base as CArrayPriv
-import Data.Array.IOCArray (IOCArray)
-import Data.Array.MArray (readArray, writeArray, thaw)
-import Data.Array.CArray (CArray)
-import Data.Array.IArray (Ix, amap, bounds, range, inRange, (!), (//))
 
 import qualified Data.Bool8 as Bool8
 import Data.Traversable (forM)
@@ -33,11 +35,21 @@ import Control.Monad (filterM)
 import Control.Applicative ((<$>))
 
 
-findBorder :: (Ix i, Enum i, Ix j, Enum j) => CArray (i,j) Bool8 -> Set (i,j)
+type Z2 i j = (ComfortShape.ZeroBased i, ComfortShape.ZeroBased j)
+
+arrayPairFromVec :: Array Dim2 a -> Array (Z2 Size Size) a
+arrayPairFromVec = Array.mapShape (\(Vec2 height width) -> (height, width))
+
+arrayVecFromPair :: Array (Z2 Size Size) a -> Array Dim2 a
+arrayVecFromPair = Array.mapShape (\(height, width) -> (Vec2 height width))
+
+
+findBorder :: (Integral i, Integral j) => Array (Z2 i j) Bool8 -> Set (i,j)
 findBorder mask =
-   let ((yl,xl), (yu,xu)) = bounds mask
-       yrng = (yl,yu); xrng = (xl,xu)
-       revRange (l,u) = [u, pred u .. l]
+   let (yrng, xrng) = Array.shape mask
+       range sh = ComfortShape.indices sh
+       revRange sh@(ComfortShape.ZeroBased n) =
+          take (ComfortShape.size sh) $ drop 1 $ iterate (subtract 1) n
        first p = listToMaybe . dropWhile (not . Bool8.toBool . p)
        findLeft   y = first (\x -> mask!(y,x)) $ range xrng
        findRight  y = first (\x -> mask!(y,x)) $ revRange xrng
@@ -49,7 +61,9 @@ findBorder mask =
          mapMaybe (\x -> flip (,) x <$> findTop x) (range xrng) ++
          mapMaybe (\x -> flip (,) x <$> findBottom x) (range xrng)
 
-pqueueFromBorder :: (Ix ix) => CArray ix Float -> Set ix -> MaxPQueue Float ix
+pqueueFromBorder ::
+   (ComfortShape.Indexed sh, ComfortShape.Index sh ~ ix) =>
+   Array sh Float -> Set ix -> MaxPQueue Float ix
 pqueueFromBorder weights =
    PQ.fromList . map (\pos -> (weights!pos, pos)) . Set.toList
 
@@ -61,26 +75,29 @@ locOutside = 0
 locBorder = 1
 locInside = 2
 
-prepareLocations :: (Ix ix) => CArray ix Bool8 -> Set ix -> CArray ix Location
+prepareLocations ::
+   (ComfortShape.Indexed sh, ComfortShape.Index sh ~ ix) =>
+   Array sh Bool8 -> Set ix -> Array sh Location
 prepareLocations mask border =
-   amap (\b -> if Bool8.toBool b then locInside else locOutside) mask
+   Array.map (\b -> if Bool8.toBool b then locInside else locOutside) mask
    //
    map (flip (,) locBorder) (Set.toList border)
 
 
 type
    Queue i j =
-      MaxPQueue Float ((IOCArray (i,j) Location, CArray (i,j) Float), (i,j))
+      MaxPQueue Float
+         ((MutArray.Array (Z2 i j) Location, Array (Z2 i j) Float), (i,j))
 
 prepareShaping ::
-   (Ix i, Enum i, Ix j, Enum j) =>
-   [(CArray (i,j) Bool8, CArray (i,j) Float)] ->
-   IO ([IOCArray (i,j) Location], Queue i j)
+   (Integral i, Integral j) =>
+   [(Array (Z2 i j) Bool8, Array (Z2 i j) Float)] ->
+   IO ([MutArray.Array (Z2 i j) Location], Queue i j)
 prepareShaping maskWeightss =
    fmap (mapSnd PQ.unions . unzip) $
    forM maskWeightss $ \(mask, weights) -> do
       let border = findBorder mask
-      locations <- thaw $ prepareLocations mask border
+      locations <- MutArray.thaw $ prepareLocations mask border
       return
          (locations,
           fmap ((,) (locations, weights)) $ pqueueFromBorder weights border)
@@ -96,24 +113,24 @@ loopQueue f =
    in loop
 
 shapeParts ::
-   IOCArray (Int, Int) Int ->
-   [IOCArray (Int, Int) Location] ->
-   Queue Int Int -> IO [CArray (Int, Int) Bool8]
+   MutArray.Array (Z2 Size Size) Int ->
+   [MutArray.Array (Z2 Size Size) Location] ->
+   Queue Size Size -> IO [Array (Z2 Size Size) Bool8]
 shapeParts count masks queue = do
    flip loopQueue queue $ \((locs, diffs), pos@(y,x)) -> do
-      n <- readArray count pos
+      n <- MutArray.read count pos
       if n<=1
         then return PQ.empty
         else do
-            writeArray count pos (n-1)
-            writeArray locs pos locOutside
+            MutArray.write count pos (n-1)
+            MutArray.write locs pos locOutside
             envPoss <-
-               filterM (fmap (locInside ==) . readArray locs) $
-               filter (inRange (bounds diffs)) $
+               filterM (fmap (locInside ==) . MutArray.read locs) $
+               filter (ComfortShape.inBounds (Array.shape diffs)) $
                map (mapPair ((y+), (x+))) [(0,1), (1,0), (0,-1), (-1,0)]
-            forM_ envPoss $ \envPos -> writeArray locs envPos locBorder
+            forM_ envPoss $ \envPos -> MutArray.write locs envPos locBorder
             return $ PQ.fromList $
                map (\envPos -> (diffs!envPos, ((locs, diffs), envPos))) envPoss
 
    forM masks $
-      fmap (amap (Bool8.fromBool . (/=locOutside))) . CArrayPriv.freezeIOCArray
+      fmap (Array.map (Bool8.fromBool . (/=locOutside))) . MutArray.freeze

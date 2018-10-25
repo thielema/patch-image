@@ -9,12 +9,13 @@ import qualified Arithmetic as Arith
 import qualified Knead.CArray as KneadCArray
 import qualified Complex as Komplex
 import qualified Degree
+import MatchImageBorders (arrayPairFromVec, arrayVecFromPair)
 import Arithmetic (guardedPairs, maximum0)
 import LinearAlgebra (
    absolutePositionsFromPairDisplacements, fixAtLeastOnePosition,
    layoutFromPairDisplacements, fixAtLeastOneAnglePosition,
    )
-import Knead.CArray (liftCArray, arrayCFromKnead, arrayKneadFromC)
+import Knead.CArray (liftCArray)
 import Knead.Shape
          (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Shape2ZB, Index2, Ix2, Factor2,
           verticalSize, verticalVal, horizontalVal)
@@ -33,11 +34,9 @@ import Data.Array.Knead.Simple.Symbolic ((!))
 import Data.Array.Knead.Expression
          (Exp, (==*), (<*), (<=*), (>=*), (||*), (&&*))
 
+import qualified Data.Array.Comfort.Storable.Mutable as MutArray
 import qualified Data.Array.Comfort.Storable.Internal as ComfortArray
 import qualified Data.Array.Comfort.Shape as ComfortShape
-
-import Data.Array.IArray (amap)
-import Data.Array.MArray (thaw)
 
 import qualified LLVM.Extra.ScalarOrVector as SoV
 import qualified LLVM.Extra.Arithmetic as LLVMArith
@@ -1828,13 +1827,15 @@ process args = do
       picDiffs <- mapM (flip diff avg) rotMovPics
       getSnd <- RenderP.run $ Symb.map Expr.snd . Symb.fix
       lp <- lowpassMulti
-      masks <- map (amap fst) <$> mapM arrayCFromKnead picDiffs
+      let masks = map (ComfortArray.map fst . arrayPairFromVec) picDiffs
       let smoothRadius = Option.shapeSmooth opt
       smoothPicDiffs <-
-         mapM (arrayCFromKnead <=< lp smoothRadius <=< getSnd) picDiffs
+         mapM (fmap arrayPairFromVec . lp smoothRadius <=< getSnd) picDiffs
       (locs, pqueue) <-
          MatchImageBorders.prepareShaping $ zip masks smoothPicDiffs
-      counts <- thaw . amap (fromIntegral . fst) =<< arrayCFromKnead sumImg
+      counts <-
+         MutArray.thaw . ComfortArray.map (fromIntegral . fst) $
+         arrayPairFromVec sumImg
       shapes <- MatchImageBorders.shapeParts counts locs pqueue
 
       let names = map FilePath.takeBaseName paths
@@ -1842,8 +1843,8 @@ process args = do
          forM_ (Option.outputShapeHard opt) $ \format ->
             forM_ (zip names shapes) $ \(name,shape) ->
                writeGrey (Option.quality opt) (printf format name) $
-               arrayKneadFromC $
-               amap (\b -> if Bool8.toBool b then 255 else 0) shape
+               arrayVecFromPair $
+               ComfortArray.map (\b -> if Bool8.toBool b then 255 else 0) shape
 
          emptyPlainCanv <- emptyCanvas
          addMasked <- addMaskedToCanvas
@@ -1851,14 +1852,14 @@ process args = do
          writeImage (Option.quality opt) path =<<
             foldM
                (\canvas (shape, rotMovPic) ->
-                  addMasked rotMovPic (arrayKneadFromC shape) canvas)
+                  addMasked rotMovPic (arrayVecFromPair shape) canvas)
                emptyPlain (zip shapes rotMovPics)
 
       forM_ (Option.outputShaped opt) $ \path -> do
          smoothShapes <-
             mapM
-               (lp smoothRadius . arrayKneadFromC .
-                amap (fromIntegral . fromEnum))
+               (lp smoothRadius . arrayVecFromPair .
+                ComfortArray.map (fromIntegral . fromEnum))
                shapes
          forM_ (Option.outputShape opt) $ \format -> do
             makeByteImage <- RenderP.run $ imageByteFromFloat . Symb.fix
