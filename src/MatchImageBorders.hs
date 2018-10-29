@@ -13,9 +13,10 @@ module MatchImageBorders where
 
 import Knead.Shape (Vec2(Vec2), Dim2, Size)
 
-import qualified Data.Array.Comfort.Storable.Mutable as MutArray
+import qualified Data.Array.Comfort.Storable.Mutable.Internal as MutArray
 import qualified Data.Array.Comfort.Storable.Internal as Array
 import qualified Data.Array.Comfort.Shape as ComfortShape
+import Data.Array.Comfort.Storable.Mutable (IOArray)
 import Data.Array.Comfort.Storable (Array, (!), (//))
 
 import qualified Data.PQueue.Prio.Max as PQ
@@ -87,12 +88,12 @@ prepareLocations mask border =
 type
    Queue i j =
       MaxPQueue Float
-         ((MutArray.Array (Z2 i j) Location, Array (Z2 i j) Float), (i,j))
+         ((IOArray (Z2 i j) Location, Array (Z2 i j) Float), (i,j))
 
 prepareShaping ::
    (Integral i, Integral j) =>
    [(Array (Z2 i j) Bool8, Array (Z2 i j) Float)] ->
-   IO ([MutArray.Array (Z2 i j) Location], Queue i j)
+   IO ([IOArray (Z2 i j) Location], Queue i j)
 prepareShaping maskWeightss =
    fmap (mapSnd PQ.unions . unzip) $
    forM maskWeightss $ \(mask, weights) -> do
@@ -113,8 +114,8 @@ loopQueue f =
    in loop
 
 shapeParts ::
-   MutArray.Array (Z2 Size Size) Int ->
-   [MutArray.Array (Z2 Size Size) Location] ->
+   IOArray (Z2 Size Size) Int ->
+   [IOArray (Z2 Size Size) Location] ->
    Queue Size Size -> IO [Array (Z2 Size Size) Bool8]
 shapeParts count masks queue = do
    flip loopQueue queue $ \((locs, diffs), pos@(y,x)) -> do
