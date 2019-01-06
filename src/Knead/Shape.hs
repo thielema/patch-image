@@ -164,14 +164,20 @@ instance (tag ~ ShapeTag, Shape.C i) => Shape.C (Vec2 tag i) where
       case unzipShape nm of
          Vec2 n m ->
             join $ Monad.lift2 A.mul (Shape.size n) (Shape.size m)
-   sizeOffset nm ij =
-      case (unzipShape nm, unzipShape ij) of
-         (Vec2 n m, Vec2 i j) -> do
-            (ns, il) <- Shape.sizeOffset n i
-            (ms, jl) <- Shape.sizeOffset m j
-            Monad.lift2 (,)
-               (A.mul ns ms)
-               (A.add jl =<< A.mul ms il)
+   sizeOffset nm =
+      case unzipShape nm of
+         (Vec2 n m) -> do
+            (ns, iOffset) <- Shape.sizeOffset n
+            (ms, jOffset) <- Shape.sizeOffset m
+            sz <- A.mul ns ms
+            return
+               (sz,
+                \ij ->
+                  case unzipShape ij of
+                     (Vec2 i j) -> do
+                        il <- iOffset i
+                        jl <- jOffset j
+                        A.add jl =<< A.mul ms il)
    loop code nm =
       case unzipShape nm of
          Vec2 n m ->
