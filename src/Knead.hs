@@ -35,7 +35,7 @@ import Data.Array.Knead.Expression
          (Exp, (==*), (<*), (<=*), (>=*), (||*), (&&*))
 
 import qualified Data.Array.Comfort.Storable.Mutable as MutArray
-import qualified Data.Array.Comfort.Storable.Internal as ComfortArray
+import qualified Data.Array.Comfort.Storable.Unchecked as ComfortArray
 import qualified Data.Array.Comfort.Shape as ComfortShape
 
 import qualified LLVM.Extra.ScalarOrVector as SoV

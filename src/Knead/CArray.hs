@@ -11,7 +11,7 @@ import Foreign.Storable (Storable)
 import Foreign.Storable.Tuple ()
 
 import qualified Data.Array.Comfort.Shape as ComfortShape
-import Data.Array.Comfort.Storable.Internal (Array(Array))
+import Data.Array.Comfort.Storable.Unchecked (Array(Array))
 
 import qualified Data.Array.CArray.Base as CArrayPriv
 import qualified Data.Array.CArray as CArray

@@ -13,8 +13,8 @@ module MatchImageBorders where
 
 import Knead.Shape (Vec2(Vec2), Dim2, Size)
 
-import qualified Data.Array.Comfort.Storable.Mutable.Internal as MutArray
-import qualified Data.Array.Comfort.Storable.Internal as Array
+import qualified Data.Array.Comfort.Storable.Mutable.Unchecked as MutArray
+import qualified Data.Array.Comfort.Storable.Unchecked as Array
 import qualified Data.Array.Comfort.Shape as ComfortShape
 import Data.Array.Comfort.Storable.Mutable (IOArray)
 import Data.Array.Comfort.Storable (Array, (!), (//))
