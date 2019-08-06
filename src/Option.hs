@@ -15,7 +15,7 @@ import qualified System.IO as IO
 
 import Control.Monad (when)
 
-import qualified Data.EnumSet as EnumSet
+import qualified Data.EnumBitSet as EnumSet
 import qualified Data.Vector as Vector
 import qualified Data.Map as Map
 import qualified Data.List.HT as ListHT
