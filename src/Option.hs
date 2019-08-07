@@ -24,9 +24,8 @@ import Data.Tuple.HT (mapSnd)
 import Data.Monoid ((<>))
 import Data.Word (Word8)
 
-import qualified Distribution.Verbosity as Verbosity
-import qualified Distribution.ReadE as ReadE
-import Distribution.Verbosity (Verbosity)
+import qualified Shell.Utility.Verbosity as Verbosity
+import Shell.Utility.Verbosity (Verbosity)
 
 import Text.Printf (printf)
 
@@ -164,7 +163,7 @@ optionDescription desc =
 
    opt generic ['v'] ["verbose"]
       (flip ReqArg "N" $ \str flags -> do
-         case ReadE.runReadE Verbosity.flagToVerbosity str of
+         case Verbosity.parse str of
             Right n -> return (flags{verbosity = n})
             Left msg -> exitFailureMsg msg)
       (printf "verbosity level: 0..3, default: %d"

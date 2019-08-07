@@ -63,9 +63,9 @@ import qualified Data.Vector.Storable as SV
 import qualified System.FilePath as FilePath
 import qualified System.IO as IO
 
-import qualified Distribution.Simple.Utils as CmdLine
-import qualified Distribution.Verbosity as Verbosity
-import Distribution.Verbosity (Verbosity)
+import qualified Shell.Utility.Log as CmdLine
+import qualified Shell.Utility.Verbosity as Verbosity
+import Shell.Utility.Verbosity (Verbosity)
 import Text.Printf (printf)
 
 import Control.Monad.HT (void)
