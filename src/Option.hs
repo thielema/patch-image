@@ -154,10 +154,8 @@ optionDescription desc =
       "show options" :
 
    opt generic ['v'] ["verbose"]
-      (flip ReqArg "N" $ \str flags -> do
-         case Verbosity.parse str of
-            Right n -> return (flags{verbosity = n})
-            Left msg -> exitFailureMsg msg)
+      (flip ReqArg "N" $ \str flags ->
+         fmap (\verb -> flags{verbosity = verb}) $ Verbosity.parse str)
       (printf "verbosity level: 0..3, default: %d"
          (fromEnum $ verbosity defltOption)) :
 
