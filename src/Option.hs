@@ -1,10 +1,13 @@
 module Option where
 
 import qualified State
+import Degree (Degree(Degree, getDegree))
+
+import qualified Shell.Utility.Verbosity as Verbosity
+import Shell.Utility.Verbosity (Verbosity)
 import Shell.Utility.ParseArgument (parseNumber)
 import Shell.Utility.Exit (exitFailureMsg)
 import Shell.Utility.GetOpt (fmapOptDescr)
-import Degree (Degree(Degree, getDegree))
 
 import qualified System.Console.GetOpt as Opt
 import qualified System.Environment as Env
@@ -23,9 +26,6 @@ import qualified Data.List as List
 import Data.Tuple.HT (mapSnd)
 import Data.Monoid ((<>))
 import Data.Word (Word8)
-
-import qualified Shell.Utility.Verbosity as Verbosity
-import Shell.Utility.Verbosity (Verbosity)
 
 import Text.Printf (printf)
 
