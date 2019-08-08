@@ -1,7 +1,7 @@
 module Option where
 
 import qualified State
-import qualified Shell.Utility.ParseArgument as ParseArg
+import Shell.Utility.ParseArgument (parseNumber)
 import Shell.Utility.Exit (exitFailureMsg)
 import Shell.Utility.GetOpt (fmapOptDescr)
 import Degree (Degree(Degree, getDegree))
@@ -125,14 +125,6 @@ knead, accelerate, generic :: EngineSet
 knead = EnumSet.singleton Knead
 accelerate = EnumSet.singleton Accelerate
 generic = knead <> accelerate
-
-
-parseNumber ::
-   (Read a) =>
-   String -> (a -> Bool) -> String -> String -> IO a
-parseNumber name constraint constraintName str =
-   either exitFailureMsg return $
-   ParseArg.parseNumber name constraint constraintName str
 
 
 type Description a = [Opt.OptDescr (a -> IO a)]
