@@ -7,8 +7,10 @@ import qualified Data.Array.Knead.Expression as Expr
 
 import qualified Data.Array.Comfort.Shape as ComfortShape
 
-import qualified LLVM.Extra.Multi.Value.Memory as MultiMem
+import qualified LLVM.Extra.Marshal as Marshal
+import qualified LLVM.Extra.Memory as Memory
 import qualified LLVM.Extra.Multi.Value as MultiValue
+import qualified LLVM.Extra.Tuple as Tuple
 import qualified LLVM.Extra.Iterator as Iter
 import qualified LLVM.Extra.Arithmetic as A
 import LLVM.Extra.Multi.Value (atom)
@@ -81,23 +83,36 @@ instance (Storable n) => Storable (Vec2 tag n) where
       let q = castToElemPtr p
       in  Monad.lift2 Vec2 (peek q) (peekElemOff q 1)
 
+instance (Tuple.Undefined n) => Tuple.Undefined (Vec2 tag n) where
+   undef = Vec2 Tuple.undef Tuple.undef
+
+instance (Tuple.Phi n) => Tuple.Phi (Vec2 tag n) where
+   phi bb (Vec2 a0 a1) =
+      Monad.lift2 Vec2 (Tuple.phi bb a0) (Tuple.phi bb a1)
+   addPhi bb (Vec2 a0 a1) (Vec2 b0 b1) =
+      Tuple.addPhi bb a0 b0 >>
+      Tuple.addPhi bb a1 b1
+
+instance (Tuple.Value n) => Tuple.Value (Vec2 tag n) where
+   type ValueOf (Vec2 tag n) = Vec2 tag (Tuple.ValueOf n)
+   valueOf (Vec2 n m) = Vec2 (Tuple.valueOf n) (Tuple.valueOf m)
+
 instance (MultiValue.C n) => MultiValue.C (Vec2 tag n) where
-   type Repr f (Vec2 tag n) = Vec2 tag (MultiValue.Repr f n)
    cons (Vec2 n m) =
       MultiValue.compose $ Vec2 (MultiValue.cons n) (MultiValue.cons m)
    undef = MultiValue.compose $ squareShape MultiValue.undef
    zero = MultiValue.compose $ squareShape MultiValue.zero
-   phis bb a =
+   phi bb a =
       case MultiValue.decompose (squareShape atom) a of
          Vec2 a0 a1 ->
             fmap MultiValue.compose $
-            Monad.lift2 Vec2 (MultiValue.phis bb a0) (MultiValue.phis bb a1)
-   addPhis bb a b =
+            Monad.lift2 Vec2 (MultiValue.phi bb a0) (MultiValue.phi bb a1)
+   addPhi bb a b =
       case (MultiValue.decompose (squareShape atom) a,
             MultiValue.decompose (squareShape atom) b) of
          (Vec2 a0 a1, Vec2 b0 b1) ->
-            MultiValue.addPhis bb a0 b0 >>
-            MultiValue.addPhis bb a1 b1
+            MultiValue.addPhi bb a0 b0 >>
+            MultiValue.addPhi bb a1 b1
 
 type instance
    MultiValue.Decomposed f (Vec2 tag pat) =
@@ -119,20 +134,25 @@ instance (MultiValue.Decompose pn) => MultiValue.Decompose (Vec2 tag pn) where
          (MultiValue.decompose pn (MultiValue.Cons n))
          (MultiValue.decompose pm (MultiValue.Cons m))
 
-instance (MultiMem.C i) => MultiMem.C (Vec2 tag i) where
+instance (Memory.C i) => Memory.C (Vec2 tag i) where
    type Struct (Vec2 tag i) =
-         LLVM.Struct (MultiMem.Struct i, (MultiMem.Struct i, ()))
+            LLVM.Struct (Memory.Struct i, (Memory.Struct i, ()))
    decompose nm =
-      Monad.lift2 zipShape
-         (MultiMem.decompose =<< LLVM.extractvalue nm TypeNum.d0)
-         (MultiMem.decompose =<< LLVM.extractvalue nm TypeNum.d1)
-   compose nm =
-      case unzipShape nm of
-         Vec2 n m -> do
-            sn <- MultiMem.compose n
-            sm <- MultiMem.compose m
-            rn <- LLVM.insertvalue (LLVM.value LLVM.undef) sn TypeNum.d0
-            LLVM.insertvalue rn sm TypeNum.d1
+      Monad.lift2 Vec2
+         (Memory.decompose =<< LLVM.extractvalue nm TypeNum.d0)
+         (Memory.decompose =<< LLVM.extractvalue nm TypeNum.d1)
+   compose (Vec2 n m) = do
+      sn <- Memory.compose n
+      sm <- Memory.compose m
+      rn <- LLVM.insertvalue (LLVM.value LLVM.undef) sn TypeNum.d0
+      LLVM.insertvalue rn sm TypeNum.d1
+
+instance (Marshal.C i) => Marshal.C (Vec2 tag i) where
+   pack (Vec2 n m) = LLVM.consStruct (Marshal.pack n) (Marshal.pack m)
+   unpack =
+      LLVM.uncurryStruct $ \n m -> Vec2 (Marshal.unpack n) (Marshal.unpack m)
+
+instance (Marshal.C i, MultiValue.C i) => Marshal.MV (Vec2 tag i) where
 
 
 unzipShape :: MultiValue.T (Vec2 tag n) -> Vec2 tag (MultiValue.T n)

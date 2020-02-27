@@ -7,6 +7,7 @@ import qualified State
 import qualified MatchImageBorders
 import qualified Arithmetic as Arith
 import qualified Knead.CArray as KneadCArray
+import qualified Knead.Color as Color
 import qualified Complex as Komplex
 import qualified Degree
 import MatchImageBorders (arrayPairFromVec, arrayVecFromPair)
@@ -19,6 +20,7 @@ import Knead.CArray (liftCArray)
 import Knead.Shape
          (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Shape2ZB, Index2, Ix2, Factor2,
           verticalSize, verticalVal, horizontalVal)
+import Knead.Color (YUV)
 import Degree (Degree(Degree), getDegree)
 
 import qualified Math.FFT as FFT
@@ -38,10 +40,11 @@ import qualified Data.Array.Comfort.Storable.Mutable as MutArray
 import qualified Data.Array.Comfort.Storable.Unchecked as ComfortArray
 import qualified Data.Array.Comfort.Shape as ComfortShape
 
+import qualified LLVM.Extra.Multi.Value as MultiValue
 import qualified LLVM.Extra.ScalarOrVector as SoV
 import qualified LLVM.Extra.Arithmetic as LLVMArith
-import qualified LLVM.Extra.Multi.Value.Memory as MultiMem
-import qualified LLVM.Extra.Multi.Value as MultiValue
+import qualified LLVM.Extra.Storable as Storable
+import qualified LLVM.Extra.Tuple as Tuple
 import LLVM.Extra.Multi.Value (Atom, atom)
 
 import qualified LLVM.Core as LLVM
@@ -53,6 +56,7 @@ import qualified Codec.Picture as Pic
 
 import qualified Data.Vector.Storable as SV
 import Foreign.ForeignPtr (ForeignPtr, castForeignPtr)
+import Foreign.Storable.Record.Tuple (Tuple(Tuple, getTuple))
 import Foreign.Storable.Complex ()
 
 import qualified System.FilePath as FilePath
@@ -65,7 +69,7 @@ import Text.Printf (printf)
 
 import qualified Control.Monad.HT as MonadHT
 import Control.Monad (when, join, foldM, (<=<))
-import Control.Applicative (pure, (<$>), (<*>))
+import Control.Applicative (liftA2, pure, (<$>), (<*>))
 
 import qualified Data.Foldable as Fold
 import qualified Data.List as List
@@ -79,7 +83,7 @@ import Data.Traversable (forM)
 import Data.Foldable (forM_)
 import Data.Ord.HT (comparing)
 import Data.Tuple.HT
-         (mapPair, mapFst, mapSnd, mapTriple, swap, mapThd3, fst3, uncurry3)
+         (mapPair, mapFst, mapSnd, mapTriple, swap, mapThd3, uncurry3)
 import Data.Word (Word8, Word32)
 import Data.Bool8 (Bool8)
 
@@ -92,11 +96,11 @@ type SmallSize = Word32
 type SmallDim = Shape.ZeroBased SmallSize
 
 type Plane = Phys.Array Dim2
+type Planes tuple = Plane (Tuple tuple)
 type SymbPlane = Symb.Array Dim2
 type ColorImage a = Phys.Array Dim2 (YUV a)
 type ColorImage8 = ColorImage Word8
 
-type YUV a = (a,a,a)
 
 shape2 :: (Integral i) => i -> i -> Dim2
 shape2 height width =
@@ -200,27 +204,23 @@ imageByteFromFloat = Symb.map byteFromFloat
 
 
 yuvByteFromFloat ::
-   (MultiValue.NativeFloating a ar,
+   (MultiValue.NativeFloating a ar, a ~ ar,
     MultiValue.Field a, MultiValue.Real a,
     MultiValue.RationalConstant a) =>
    Exp (YUV a) -> Exp (YUV Word8)
-yuvByteFromFloat =
-   Expr.modify (atom,atom,atom) $
-      mapTriple (byteFromFloat, byteFromFloat, byteFromFloat)
+yuvByteFromFloat = Color.map byteFromFloat
 
 colorImageFloatFromByte ::
    (Symb.C array, Shape.C sh,
-    MultiValue.NativeFloating a ar,
+    MultiValue.NativeFloating a ar, a ~ ar,
     MultiValue.PseudoRing a, MultiValue.Real a,
     MultiValue.RationalConstant a) =>
    array sh (YUV Word8) -> array sh (YUV a)
-colorImageFloatFromByte =
-   Symb.map $ Expr.modify (atom,atom,atom) $
-      mapTriple (floatFromByte, floatFromByte, floatFromByte)
+colorImageFloatFromByte = Symb.map $ Color.map floatFromByte
 
 colorImageByteFromFloat ::
    (Symb.C array, Shape.C sh,
-    MultiValue.NativeFloating a ar,
+    MultiValue.NativeFloating a ar, a ~ ar,
     MultiValue.Field a, MultiValue.Real a,
     MultiValue.RationalConstant a) =>
    array sh (YUV a) -> array sh (YUV Word8)
@@ -307,17 +307,15 @@ shiftIndicesVert  dy =
 
 type VecExp a v = Arith.Vec (Exp a) (Exp v)
 
-vecYUV :: (MultiValue.PseudoRing a) => VecExp a (YUV a)
+vecYUV ::
+   (MultiValue.PseudoRing a, LLVM.IsArithmetic a,
+    LLVM.IsPrimitive a, LLVM.IsConst a, Tuple.ValueOf a ~ LLVM.Value a) =>
+   VecExp a (YUV a)
 vecYUV =
    Arith.Vec {
-      Arith.vecZero = Expr.compose (Expr.zero, Expr.zero, Expr.zero),
-      Arith.vecAdd =
-         Expr.modify2 (atom,atom,atom) (atom,atom,atom) $
-            \(ay,au,av) (by,bu,bv) ->
-               (Expr.add ay by, Expr.add au bu, Expr.add av bv),
-      Arith.vecScale =
-         Expr.modify2 atom (atom,atom,atom) $
-            \a (by,bu,bv) -> (Expr.mul a by, Expr.mul a bu, Expr.mul a bv)
+      Arith.vecZero = Expr.zero,
+      Arith.vecAdd = Expr.liftTupleM2 LLVMArith.add,
+      Arith.vecScale = Expr.liftTupleM2 SoV.scale
    }
 
 {-
@@ -405,7 +403,7 @@ gatherFrac vec src poss =
 
 
 rotateStretchMoveCoords ::
-   (SV.Storable a, MultiMem.C a,
+   (SV.Storable a, Storable.C a,
     MultiValue.Real a, MultiValue.Field a,
     MultiValue.RationalConstant a, MultiValue.NativeFloating a ar) =>
    Exp (a, a) ->
@@ -452,7 +450,7 @@ first rotate and stretches the image according to 'rot'
 and then moves the picture.
 -}
 rotateStretchMove ::
-   (SV.Storable a, MultiMem.C a,
+   (SV.Storable a, Storable.C a,
     MultiValue.Real a, MultiValue.Field a,
     MultiValue.RationalConstant a, MultiValue.NativeFloating a ar,
     MultiValue.C v) =>
@@ -471,7 +469,7 @@ rotateStretchMove vec rot mov sh img =
           Symb.map (Expr.modify (atom,atom) $ \(x,y) -> ix2 y x) coords)
 
 rotate ::
-   (SV.Storable a, MultiMem.C a,
+   (SV.Storable a, Storable.C a,
     MultiValue.Real a, MultiValue.Field a,
     MultiValue.RationalConstant a, MultiValue.NativeFloating a ar,
     MultiValue.C v) =>
@@ -498,16 +496,15 @@ runRotate = do
    return $ \ angle img -> rot (Degree.cis angle) img
 
 
-brightnessValue :: Exp (YUV a) -> Exp a
-brightnessValue = Expr.modify (atom,atom,atom) fst3
-
 brightnessPlane ::
    (Symb.C array, Shape.C size) =>
+   (LLVM.IsPrimitive a, Tuple.ValueOf a ~ LLVM.Value a) =>
    array size (YUV a) -> array size a
-brightnessPlane = Symb.map brightnessValue
+brightnessPlane = Symb.map Color.brightness
 
 rowHistogram ::
    (Symb.C array, MultiValue.Additive a) =>
+   (LLVM.IsPrimitive a, Tuple.ValueOf a ~ LLVM.Value a) =>
    array Dim2 (YUV a) -> array Dim1 a
 rowHistogram =
    Symb.fold1 Expr.add .
@@ -613,7 +610,7 @@ untangleSpectra2d spec =
       spec (cyclicReverse2d spec)
 
 correlatePadded ::
-   (FFTWReal a, MultiValue.Real a, MultiMem.C a,
+   (FFTWReal a, MultiValue.Real a, Storable.C a,
     MultiValue.Field a, MultiValue.RationalConstant a) =>
    Dim2 -> IO (Plane a -> Plane a -> IO (Plane a))
 correlatePadded
@@ -755,7 +752,7 @@ optimalOverlap ::
 optimalOverlap padExtent = do
    run <-
       RenderP.run $ \minOverlapPortion (sha, shb) img ->
-         argmaximum $
+         RenderP.MarshalExp $ argmaximum $
          allOverlapsFromCorrelation padExtent minOverlapPortion sha shb img
    correlate <- correlatePadded padExtent
 
@@ -1043,9 +1040,9 @@ composeOverlap = do
 
 
 
-emptyCountCanvas :: IO (Dim2 -> IO (Plane (Word32, YUV Float)))
+emptyCountCanvas :: IO (Dim2 -> IO (Planes (Word32, YUV Float)))
 emptyCountCanvas =
-   RenderP.run $ \sh -> Symb.fill sh (Expr.zip 0 $ Expr.zip3 0 0 0)
+   RenderP.run $ \sh -> Symb.fill sh (Expr.tuple $ Expr.zip 0 $ Color.yuv 0 0 0)
 
 
 type RotatedImage = ((Float,Float), (Float,Float), ColorImage8)
@@ -1064,21 +1061,22 @@ addToCountCanvas vec =
           Arith.vecScale vec (Expr.floatFromBool8 mask) pic))
 
 updateCountCanvas ::
-   IO (RotatedImage -> Plane (Word32, YUV Float) ->
-       IO (Plane (Word32, YUV Float)))
+   IO (RotatedImage -> Planes (Word32, YUV Float) ->
+       IO (Planes (Word32, YUV Float)))
 updateCountCanvas =
    RenderP.run $ \(rot, mov, pic) countCanvas ->
+      Symb.map Expr.tuple $
       addToCountCanvas vecYUV
          (rotateStretchMove vecYUV rot mov (Symb.shape countCanvas) $
           colorImageFloatFromByte pic)
-         countCanvas
+         (Symb.map Expr.untuple countCanvas)
 
-finalizeCountCanvas :: IO ((Plane (Word32, YUV Float)) -> IO ColorImage8)
+finalizeCountCanvas :: IO (Planes (Word32, YUV Float) -> IO ColorImage8)
 finalizeCountCanvas =
    RenderP.run $
       colorImageByteFromFloat .
       Symb.map
-         (Expr.modify (atom,atom) $ \(count, pixel) ->
+         (Expr.modify (Tuple (atom,atom)) $ \(Tuple (count, pixel)) ->
             Arith.vecScale vecYUV (recip $ fromInt count) pixel) .
       Symb.fix
 
@@ -1087,28 +1085,28 @@ diffAbs :: (MultiValue.Real a) => Exp a -> Exp a -> Exp a
 diffAbs = Expr.liftM2 $ \x y -> MultiValue.abs =<< MultiValue.sub x y
 
 diffWithCanvas ::
-   IO (RotatedImage -> Plane (YUV Float) -> IO (Plane (Bool8, Float)))
+   IO (RotatedImage -> Plane (YUV Float) -> IO (Planes (Bool8, Float)))
 diffWithCanvas =
    RenderP.run $ \(rot, mov, pic) avg ->
       Symb.zipWith
          (Expr.modify2 (atom,atom) atom $ \(b,x) y ->
-            (b, diffAbs (brightnessValue x) (brightnessValue y)))
+            Tuple (b, diffAbs (Color.brightness x) (Color.brightness y)))
          (rotateStretchMove vecYUV rot mov (Symb.shape avg) $
           colorImageFloatFromByte pic)
          avg
 
 finalizeCountCanvasFloat ::
-   IO ((Plane (Word32, YUV Float)) -> IO (Plane (YUV Float)))
+   IO (Planes (Word32, YUV Float) -> IO (Plane (YUV Float)))
 finalizeCountCanvasFloat =
    RenderP.run $
       Symb.map
-         (Expr.modify (atom,atom) $ \(count, pixel) ->
+         (Expr.modify (Tuple (atom,atom)) $ \(Tuple (count, pixel)) ->
             Arith.vecScale vecYUV (recip $ fromInt count) pixel)
       .
       Symb.fix
 
 emptyCanvas :: IO (Dim2 -> IO ColorImage8)
-emptyCanvas = RenderP.run $ \sh -> Symb.fill sh (Expr.zip3 0 0 0)
+emptyCanvas = RenderP.run $ \sh -> Symb.fill sh (Color.yuv 0 0 0)
 
 addMaskedToCanvas ::
    IO (RotatedImage ->
@@ -1127,10 +1125,11 @@ addMaskedToCanvas =
 updateShapedCanvas ::
    IO (RotatedImage ->
        Plane Float ->
-       Plane (Float, YUV Float) ->
-       IO (Plane (Float, YUV Float)))
+       Planes (Float, YUV Float) ->
+       IO (Planes (Float, YUV Float)))
 updateShapedCanvas =
    RenderP.run $ \(rot, mov, pic) shape weightCanvas ->
+      Symb.map Expr.tuple $
       addToWeightedCanvas vecYUV
          (Symb.zipWith
             (Expr.modify2 atom (atom,atom) $ \s (b,x) ->
@@ -1138,7 +1137,7 @@ updateShapedCanvas =
             shape $
           rotateStretchMove vecYUV rot mov (Symb.shape weightCanvas) $
           colorImageFloatFromByte pic)
-         weightCanvas
+         (Symb.map Expr.untuple weightCanvas)
 
 
 maybePlus ::
@@ -1284,8 +1283,10 @@ distanceMapContainedRun ::
 distanceMapContainedRun = do
    distances <-
       RenderP.run $
-      \sh this -> scaleDistanceMapGeom this . distanceMapContained sh this
-   return $ \sh this others -> distances sh this =<< Phys.vectorFromList others
+      \sh this ->
+         scaleDistanceMapGeom this .
+         distanceMapContained sh this . geometryArray
+   return $ \sh this others -> distances sh this =<< geometryVector others
 
 scaleDistanceMapGeom ::
    (MultiValue.Field a, MultiValue.Real a, MultiValue.RationalConstant a,
@@ -1294,6 +1295,32 @@ scaleDistanceMapGeom ::
 scaleDistanceMapGeom geom img =
    let scale = (4/) $ fromInt $ Expr.uncurry Expr.min $ Expr.thd3 geom
    in  imageByteFromFloat $ Symb.map (scale*) img
+
+
+pointsVector ::
+   [Arith.Point2 Float] ->
+   IO (ComfortArray.Array SmallDim (Tuple (Arith.Point2 Float)))
+pointsVector = Phys.vectorFromList . map Tuple
+
+pointsArray ::
+   Symb.Array SmallDim (Tuple (Arith.Point2 a)) ->
+   Symb.Array SmallDim (Arith.Point2 a)
+pointsArray = Symb.map Expr.untuple
+
+type TupledGeometry a = Tuple (Tuple (a,a), Tuple (a,a), Tuple (Size,Size))
+
+geometryVector ::
+   (SV.Storable a) =>
+   [Geometry a] -> IO (ComfortArray.Array SmallDim (TupledGeometry a))
+geometryVector =
+   Phys.vectorFromList . map (Tuple . mapTriple (Tuple, Tuple, Tuple))
+
+geometryArray ::
+   Symb.Array SmallDim (TupledGeometry a) ->
+   Symb.Array SmallDim (Geometry a)
+geometryArray =
+   Symb.map
+      (Expr.mapTriple (Expr.untuple, Expr.untuple, Expr.untuple) . Expr.untuple)
 
 
 pixelCoordinates ::
@@ -1316,8 +1343,10 @@ distanceMapPointsRun ::
 distanceMapPointsRun = do
    distances <-
       RenderP.run $
-      \sh -> scaleDistanceMap . distanceMapPoints (pixelCoordinates sh)
-   return $ \sh points -> distances sh =<< Phys.vectorFromList points
+      \sh ->
+         scaleDistanceMap .
+         distanceMapPoints (pixelCoordinates sh) . pointsArray
+   return $ \sh points -> distances sh =<< pointsVector points
 
 
 scaleDistanceMap ::
@@ -1369,15 +1398,16 @@ distanceMapRun ::
 distanceMapRun = do
    distances <-
       RenderP.run $
-      \sh this others -> scaleDistanceMap . distanceMap sh this others
-   return $ \sh this others points -> do
-      othersVec <- Phys.vectorFromList others
-      pointsVec <- Phys.vectorFromList points
-      distances sh this othersVec pointsVec
+      \sh this ->
+         scaleDistanceMap .
+         uncurry (distanceMap sh this) . mapPair (geometryArray, pointsArray)
+   return $ \sh this others points ->
+      distances sh this =<<
+         liftA2 (,) (geometryVector others) (pointsVector points)
 
 
 pow ::
-   (MultiValue.Repr LLVM.Value a ~ LLVM.Value ar,
+   (Tuple.ValueOf a ~ LLVM.Value ar,
     LLVM.IsFloating ar, SoV.TranscendentalConstant ar) =>
    Exp a -> Exp a -> Exp a
 pow =
@@ -1399,9 +1429,10 @@ distanceMapGamma gamma sh this others points =
    Symb.map (pow gamma) $ distanceMap sh this others points
 
 
-emptyWeightedCanvas :: IO (Dim2 -> IO (Plane (Float, YUV Float)))
+emptyWeightedCanvas :: IO (Dim2 -> IO (Planes (Float, YUV Float)))
 emptyWeightedCanvas =
-   RenderP.run $ \sh -> Symb.fill sh (Expr.zip 0 $ Expr.zip3 0 0 0)
+   RenderP.run $ \sh ->
+      Symb.fill sh $ Expr.tuple $ Expr.zip 0 $ Color.yuv 0 0 0
 
 addToWeightedCanvas ::
    (MultiValue.PseudoRing a, MultiValue.NativeFloating a ar) =>
@@ -1422,38 +1453,42 @@ updateWeightedCanvas ::
        [Geometry Float] ->
        [Arith.Point2 Float] ->
        ColorImage8 ->
-       Plane (Float, YUV Float) ->
-       IO (Plane (Float, YUV Float)))
+       Planes (Float, YUV Float) ->
+       IO (Planes (Float, YUV Float)))
 updateWeightedCanvas = do
-   distances <- RenderP.run distanceMapGamma
+   distances <-
+      RenderP.run $
+         \gamma shape this ->
+            uncurry (distanceMapGamma gamma shape this) .
+            mapPair (geometryArray, pointsArray)
 
    update <-
       RenderP.run $ \this pic dist weightSumCanvas ->
             let (rot, mov, _) = Expr.unzip3 this
-            in  addToWeightedCanvas vecYUV
+            in Symb.map Expr.tuple $
+               addToWeightedCanvas vecYUV
                   (Symb.zip dist $
                    Symb.map Expr.snd $
                    rotateStretchMove vecYUV rot mov
                       (Symb.shape weightSumCanvas) $
                    colorImageFloatFromByte pic)
-                  weightSumCanvas
+                  (Symb.map Expr.untuple weightSumCanvas)
 
    return $ \gamma this others points pic weightSumCanvas -> do
-      othersVec <- Phys.vectorFromList others
-      pointsVec <- Phys.vectorFromList points
       dists <-
-         distances
-            gamma (Phys.shape weightSumCanvas) this
-            othersVec pointsVec
+         distances gamma (Phys.shape weightSumCanvas) this
+         =<<
+         liftA2 (,) (geometryVector others) (pointsVector points)
+
       update this pic dists weightSumCanvas
 
 
-finalizeWeightedCanvas :: IO (Plane (Float, YUV Float) -> IO ColorImage8)
+finalizeWeightedCanvas :: IO (Planes (Float, YUV Float) -> IO ColorImage8)
 finalizeWeightedCanvas =
    RenderP.run $
       colorImageByteFromFloat .
       Symb.map
-         (Expr.modify (atom,atom) $ \(weightSum, pixel) ->
+         (Expr.modify (Tuple (atom,atom)) $ \(Tuple (weightSum, pixel)) ->
             Arith.vecScale vecYUV (recip weightSum) pixel) .
       Symb.fix
 
@@ -1825,16 +1860,17 @@ process args = do
       avg <- finalizeCanv sumImg
       diff <- diffWithCanvas
       picDiffs <- mapM (flip diff avg) rotMovPics
-      getSnd <- RenderP.run $ Symb.map Expr.snd . Symb.fix
+      getSnd <- RenderP.run $ Symb.map (Expr.snd . Expr.untuple) . Symb.fix
       lp <- lowpassMulti
-      let masks = map (ComfortArray.map fst . arrayPairFromVec) picDiffs
+      let masks =
+            map (ComfortArray.map (fst.getTuple) . arrayPairFromVec) picDiffs
       let smoothRadius = Option.shapeSmooth opt
       smoothPicDiffs <-
          mapM (fmap arrayPairFromVec . lp smoothRadius <=< getSnd) picDiffs
       (locs, pqueue) <-
          MatchImageBorders.prepareShaping $ zip masks smoothPicDiffs
       counts <-
-         MutArray.thaw . ComfortArray.map (fromIntegral . fst) $
+         MutArray.thaw . ComfortArray.map (fromIntegral . fst . getTuple) $
          arrayPairFromVec sumImg
       shapes <- MatchImageBorders.shapeParts counts locs pqueue
 

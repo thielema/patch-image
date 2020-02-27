@@ -7,8 +7,8 @@ import qualified Complex as Komplex
 import qualified Math.FFT as FFT
 import Math.FFT.Base (FFTWReal)
 
+import Foreign.Storable.Record.Tuple (Tuple(Tuple))
 import Foreign.Storable (Storable)
-import Foreign.Storable.Tuple ()
 
 import qualified Data.Array.Comfort.Shape as ComfortShape
 import Data.Array.Comfort.Storable.Unchecked (Array(Array))
@@ -96,9 +96,12 @@ untangleCoefficient_ a b =
 -- ToDo: could be moved to fft package
 untangleSpectra2d ::
    (Fractional a, Storable a) =>
-   CArray (Int,Int) (Complex a) -> CArray (Int,Int) (Complex a, Complex a)
+   CArray (Int,Int) (Complex a) ->
+   CArray (Int,Int) (Tuple (Complex a, Complex a))
 untangleSpectra2d spec =
-   CArray.liftArray2 untangleCoefficient spec (cyclicReverse2d spec)
+   CArray.liftArray2
+      ((Tuple.) . untangleCoefficient)
+      spec (cyclicReverse2d spec)
 
 {- |
 Equivalent to @amap (uncurry Komplex.mulConj) . untangleSpectra2d@

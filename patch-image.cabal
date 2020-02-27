@@ -69,6 +69,7 @@ Executable patch-image-llvm
     MatchImageBorders
     Knead.CArray
     Knead.Shape
+    Knead.Color
     Complex
     State
     LinearAlgebra
@@ -83,8 +84,8 @@ Executable patch-image-llvm
   If flag(llvm)
     Build-Depends:
       knead >=0.4 && <0.6,
-      llvm-extra >=0.8 && <0.10,
-      llvm-tf >=3.9 && <9.2,
+      llvm-extra >=0.10 && <0.11,
+      llvm-tf >=9.2 && <9.3,
       tfp >=1.0 && <1.1,
       comfort-array >=0.3 && <0.5,
       JuicyPixels >=2.0 && <3.4,
@@ -96,7 +97,7 @@ Executable patch-image-llvm
       semigroups >=0.1 && <1.0,
       fft >=0.1.7 && <0.2,
       storable-complex >=0.2.2 && <0.3,
-      storable-tuple >=0.0.3 && <0.1,
+      storable-record >=0.0.5 && <0.1,
       bool8 >=0.0 && <0.1,
       carray >=0.1.5 && <0.2,
       array >=0.4 && <0.6,
