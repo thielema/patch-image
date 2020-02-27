@@ -45,13 +45,13 @@ instance Applicative YUV where
 
 
 instance (Storable a) => Storable (YUV a) where
-   sizeOf = (3*) . sizeOf . undefElement
+   sizeOf = StoreTrav.sizeOf . lazyElements
    alignment = StoreTrav.alignment
    peek = StoreTrav.peekApplicative
    poke = StoreTrav.poke
 
-undefElement :: YUV a -> a
-undefElement _ = error "Color.YUV.undefElement"
+lazyElements :: YUV a -> YUV a
+lazyElements ~(YUV y u v) = YUV y u v
 
 instance
    (Storable.Vector a, LLVM.IsPrimitive a, LLVM.IsConst a,
