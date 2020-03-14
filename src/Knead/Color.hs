@@ -12,14 +12,15 @@ import qualified LLVM.Extra.Multi.Value as MultiValue
 import qualified LLVM.Extra.Vector as Vector
 import qualified LLVM.Extra.Tuple as Tuple
 
-import qualified LLVM.Util.Proxy as LP
 import qualified LLVM.Core as LLVM
 
 import qualified Type.Data.Num.Decimal as TypeNum
 
 import qualified Foreign.Storable.Traversable as StoreTrav
 import Foreign.Storable (Storable, sizeOf, alignment, poke, peek)
+import Foreign.Ptr (Ptr)
 
+import Control.Monad ((<=<))
 import Control.Applicative (Applicative, liftA3, pure, (<*>))
 
 import Data.Traversable (Traversable, traverse)
@@ -58,12 +59,13 @@ instance
     Tuple.VectorValue TypeNum.D3 a,
     Tuple.VectorValueOf TypeNum.D3 a ~ LLVM.Value (LLVM.Vector TypeNum.D3 a)) =>
       Storable.C (YUV a) where
-   type Struct (YUV a) = Storable.Struct a
-   load = Storable.load . vectorProxy
-   store = Storable.store . vectorProxy
+   load = Storable.load <=< castVectorPtr
+   store x = Storable.store x <=< castVectorPtr
 
-vectorProxy :: LP.Proxy (YUV a) -> LP.Proxy (LLVM.Vector TypeNum.D3 a)
-vectorProxy LP.Proxy = LP.Proxy
+castVectorPtr ::
+   LLVM.Value (Ptr (YUV a)) ->
+   LLVM.CodeGenFunction r (LLVM.Value (Ptr (LLVM.Vector TypeNum.D3 a)))
+castVectorPtr = LLVM.bitcast
 
 
 instance
