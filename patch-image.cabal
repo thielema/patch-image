@@ -33,7 +33,7 @@ Description:
   * Images must be approximately correctly oriented.
   .
   * May have problems with unstructured areas in the image.
-Tested-With:    GHC==7.8.3
+Tested-With:    GHC==7.8.4, GHC==8.2.2
 Cabal-Version:  >=1.6
 Build-Type:     Simple
 Extra-Source-Files:
