@@ -1096,7 +1096,7 @@ diffWithCanvas =
          avg
 
 finalizeCountCanvasFloat ::
-   IO (Planes (Word32, YUV Float) -> IO (Plane (YUV Float)))
+   IO ((Planes (Word32, YUV Float)) -> IO (Plane (YUV Float)))
 finalizeCountCanvasFloat =
    RenderP.run $
       Symb.map
@@ -1111,8 +1111,8 @@ emptyCanvas = RenderP.run $ \sh -> Symb.fill sh (Color.yuv 0 0 0)
 addMaskedToCanvas ::
    IO (RotatedImage ->
        Plane Bool8 ->
-       Plane (YUV Word8) ->
-       IO (Plane (YUV Word8)))
+       ColorImage8 ->
+       IO ColorImage8)
 addMaskedToCanvas =
    RenderP.run $ \(rot, mov, pic) mask canvas ->
       Symb.zipWith3 Expr.ifThenElse
@@ -1228,8 +1228,7 @@ separateDistanceMap array =
       array (Symb.lift0 $ Symb.id $
              Expr.compose $ Shape.ZeroBased (4 :: Exp SmallSize))
 
-distanceMapBoxRun ::
-   IO (Dim2 -> Geometry Float -> IO (Plane Word8))
+distanceMapBoxRun :: IO (Dim2 -> Geometry Float -> IO (Plane Word8))
 distanceMapBoxRun =
    RenderP.run $ \sh geom ->
       scaleDistanceMapGeom geom $
@@ -1410,9 +1409,7 @@ pow ::
    (Tuple.ValueOf a ~ LLVM.Value ar,
     LLVM.IsFloating ar, SoV.TranscendentalConstant ar) =>
    Exp a -> Exp a -> Exp a
-pow =
-   flip $ Expr.liftM2 $ \(MultiValue.Cons x) (MultiValue.Cons y) ->
-      fmap MultiValue.Cons $ LLVMArith.pow x y
+pow = flip $ Expr.liftTupleM2 LLVMArith.pow
 
 distanceMapGamma ::
    (MultiValue.Algebraic a, MultiValue.Real a,
@@ -1423,7 +1420,7 @@ distanceMapGamma ::
    Exp Dim2 ->
    Exp (Geometry a) ->
    Symb.Array SmallDim (Geometry a) ->
-   Symb.Array SmallDim (a, a) ->
+   Symb.Array SmallDim (Arith.Point2 a) ->
    SymbPlane a
 distanceMapGamma gamma sh this others points =
    Symb.map (pow gamma) $ distanceMap sh this others points
