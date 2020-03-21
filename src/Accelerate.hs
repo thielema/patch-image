@@ -1493,10 +1493,10 @@ processOverlap args = do
    let (poss, dps) =
           absolutePositionsFromPairDisplacements
              (fixAtLeastOnePosition (0,0) $ map picParam pics) overlaps
-   info "\nabsolute positions"
+   info "\nabsolute positions\n"
    info $ unlines $ map show poss
 
-   info "\ncompare position differences with pair displacements"
+   info "\ncompare position differences with pair displacements\n"
    info $ unlines $
       zipWith
          (\(dpx,dpy) (dx,dy) ->
@@ -1569,11 +1569,11 @@ processOverlapRotate args = do
                            (\(score,pa,pb) ->
                               (score, (add pa leftTopA, add pb leftTopB))) $
                         optimalOverlapShared mMaxDiff picA picB
-                  info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
-                  info $ printf "%s - %s" pathA pathB
+                  info $ printf "left-top: %s, %s\n" (show leftTopA) (show leftTopB)
+                  info $ printf "%s - %s\n" pathA pathB
                   forM_ corrs $ \(score, (pa@(xa,ya),pb@(xb,yb))) ->
                      info $
-                        printf "%s ~ %s, (%f,%f), %f"
+                        printf "%s ~ %s, (%f,%f), %f\n"
                            (show pa) (show pb) (xb-xa) (yb-ya) score
                   return $ map snd corrs
          return ((ia,ib), (pathA,pathB), correspondences)
@@ -1588,7 +1588,7 @@ processOverlapRotate args = do
               fixAtLeastOneAnglePosition (Degree 0, (0,0)) $
               map picParam pics)
              overlaps
-   info "\nabsolute positions and rotations: place, rotation (magnitude, phase)"
+   info "\nabsolute positions and rotations: place, rotation (magnitude, phase)\n"
    infoPlain $ unlines $
       map
          (\((dx,dy),r) ->
@@ -1598,7 +1598,7 @@ processOverlapRotate args = do
                (getDegree $ Degree.fromRadian $ Complex.phase r))
          posRots
 
-   info "\ncompare position differences with pair displacements"
+   info "\ncompare position differences with pair displacements\n"
    infoPlain $ unlines $
       zipWith
          (\(dpx,dpy) (_i, ((xa,ya),(xb,yb))) ->
@@ -1619,7 +1619,7 @@ processRotation args = do
 
    inputs <- Option.images args
 
-   notice "\nfind rotation angles"
+   notice "\nfind rotation angles\n"
    picAngles <-
       forM inputs $ \(State.Proposed path (maybeAngle, _) _) -> do
          pic <- readImage (Option.verbosity opt) path
@@ -1641,7 +1641,7 @@ processRotation args = do
       State.write (printf format "angle") $
          zipWith State.Angle (map State.propPath inputs) (map fst picAngles)
 
-   notice "\nfind relative placements"
+   notice "\nfind relative placements\n"
    let rotated = map (prepareOverlapMatching (Option.smooth opt)) picAngles
 
    when False $ do
@@ -1687,7 +1687,7 @@ process args = do
                (angle <> Degree.fromRadian (Complex.phase rot)) pos)
          paths picAngles posRots
 
-   notice "\ncompose all parts"
+   notice "\ncompose all parts\n"
    let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =
          Arith.canvasShape colorImageExtent
             (map (mapFst Degree.toRadian) picAngles) posRots
@@ -1701,7 +1701,7 @@ process args = do
          (emptyCountCanvas (Z :. 3 :. canvasHeight :. canvasWidth))
          rotMovPics
 
-   notice "\ndistance maps"
+   notice "\ndistance maps\n"
    let geometryRelations =
          Arith.geometryRelations $
          map (Arith.geometryFeatures . mapThd3 colorImageExtent) rotMovPics
@@ -1729,7 +1729,7 @@ process args = do
             distanceMapRun canvasShape thisGeom otherGeoms allPoints
 
    forM_ (Option.output opt) $ \path -> do
-     notice "\nweighted composition"
+     notice "\nweighted composition\n"
      writeImage (Option.quality opt) path $
       finalizeWeightedCanvas $
       foldl

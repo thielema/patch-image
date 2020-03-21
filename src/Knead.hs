@@ -1587,10 +1587,10 @@ processOverlap args = do
    let (poss, dps) =
           absolutePositionsFromPairDisplacements
              (fixAtLeastOnePosition (0,0) $ map picParam pics) overlaps
-   info "\nabsolute positions"
+   info "\nabsolute positions\n"
    info $ unlines $ map show poss
 
-   info "\ncompare position differences with pair displacements"
+   info "\ncompare position differences with pair displacements\n"
    info $ unlines $
       zipWith
          (\(dpx,dpy) (dx,dy) ->
@@ -1663,11 +1663,11 @@ processOverlapRotate args = do
                         (\(score,pa,pb) ->
                            (score, (add pa leftTopA, add pb leftTopB))) <$>
                      optimalOverlapShared mMaxDiff picA picB
-                  info $ printf "left-top: %s, %s" (show leftTopA) (show leftTopB)
-                  info $ printf "%s - %s" pathA pathB
+                  info $ printf "left-top: %s, %s\n" (show leftTopA) (show leftTopB)
+                  info $ printf "%s - %s\n" pathA pathB
                   forM_ corrs $ \(score, (pa@(xa,ya),pb@(xb,yb))) ->
                      info $
-                        printf "%s ~ %s, (%f,%f), %f"
+                        printf "%s ~ %s, (%f,%f), %f\n"
                            (show pa) (show pb) (xb-xa) (yb-ya) score
                   return $ map snd corrs
          return ((ia,ib), (pathA,pathB), correspondences)
@@ -1682,7 +1682,7 @@ processOverlapRotate args = do
               fixAtLeastOneAnglePosition (Degree 0, (0,0)) $
               map picParam pics)
              overlaps
-   info "\nabsolute positions and rotations: place, rotation (magnitude, phase)"
+   info "\nabsolute positions and rotations: place, rotation (magnitude, phase)\n"
    infoPlain $ unlines $
       map
          (\((dx,dy),r) ->
@@ -1692,7 +1692,7 @@ processOverlapRotate args = do
                (getDegree $ Degree.fromRadian $ Complex.phase r))
          posRots
 
-   info "\ncompare position differences with pair displacements"
+   info "\ncompare position differences with pair displacements\n"
    infoPlain $ unlines $
       zipWith
          (\(dpx,dpy) (_i, ((xa,ya),(xb,yb))) ->
@@ -1713,7 +1713,7 @@ processRotation args = do
 
    inputs <- Option.images args
 
-   notice "\nfind rotation angles"
+   notice "\nfind rotation angles\n"
    findOptRot <- findOptimalRotation
    picAngles <-
       forM inputs $ \(State.Proposed path (maybeAngle, _) _) -> do
@@ -1731,7 +1731,7 @@ processRotation args = do
       State.write (printf format "angle") $
          zipWith State.Angle (map State.propPath inputs) (map fst picAngles)
 
-   notice "\nfind relative placements"
+   notice "\nfind relative placements\n"
    prepOverlapMatching <- prepareOverlapMatching
    rotated <- mapM (prepOverlapMatching (Option.smooth opt)) picAngles
 
@@ -1783,7 +1783,7 @@ process args = do
                (angle <> Degree.fromRadian (Complex.phase rot)) pos)
          paths picAngles posRots
 
-   notice "\ncompose all parts"
+   notice "\ncompose all parts\n"
    let ((canvasWidth, canvasHeight), rotMovPics, canvasMsgs) =
          Arith.canvasShape colorImageExtent
             (map (mapFst Degree.toRadian) picAngles) posRots
@@ -1800,7 +1800,7 @@ process args = do
          foldM (flip updateCanv) empty rotMovPics
 
 
-   notice "\ndistance maps"
+   notice "\ndistance maps\n"
    let geometryRelations =
          Arith.geometryRelations $
          map (Arith.geometryFeatures . mapThd3 colorImageExtent) rotMovPics
@@ -1835,7 +1835,7 @@ process args = do
             uncurry3 (distMap canvasShape) geoms
 
    forM_ (Option.output opt) $ \path -> do
-      notice "\nweighted composition"
+      notice "\nweighted composition\n"
       emptyCanv <- emptyWeightedCanvas
       updateCanv <- updateWeightedCanvas
       finalizeCanv <- finalizeWeightedCanvas
@@ -1849,7 +1849,7 @@ process args = do
             empty (zip geometryRelations picAngles)
 
    when (isJust (Option.outputShaped opt) || isJust (Option.outputShapedHard opt)) $ do
-      notice "\nmatch shapes"
+      notice "\nmatch shapes\n"
       emptyCanv <- emptyCountCanvas
       updateCanv <- updateCountCanvas
       finalizeCanv <- finalizeCountCanvasFloat
