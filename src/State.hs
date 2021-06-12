@@ -212,7 +212,7 @@ segmentRotated =
               catMaybes $ mrot0 : map (\(Rotated _ mrot) -> mrot) rots)))
          blocks))
    .
-   ListHT.segmentBeforeMaybe
+   ListHT.segmentBeforeJust
       (\(Rotated mPathRel mrot) -> (,) mrot <$> mPathRel)
 
 imagePairMap ::
