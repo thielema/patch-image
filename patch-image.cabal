@@ -88,7 +88,7 @@ Executable patch-image-llvm
       llvm-extra >=0.11 && <0.12,
       llvm-tf >=9.2 && <9.3,
       tfp >=1.0 && <1.1,
-      comfort-array >=0.3 && <0.5,
+      comfort-array >=0.5 && <0.6,
       JuicyPixels >=2.0 && <3.4,
       dsp >=0.2.4 && <0.3,
       vector >=0.10 && <0.13,

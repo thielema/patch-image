@@ -168,8 +168,8 @@ instance
       ComfortShape.Indexed (Vec2 tag i) where
    type Index (Vec2 tag i) = Index2 (Shape.Index i)
    indices (Vec2 n m) = map (uncurry Vec2) $ ComfortShape.indices (n,m)
-   sizeOffset (Vec2 n m) =
-      mapSnd (. (\(Vec2 i j) -> (i,j))) $ ComfortShape.sizeOffset (n,m)
+   unifiedSizeOffset (Vec2 n m) =
+      mapSnd (. (\(Vec2 i j) -> (i,j))) $ ComfortShape.unifiedSizeOffset (n,m)
    inBounds (Vec2 n m) (Vec2 i j) = ComfortShape.inBounds (n,m) (i,j)
 
 instance (tag ~ ShapeTag, Shape.C i) => Shape.C (Vec2 tag i) where
