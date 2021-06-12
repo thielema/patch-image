@@ -1,35 +1,39 @@
+{-# LANGUAGE TypeFamilies #-}
 module Knead.CArray where
 
 import Knead.Shape (Vec2(Vec2), Dim2)
 
 import qualified Complex as Komplex
 
-import qualified Math.FFT as FFT
-import Math.FFT.Base (FFTWReal)
+import qualified Numeric.FFTW.Rank2 as Trafo2
+import qualified Numeric.FFTW.Shape as Spectrum
+import qualified Numeric.Netlib.Class as Class
 
 import Foreign.Storable.Record.Tuple (Tuple(Tuple))
 import Foreign.Storable (Storable)
 
-import qualified Data.Array.Comfort.Shape as ComfortShape
+import qualified Data.Array.Comfort.Storable as Array
+import qualified Data.Array.Comfort.Shape as Shape
 import Data.Array.Comfort.Storable.Unchecked (Array(Array))
+import Data.Array.Comfort.Storable ((!))
 
 import qualified Data.Array.CArray.Base as CArrayPriv
-import qualified Data.Array.CArray as CArray
-import Data.Array.IArray (amap, bounds, rangeSize)
+import Data.Array.IArray (bounds, rangeSize)
 import Data.Array.CArray (CArray)
 
 import Control.Applicative ((<$>))
 
 import Data.Complex (Complex((:+)), realPart)
 
-import Data.Tuple.HT (mapPair)
+import Data.Maybe (fromMaybe)
 
+
+type Plane = Array (Shape.ZeroBased Int, Shape.ZeroBased Int)
+type Cyclic = Array (Shape.Cyclic Int, Shape.Cyclic Int)
 
 arrayCFromKnead :: Array Dim2 a -> IO (CArray (Int,Int) a)
 arrayCFromKnead
-   (Array
-      (Vec2 (ComfortShape.ZeroBased height) (ComfortShape.ZeroBased width))
-      fptr) =
+      (Array (Vec2 (Shape.ZeroBased height) (Shape.ZeroBased width)) fptr) =
    CArrayPriv.unsafeForeignPtrToCArray fptr
       ((0,0), (fromIntegral height - 1, fromIntegral width - 1))
 
@@ -40,8 +44,8 @@ arrayKneadFromC carray =
       ((ly,lx), (uy,ux)) ->
          Array
             (Vec2
-               (ComfortShape.ZeroBased $ fromIntegral $ rangeSize (ly,uy))
-               (ComfortShape.ZeroBased $ fromIntegral $ rangeSize (lx,ux)))
+               (Shape.ZeroBased $ fromIntegral $ rangeSize (ly,uy))
+               (Shape.ZeroBased $ fromIntegral $ rangeSize (lx,ux)))
             (snd $ CArrayPriv.toForeignPtr carray)
 
 liftCArray ::
@@ -51,34 +55,37 @@ liftCArray ::
 liftCArray f a = arrayKneadFromC . f <$> arrayCFromKnead a
 
 
-pad ::
-   (Storable a) => a -> (Int,Int) -> CArray (Int,Int) a -> CArray (Int,Int) a
+pad :: (Storable a) => a -> (Int,Int) -> Plane a -> Cyclic a
 pad a (height, width) img =
-   CArray.listArray ((0,0), (height-1, width-1)) (repeat a)
-   CArray.//
-   CArray.assocs img
+   Array.sample (Shape.Cyclic height, Shape.Cyclic width) $ \ix ->
+      fromMaybe a $ Array.accessMaybe img ix
 
-clip :: (Storable a) => (Int,Int) -> CArray (Int,Int) a -> CArray (Int,Int) a
-clip (height, width) = CArray.ixmap ((0,0), (height-1, width-1)) id
+uncycle :: Cyclic a -> Plane a
+uncycle =
+   Array.mapShape
+      (\(Shape.Cyclic height, Shape.Cyclic width) ->
+         (Shape.ZeroBased height, Shape.ZeroBased width))
+
+clip ::
+   (Storable a, Shape.Indexed sh0, Shape.Indexed sh1) =>
+   (Shape.Index sh0 ~ Shape.Index sh1) =>
+   sh1 -> Array sh0 a -> Array sh1 a
+clip sh img = Array.sample sh (img!)
 
 correlatePaddedSimple ::
-   (FFTWReal a) =>
-   (Int,Int) ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a
+   (Class.Real a) => (Int,Int) -> Plane a -> Plane a -> Plane a
 correlatePaddedSimple sh =
-   let forward = FFT.dftRCN [0,1] . pad 0 sh
-       inverse = FFT.dftCRN [0,1]
-   in  \ a b ->
-         inverse $ CArray.liftArray2 Komplex.mulConj (forward a) (forward b)
+   let forward = Trafo2.fourierRC . pad 0 sh
+       inverse = Trafo2.fourierCR
+   in \a b ->
+         uncycle $ Array.map (/ fromIntegral (uncurry (*) sh)) $
+         inverse $
+         Array.zipWith Komplex.mulConj (forward a) (forward b)
 
--- expects zero-based arrays
-cyclicReverse2d :: (Storable a) => CArray (Int,Int) a -> CArray (Int,Int) a
+cyclicReverse2d :: (Storable a) => Cyclic a -> Cyclic a
 cyclicReverse2d spec =
-   let (height, width) = mapPair ((1+), (1+)) $ snd $ CArray.bounds spec
-   in  CArray.ixmap (CArray.bounds spec)
-         (\(y,x) -> (mod (-y) height, mod (-x) width)) spec
+   let shape@(Shape.Cyclic height, Shape.Cyclic width) = Array.shape spec
+   in Array.sample shape (\(y,x) -> spec ! (mod (-y) height, mod (-x) width))
 
 untangleCoefficient ::
    (Fractional a) => Complex a -> Complex a -> (Complex a, Complex a)
@@ -96,10 +103,10 @@ untangleCoefficient_ a b =
 -- ToDo: could be moved to fft package
 untangleSpectra2d ::
    (Fractional a, Storable a) =>
-   CArray (Int,Int) (Complex a) ->
-   CArray (Int,Int) (Tuple (Complex a, Complex a))
+   Cyclic (Complex a) ->
+   Cyclic (Tuple (Complex a, Complex a))
 untangleSpectra2d spec =
-   CArray.liftArray2
+   Array.zipWith
       ((Tuple.) . untangleCoefficient)
       spec (cyclicReverse2d spec)
 
@@ -110,9 +117,9 @@ based on @storable-tuple:storePair@.
 -}
 mulConjUntangledSpectra2d ::
    (Fractional a, Storable a) =>
-   CArray (Int,Int) (Complex a) -> CArray (Int,Int) (Complex a)
+   Cyclic (Complex a) -> Cyclic (Complex a)
 mulConjUntangledSpectra2d spec =
-   CArray.liftArray2
+   Array.zipWith
       ((uncurry Komplex.mulConj .) . untangleCoefficient)
       spec (cyclicReverse2d spec)
 
@@ -128,29 +135,22 @@ perform two real-valued Fourier transforms using one complex-valued transform.
 Afterwards we untangle the superposed spectra.
 -}
 correlatePaddedComplex ::
-   (FFTWReal a) =>
-   (Int,Int) ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a
+   (Class.Real a) => (Int,Int) -> Plane a -> Plane a -> Plane a
 correlatePaddedComplex sh a b =
-   amap realPart $ FFT.idftN [0,1] $
-   mulConjUntangledSpectra2d $ FFT.dftN [0,1] $
-   CArray.liftArray2 (:+) (pad 0 sh a) (pad 0 sh b)
+   uncycle $ Array.map ((/ fromIntegral (uncurry (*) sh)) . realPart) $
+   Trafo2.fourier Trafo2.Backward $
+   mulConjUntangledSpectra2d $ Trafo2.fourier Trafo2.Forward $
+   Array.zipWith (:+) (pad 0 sh a) (pad 0 sh b)
 
 {- |
 Should be yet a little bit more efficient than 'correlatePaddedComplexCArray'
 since it uses a real back transform.
 -}
 correlatePadded ::
-   (FFTWReal a) =>
-   (Int,Int) ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a ->
-   CArray (Int,Int) a
+   (Class.Real a) => (Int,Int) -> Plane a -> Plane a -> Plane a
 correlatePadded sh@(height,width) a b =
-   (case divMod width 2 of
-      (halfWidth,0) -> FFT.dftCRN [0,1] . clip (height,halfWidth+1)
-      (halfWidth,_) -> FFT.dftCRON [0,1] . clip (height,halfWidth+1)) $
-   mulConjUntangledSpectra2d $ FFT.dftN [0,1] $
-   CArray.liftArray2 (:+) (pad 0 sh a) (pad 0 sh b)
+   uncycle $ Array.map (/ fromIntegral (height*width)) $
+   Trafo2.fourierCR $
+   clip (Shape.Cyclic height, Spectrum.Half width) $
+   mulConjUntangledSpectra2d $ Trafo2.fourier Trafo2.Forward $
+   Array.zipWith (:+) (pad 0 sh a) (pad 0 sh b)
