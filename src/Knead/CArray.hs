@@ -15,7 +15,7 @@ import Data.Array.Comfort.Storable.Unchecked (Array(Array))
 
 import qualified Data.Array.CArray.Base as CArrayPriv
 import qualified Data.Array.CArray as CArray
-import Data.Array.IArray (Ix, amap, bounds, rangeSize)
+import Data.Array.IArray (amap, bounds, rangeSize)
 import Data.Array.CArray (CArray)
 
 import Control.Applicative ((<$>))
