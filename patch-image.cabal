@@ -4,7 +4,7 @@ License:        BSD3
 License-File:   LICENSE
 Author:         Henning Thielemann <haskell@henning-thielemann.de>
 Maintainer:     Henning Thielemann <haskell@henning-thielemann.de>
-Homepage:       http://hub.darcs.net/thielema/patch-image/
+Homepage:       https://hub.darcs.net/thielema/patch-image/
 Category:       Graphics
 Synopsis:       Compose a big image from overlapping parts
 Description:
@@ -43,11 +43,11 @@ Extra-Source-Files:
 Source-Repository this
   Tag:         0.3.3.2
   Type:        darcs
-  Location:    http://hub.darcs.net/thielema/patch-image/
+  Location:    https://hub.darcs.net/thielema/patch-image/
 
 Source-Repository head
   Type:        darcs
-  Location:    http://hub.darcs.net/thielema/patch-image/
+  Location:    https://hub.darcs.net/thielema/patch-image/
 
 Flag llvm
   Description: Build program version base on knead
