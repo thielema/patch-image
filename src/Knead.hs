@@ -40,11 +40,10 @@ import qualified Data.Array.Comfort.Storable.Mutable as MutArray
 import qualified Data.Array.Comfort.Storable.Unchecked as ComfortArray
 import qualified Data.Array.Comfort.Shape as ComfortShape
 
+import qualified LLVM.Extra.Multi.Value.Storable as Storable
 import qualified LLVM.Extra.Multi.Value as MultiValue
 import qualified LLVM.Extra.ScalarOrVector as SoV
 import qualified LLVM.Extra.Arithmetic as LLVMArith
-import qualified LLVM.Extra.Storable as Storable
-import qualified LLVM.Extra.Tuple as Tuple
 import LLVM.Extra.Multi.Value (Atom, atom)
 
 import qualified LLVM.Core as LLVM
@@ -309,13 +308,13 @@ type VecExp a v = Arith.Vec (Exp a) (Exp v)
 
 vecYUV ::
    (MultiValue.PseudoRing a, LLVM.IsArithmetic a,
-    LLVM.IsPrimitive a, LLVM.IsConst a, Tuple.ValueOf a ~ LLVM.Value a) =>
+    LLVM.IsPrimitive a, LLVM.IsConst a, MultiValue.Repr a ~ LLVM.Value a) =>
    VecExp a (YUV a)
 vecYUV =
    Arith.Vec {
       Arith.vecZero = Expr.zero,
-      Arith.vecAdd = Expr.liftTupleM2 LLVMArith.add,
-      Arith.vecScale = Expr.liftTupleM2 SoV.scale
+      Arith.vecAdd = Expr.liftReprM2 LLVMArith.add,
+      Arith.vecScale = Expr.liftReprM2 SoV.scale
    }
 
 {-
@@ -498,13 +497,13 @@ runRotate = do
 
 brightnessPlane ::
    (Symb.C array, Shape.C size) =>
-   (LLVM.IsPrimitive a, Tuple.ValueOf a ~ LLVM.Value a) =>
+   (LLVM.IsPrimitive a, MultiValue.Repr a ~ LLVM.Value a) =>
    array size (YUV a) -> array size a
 brightnessPlane = Symb.map Color.brightness
 
 rowHistogram ::
    (Symb.C array, MultiValue.Additive a) =>
-   (LLVM.IsPrimitive a, Tuple.ValueOf a ~ LLVM.Value a) =>
+   (LLVM.IsPrimitive a, MultiValue.Repr a ~ LLVM.Value a) =>
    array Dim2 (YUV a) -> array Dim1 a
 rowHistogram =
    Symb.fold1 Expr.add .
@@ -1406,10 +1405,10 @@ distanceMapRun = do
 
 
 pow ::
-   (Tuple.ValueOf a ~ LLVM.Value ar,
+   (MultiValue.Repr a ~ LLVM.Value ar,
     LLVM.IsFloating ar, SoV.TranscendentalConstant ar) =>
    Exp a -> Exp a -> Exp a
-pow = flip $ Expr.liftTupleM2 LLVMArith.pow
+pow = flip $ Expr.liftReprM2 LLVMArith.pow
 
 distanceMapGamma ::
    (MultiValue.Algebraic a, MultiValue.Real a,

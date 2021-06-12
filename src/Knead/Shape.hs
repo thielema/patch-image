@@ -9,7 +9,6 @@ import qualified Data.Array.Comfort.Shape as ComfortShape
 
 import qualified LLVM.Extra.Multi.Value.Marshal as Marshal
 import qualified LLVM.Extra.Multi.Value as MultiValue
-import qualified LLVM.Extra.Marshal as MarshalPlain
 import qualified LLVM.Extra.Memory as Memory
 import qualified LLVM.Extra.Tuple as Tuple
 import qualified LLVM.Extra.Iterator as Iter
@@ -99,6 +98,7 @@ instance (Tuple.Value n) => Tuple.Value (Vec2 tag n) where
    valueOf (Vec2 n m) = Vec2 (Tuple.valueOf n) (Tuple.valueOf m)
 
 instance (MultiValue.C n) => MultiValue.C (Vec2 tag n) where
+   type Repr (Vec2 tag n) = Vec2 tag (MultiValue.Repr n)
    cons (Vec2 n m) =
       MultiValue.compose $ Vec2 (MultiValue.cons n) (MultiValue.cons m)
    undef = MultiValue.compose $ squareShape MultiValue.undef
@@ -148,14 +148,10 @@ instance (Memory.C i) => Memory.C (Vec2 tag i) where
       rn <- LLVM.insertvalue (LLVM.value LLVM.undef) sn TypeNum.d0
       LLVM.insertvalue rn sm TypeNum.d1
 
-instance (MarshalPlain.C i) => MarshalPlain.C (Vec2 tag i) where
-   pack (Vec2 n m) =
-      LLVM.consStruct (MarshalPlain.pack n) (MarshalPlain.pack m)
-   unpack =
-      LLVM.uncurryStruct $ \n m ->
-         Vec2 (MarshalPlain.unpack n) (MarshalPlain.unpack m)
-
 instance (Marshal.C i) => Marshal.C (Vec2 tag i) where
+   pack (Vec2 n m) = LLVM.consStruct (Marshal.pack n) (Marshal.pack m)
+   unpack =
+      LLVM.uncurryStruct $ \n m -> Vec2 (Marshal.unpack n) (Marshal.unpack m)
 
 
 unzipShape :: MultiValue.T (Vec2 tag n) -> Vec2 tag (MultiValue.T n)

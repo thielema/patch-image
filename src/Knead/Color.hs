@@ -7,7 +7,8 @@ module Knead.Color where
 import qualified Data.Array.Knead.Expression as Expr
 import Data.Array.Knead.Expression (Exp)
 
-import qualified LLVM.Extra.Storable as Storable
+import qualified LLVM.Extra.Multi.Value.Storable as Storable
+import qualified LLVM.Extra.Multi.Vector as MultiVector
 import qualified LLVM.Extra.Multi.Value as MultiValue
 import qualified LLVM.Extra.Vector as Vector
 import qualified LLVM.Extra.Tuple as Tuple
@@ -56,11 +57,11 @@ lazyElements ~(YUV y u v) = YUV y u v
 
 instance
    (Storable.Vector a, LLVM.IsPrimitive a, LLVM.IsConst a,
-    Tuple.VectorValue TypeNum.D3 a,
-    Tuple.VectorValueOf TypeNum.D3 a ~ LLVM.Value (LLVM.Vector TypeNum.D3 a)) =>
+    MultiVector.C a,
+    MultiVector.Repr TypeNum.D3 a ~ LLVM.Value (LLVM.Vector TypeNum.D3 a)) =>
       Storable.C (YUV a) where
-   load = Storable.load <=< castVectorPtr
-   store x = Storable.store x <=< castVectorPtr
+   load = fmap MultiValue.cast . Storable.load <=< castVectorPtr
+   store x = Storable.store (MultiValue.cast x) <=< castVectorPtr
 
 castVectorPtr ::
    LLVM.Value (Ptr (YUV a)) ->
@@ -77,7 +78,9 @@ instance
 instance
    (LLVM.IsPrimitive a, LLVM.IsConst a) =>
       MultiValue.C (YUV a) where
-   cons = MultiValue.consTuple
+   type Repr (YUV a) = LLVM.Value (LLVM.Vector TypeNum.D3 a)
+   cons (YUV a0 a1 a2) =
+      MultiValue.Cons $ LLVM.valueOf $ LLVM.consVector a0 a1 a2
    undef = MultiValue.undefTuple
    zero = MultiValue.zeroTuple
    phi = MultiValue.phiTuple
@@ -85,35 +88,35 @@ instance
 
 
 yuv ::
-   (LLVM.IsPrimitive a, Tuple.ValueOf a ~ LLVM.Value a) =>
+   (LLVM.IsPrimitive a, MultiValue.Repr a ~ LLVM.Value a) =>
    Exp a -> Exp a -> Exp a -> Exp (YUV a)
 yuv =
-   Expr.liftTupleM3
+   Expr.liftReprM3
       (\y u v -> do
          arr0 <- LLVM.insertelement Tuple.undef y (LLVM.valueOf 0)
          arr1 <- LLVM.insertelement arr0 u (LLVM.valueOf 1)
          LLVM.insertelement arr1 v (LLVM.valueOf 2))
 
 brightness ::
-   (LLVM.IsPrimitive a, Tuple.ValueOf a ~ LLVM.Value a) =>
+   (LLVM.IsPrimitive a, MultiValue.Repr a ~ LLVM.Value a) =>
    Exp (YUV a) -> Exp a
 brightness =
-   Expr.liftTupleM (flip LLVM.extractelement (LLVM.valueOf 0))
+   Expr.liftReprM (flip LLVM.extractelement (LLVM.valueOf 0))
 
 mapPlain ::
    (LLVM.IsPrimitive a, LLVM.IsPrimitive b) =>
    (forall r. LLVM.Value a -> LLVM.CodeGenFunction r (LLVM.Value b)) ->
    Exp (YUV a) -> Exp (YUV b)
-mapPlain f = Expr.liftTupleM (Vector.map f)
+mapPlain f = Expr.liftReprM (Vector.map f)
 
 exprUnliftM1 ::
-   (Tuple.ValueOf a ~ al, Tuple.ValueOf b ~ bl) =>
+   (MultiValue.Repr a ~ al, MultiValue.Repr b ~ bl) =>
    (Exp a -> Exp b) -> al -> LLVM.CodeGenFunction r bl
 exprUnliftM1 f a =
    fmap (\(MultiValue.Cons b) -> b) $ Expr.unliftM1 f $ MultiValue.Cons a
 
 map ::
-   (LLVM.IsPrimitive a, Tuple.ValueOf a ~ LLVM.Value a,
-    LLVM.IsPrimitive b, Tuple.ValueOf b ~ LLVM.Value b) =>
+   (LLVM.IsPrimitive a, MultiValue.Repr a ~ LLVM.Value a,
+    LLVM.IsPrimitive b, MultiValue.Repr b ~ LLVM.Value b) =>
    (Exp a -> Exp b) -> Exp (YUV a) -> Exp (YUV b)
 map f = mapPlain (exprUnliftM1 f)
