@@ -1,8 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 module Knead.CArray where
 
-import Knead.Shape (Vec2(Vec2), Dim2)
-
 import qualified Complex as Komplex
 
 import qualified Numeric.FFTW.Rank2 as Trafo2
@@ -14,14 +12,8 @@ import Foreign.Storable (Storable)
 
 import qualified Data.Array.Comfort.Storable as Array
 import qualified Data.Array.Comfort.Shape as Shape
-import Data.Array.Comfort.Storable.Unchecked (Array(Array))
+import Data.Array.Comfort.Storable.Unchecked (Array)
 import Data.Array.Comfort.Storable ((!))
-
-import qualified Data.Array.CArray.Base as CArrayPriv
-import Data.Array.IArray (bounds, rangeSize)
-import Data.Array.CArray (CArray)
-
-import Control.Applicative ((<$>))
 
 import Data.Complex (Complex((:+)), realPart)
 
@@ -30,29 +22,6 @@ import Data.Maybe (fromMaybe)
 
 type Plane = Array (Shape.ZeroBased Int, Shape.ZeroBased Int)
 type Cyclic = Array (Shape.Cyclic Int, Shape.Cyclic Int)
-
-arrayCFromKnead :: Array Dim2 a -> IO (CArray (Int,Int) a)
-arrayCFromKnead
-      (Array (Vec2 (Shape.ZeroBased height) (Shape.ZeroBased width)) fptr) =
-   CArrayPriv.unsafeForeignPtrToCArray fptr
-      ((0,0), (fromIntegral height - 1, fromIntegral width - 1))
-
-arrayKneadFromC ::
-   (Storable a) => CArray (Int,Int) a -> Array Dim2 a
-arrayKneadFromC carray =
-   case bounds carray of
-      ((ly,lx), (uy,ux)) ->
-         Array
-            (Vec2
-               (Shape.ZeroBased $ fromIntegral $ rangeSize (ly,uy))
-               (Shape.ZeroBased $ fromIntegral $ rangeSize (lx,ux)))
-            (snd $ CArrayPriv.toForeignPtr carray)
-
-liftCArray ::
-   (Storable a, Storable b) =>
-   (CArray (Int,Int) a -> CArray (Int,Int) b) ->
-   Array Dim2 a -> IO (Array Dim2 b)
-liftCArray f a = arrayKneadFromC . f <$> arrayCFromKnead a
 
 
 pad :: (Storable a) => a -> (Int,Int) -> Plane a -> Cyclic a
@@ -125,9 +94,9 @@ mulConjUntangledSpectra2d spec =
 
 
 {-
-This is more efficient than 'correlatePaddedSimpleCArray'
+This is more efficient than 'correlatePaddedSimple'
 since it needs only one complex forward Fourier transform,
-where 'correlatePaddedSimpleCArray' needs two real transforms.
+where 'correlatePaddedSimple' needs two real transforms.
 Especially for odd sizes
 two real transforms are slower than a complex transform.
 For the analysis part,
@@ -143,7 +112,7 @@ correlatePaddedComplex sh a b =
    Array.zipWith (:+) (pad 0 sh a) (pad 0 sh b)
 
 {- |
-Should be yet a little bit more efficient than 'correlatePaddedComplexCArray'
+Should be yet a little bit more efficient than 'correlatePaddedComplex'
 since it uses a real back transform.
 -}
 correlatePadded ::

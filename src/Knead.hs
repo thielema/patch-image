@@ -16,15 +16,15 @@ import LinearAlgebra (
    absolutePositionsFromPairDisplacements, fixAtLeastOnePosition,
    layoutFromPairDisplacements, fixAtLeastOneAnglePosition,
    )
-import Knead.CArray (liftCArray)
 import Knead.Shape
          (Size, Vec2(Vec2), Dim1, Dim2, Shape2, Shape2ZB, Index2, Ix2, Factor2,
           verticalSize, verticalVal, horizontalVal)
 import Knead.Color (YUV)
 import Degree (Degree(Degree), getDegree)
 
-import qualified Math.FFT as FFT
-import Math.FFT.Base (FFTWReal)
+import qualified Numeric.FFTW.Rank2 as Trafo2
+import qualified Numeric.FFTW.Shape as Spectrum
+import qualified Numeric.Netlib.Class as Class
 
 import qualified Data.Array.Knead.Parameterized.Render as RenderP
 import qualified Data.Array.Knead.Simple.Physical as Phys
@@ -586,6 +586,14 @@ pad a sh img =
          let Vec2 y x = Expr.decompose atomIx2 p
          in  Expr.ifThenElse (y<*height &&* x<*width) (img ! p) a
 
+pad_ :: (MultiValue.C a, sh ~ (dim,dim), dim ~ Shape.Cyclic Size) =>
+   Exp a -> Exp sh -> SymbPlane a -> Symb.Array sh a
+pad_ a sh img =
+   let Vec2 height width = decomposeDim2 $ Symb.shape img
+   in  generate sh $ \p ->
+         let (y,x) = Expr.decompose (atom,atom) p
+         in  Expr.ifThenElse (y<*height &&* x<*width) (img ! ix2 y x) a
+
 cyclicReverse2d :: (MultiValue.C a) => SymbPlane a -> SymbPlane a
 cyclicReverse2d spec =
    let (Vec2 height width) = decomposeDim2 $ Symb.shape spec
@@ -609,27 +617,32 @@ untangleSpectra2d spec =
       spec (cyclicReverse2d spec)
 
 correlatePadded ::
-   (FFTWReal a, MultiValue.Real a, Storable.C a,
+   (Class.Real a, MultiValue.Real a, Storable.C a,
     MultiValue.Field a, MultiValue.RationalConstant a) =>
    Dim2 -> IO (Plane a -> Plane a -> IO (Plane a))
 correlatePadded
-      padExtent@(Vec2 (Shape.ZeroBased height) (Shape.ZeroBased width)) = do
-   let sh = Expr.cons padExtent
+      shape@(Vec2 (Shape.ZeroBased height) (Shape.ZeroBased width)) = do
+   let sh = Expr.cons (Shape.Cyclic height, Shape.Cyclic width)
    mergePlanes <-
       RenderP.run $ \a b ->
-         Symb.zipWith Expr.consComplex (pad 0 sh a) (pad 0 sh b)
-   let (halfWidth,parity) = divMod width 2
+         Symb.zipWith Expr.consComplex (pad_ 0 sh a) (pad_ 0 sh b)
    let exprFromInt = Expr.cons . fromIntegral
    mulSpecs <-
       RenderP.run $
-         clip (0,0) (exprFromInt $ halfWidth+1, exprFromInt height) .
+         clip (0,0) (exprFromInt $ div width 2 + 1, exprFromInt height) .
          Symb.map
             (Expr.modify (atomComplex, atomComplex) $ uncurry Komplex.mulConj) .
          untangleSpectra2d
 
    return $ \ a b ->
-      liftCArray (if parity==0 then FFT.dftCRN [0,1] else FFT.dftCRON [0,1]) =<<
-      mulSpecs =<< liftCArray (FFT.dftN [0,1]) =<< mergePlanes a b
+      return .
+      ComfortArray.reshape shape .
+      Trafo2.fourierCR .
+      ComfortArray.reshape (Shape.Cyclic height, Spectrum.Half width) =<<
+      mulSpecs .
+      ComfortArray.reshape shape .
+      Trafo2.fourier Trafo2.Forward =<<
+      mergePlanes a b
 
 
 prepareOverlapMatching ::
@@ -1735,6 +1748,7 @@ processRotation args = do
       notice "write fft"
       let pic0 : pic1 : _ = map snd rotated
           size = Vec2 (Shape.ZeroBased 1024) (Shape.ZeroBased 768)
+          size_ = (Shape.Cyclic 1024, Shape.Cyclic 768)
       makeByteImage <-
          RenderP.run $ \k -> imageByteFromFloat . Symb.map (k*) . Symb.fix
       runPad <- RenderP.run pad
@@ -1744,9 +1758,12 @@ processRotation args = do
          RenderP.run $
          Symb.map (Expr.modify atomComplex $ \(r:+i) -> Expr.sqrt$ r*r+i*i)
             . Symb.fix
+      runPad_ <- RenderP.run pad_
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" =<<
-         (makeByteImage 0.1 =<< runMagnitude =<<
-          liftCArray (FFT.dftRCN [0,1]) =<< runPad 0 size pic0)
+         (makeByteImage 0.1 =<< runMagnitude .
+          ComfortArray.mapShape (\(Shape.Cyclic height, halfWidth) -> Vec2 (Shape.ZeroBased height) (Shape.ZeroBased $ fromIntegral $ ComfortShape.size halfWidth)) .
+          Trafo2.fourierRC
+          =<< runPad_ 0 size_ pic0)
       correlate <- correlatePadded size
       writeGrey (Option.quality opt) "/tmp/convolution.jpeg" =<<
          (makeByteImage 0.1 =<< correlate pic0 pic1)
