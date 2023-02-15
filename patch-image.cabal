@@ -93,7 +93,7 @@ Executable patch-image-llvm
       netlib-ffi >=0.1.1 && <0.2,
       JuicyPixels >=2.0 && <3.4,
       dsp >=0.2.4 && <0.3,
-      vector >=0.10 && <0.13,
+      vector >=0.10 && <0.14,
       pqueue >=1.2 && <1.5,
       enumset >=0.0.5 && <0.2,
       containers >=0.4.2 && <0.7,
