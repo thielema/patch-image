@@ -27,13 +27,13 @@ import qualified Numeric.FFTW.Rank2 as Trafo2
 import qualified Numeric.FFTW.Shape as Spectrum
 import qualified Numeric.Netlib.Class as Class
 
-import qualified Data.Array.Knead.Parameterized.Render as RenderP
-import qualified Data.Array.Knead.Simple.Physical as Phys
-import qualified Data.Array.Knead.Simple.ShapeDependent as ShapeDep
-import qualified Data.Array.Knead.Simple.Symbolic as Symb
+import qualified Data.Array.Knead.Symbolic.Render as RenderP
+import qualified Data.Array.Knead.Symbolic.Physical as Phys
+import qualified Data.Array.Knead.Symbolic.ShapeDependent as ShapeDep
+import qualified Data.Array.Knead.Symbolic as Symb
 import qualified Data.Array.Knead.Shape as Shape
 import qualified Data.Array.Knead.Expression as Expr
-import Data.Array.Knead.Simple.Symbolic ((!))
+import Data.Array.Knead.Symbolic ((!))
 import Data.Array.Knead.Expression
          (Exp, (==*), (<*), (<=*), (>=*), (||*), (&&*))
 
