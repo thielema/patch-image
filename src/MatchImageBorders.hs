@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {- |
 This is an approach for stitching images at narrow bands
 along lines of small image differences.
