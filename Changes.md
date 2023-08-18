@@ -1,5 +1,9 @@
 # Change log for the `patch-image` package
 
+## 0.3.3.2:
+
+ * Move from package `fft` to `comfort-fftw`.
+
 ## 0.3.2:
 
  * Use package `dsp` instead of `hmatrix`
