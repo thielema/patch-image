@@ -1,3 +1,7 @@
+Fehler "Instruction does not dominate all uses!"
+   geht auf Exp-Sharing zurück!
+   Mal genauer untersuchen, was da passiert.
+
 cabal run patch-image-llvm -- --output-overlap='/tmp/overlap-%s-%s.jpeg' --output=/tmp/collage-smooth.jpeg --output-hard=/tmp/collage-hard.jpeg data/wmb?small.jpeg
 
 Geht Drehen schneller, wenn man es auf kleine Bild-Kacheln anwendet?
