@@ -1757,7 +1757,7 @@ processRotation args = do
          (makeByteImage 1 =<< runPad 0 size pic0)
       runMagnitude <-
          RenderP.run $
-         Symb.map (Expr.modify atomComplex $ \(r:+i) -> Expr.sqrt$ r*r+i*i)
+         Symb.map (Expr.modify atomComplex $ \(r:+i) -> Expr.sqrt $ r*r+i*i)
             . Symb.fix
       runPad_ <- RenderP.run pad_
       writeGrey (Option.quality opt) "/tmp/spectrum.jpeg" =<<
