@@ -34,7 +34,7 @@ Description:
   .
   * May have problems with unstructured areas in the image.
 Tested-With:    GHC==7.8.4, GHC==8.2.2
-Cabal-Version:  >=1.8
+Cabal-Version:  >=1.10
 Build-Type:     Simple
 Extra-Source-Files:
   Changes.md
@@ -79,6 +79,7 @@ Executable patch-image-llvm
     Option
   Hs-Source-Dirs: src
 
+  Default-Language: Haskell98
   GHC-Options: -Wall -threaded -fwarn-tabs -fwarn-incomplete-record-updates
   GHC-Prof-Options: -fprof-auto -rtsopts
 
@@ -126,6 +127,7 @@ Executable patch-image-cuda
     Option
   Hs-Source-Dirs: src
 
+  Default-Language: Haskell98
   GHC-Options: -Wall -threaded -fwarn-tabs -fwarn-incomplete-record-updates
   GHC-Prof-Options: -fprof-auto -rtsopts
 
@@ -161,6 +163,7 @@ Executable patch-image-draft
   Main-Is: Draft.hs
   Hs-Source-Dirs: src
 
+  Default-Language: Haskell98
   GHC-Options: -Wall -fwarn-tabs -fwarn-incomplete-record-updates
 
   If flag(buildDraft)
