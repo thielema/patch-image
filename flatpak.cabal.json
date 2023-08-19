@@ -1,0 +1,39 @@
+{
+    "base": {
+        "runtime": "org.freedesktop.Platform",
+        "sdk": "org.freedesktop.Sdk",
+        "command": "patch-image-llvm",
+        "runtime-version": "1.6",
+        "modules": [
+            "flatpak-llvm.json",
+            "flatpak-fftw.json",
+            "flatpak-fftwf.json"
+        ],
+        "app-id": "com.github.thielema.patch-image",
+        "finish-args": [
+            "--filesystem=host"
+        ]
+    },
+    "main-package": "patch-image",
+    "main-sources": [
+        {
+            "url": "https://hackage.haskell.org/package/patch-image-0.3.3/candidate/patch-image-0.3.3.tar.gz",
+            "type": "file",
+            "sha256": "7ee91bdea9f84decb52ee9d46645440a6d4de306ff98c8f4c197c795fb10a74a"
+        },
+        {
+            "url": "https://hackage.haskell.org/package/patch-image-0.3.3/candidate/patch-image.cabal",
+            "type": "file",
+            "sha256": "8942c6d5974a3d99608d646c67e942542e2801afce80924a71182ac8531b9ed1"
+        }
+    ],
+    "cabal-configure-options": [
+        "--extra-include-dirs=/app/include",
+        "--extra-lib-dirs=/app/lib",
+        "-f-cuda",
+        "-j2"
+    ],
+    "ghc-options": [
+        "-j3"
+    ]
+}
